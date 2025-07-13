@@ -1,0 +1,321 @@
+{% extends "base.html" %}
+{% block title %}首页 - 西合钛贸易管理系统{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <!-- 页面标题区域 -->
+  <div class="text-center mb-5">
+    <h1 class="display-5 fw-bold text-navy mb-3">西合钛贸易管理系统</h1>
+  </div>
+
+  <!-- 统计卡片区域 -->
+  <div class="row justify-content-center mb-5">
+    <div class="col-md-3 mb-3">
+      <div class="card stat-card text-center h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="stat-icon mb-3">
+            <i class="fas fa-clipboard-list text-navy"></i>
+          </div>
+          <h5 class="card-title text-navy fw-bold">未完成订单</h5>
+          <p class="card-text display-4 fw-bold text-accent">{{ unfinished_count }}</p>
+          <p class="text-muted mb-0">个</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 mb-3">
+      <div class="card stat-card text-center h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="stat-icon mb-3">
+            <i class="fas fa-ship text-navy"></i>
+          </div>
+          <h5 class="card-title text-navy fw-bold">待发运数量</h5>
+          <p class="card-text display-4 fw-bold text-accent">{{ shipment_total }}</p>
+          <p class="text-muted mb-0">MT</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 mb-3">
+      <div class="card stat-card text-center h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="stat-icon mb-3">
+            <i class="fas fa-chart-line text-navy"></i>
+          </div>
+          <h5 class="card-title text-navy fw-bold">本月订单</h5>
+          <p class="card-text display-4 fw-bold text-accent">{{ month_order_count }}</p>
+          <p class="text-muted mb-0">个</p>
+        </div>
+      </div>
+    </div>
+    <!-- 汇率卡片，风格与其他看板一致 -->
+    <div class="col-md-3 mb-3">
+      <div class="card stat-card text-center h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="stat-icon mb-3">
+            <i class="fas fa-exchange-alt text-success"></i>
+          </div>
+          <h5 class="card-title text-success fw-bold">人民币兑美元汇率</h5>
+          <p class="card-text display-4 fw-bold text-accent">
+            {% if cny_rate %}
+              {{ (cny_rate|string).split('.')|length > 1 and ((cny_rate|string).split('.')[0] ~ '.' ~ ((cny_rate|string).split('.')[1][:3])) or cny_rate }}
+            {% else %}
+              --
+            {% endif %}
+          </p>
+          
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 待办事项提醒区域 -->
+  {% if reminders %}
+  <div class="reminder-section mb-5">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-navy text-white">
+        <h5 class="mb-0">
+          <i class="fas fa-bell me-2"></i> 待办事项提醒
+          <span class="badge bg-accent text-white ms-2">{{ total_reminders }}</span>
+        </h5>
+      </div>
+      <div class="card-body bg-light-gray">
+        <div class="reminders-container">
+          {% for reminder in reminders %}
+          <div class="reminder-group mb-3 p-3 bg-white rounded shadow-sm">
+            <div class="reminder-header d-flex justify-content-between align-items-center mb-2">
+              <strong class="text-navy">PI {{ reminder.pi_no }}</strong>
+              <span class="badge bg-light text-navy">{{ reminder['items']|length }} 项</span>
+            </div>
+            <ul class="reminder-items mb-0 list-unstyled">
+              {% for item in reminder['items'] %}
+              <li class="reminder-item py-1">
+                <i class="fas fa-circle text-accent me-2" style="font-size: 0.5em;"></i>
+                {{ item|safe }}
+              </li>
+              {% endfor %}
+            </ul>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- PI列表区域 -->
+  <div class="pi-list-section">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-navy text-white">
+        <h5 class="mb-0">
+          <i class="fas fa-list me-2"></i> PI 列表
+        </h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="piTable" class="table table-hover mb-0">
+            <thead class="bg-light-gray">
+              <tr>
+                <th onclick="sortTable(0)" class="sortable-header text-navy">PI 编号</th>
+                <th onclick="sortTable(1)" class="sortable-header text-navy">日期</th>
+                <th class="text-navy">客户</th>
+                <th class="text-navy">出口商</th>
+                <th onclick="sortTable(4)" class="sortable-header text-navy">状态</th>
+                <th class="text-navy">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pi in pis %}
+              <tr class="table-row-hover">
+                <td class="fw-bold text-navy">{{ pi.pi_no }}</td>
+                <td>{{ pi.pi_date.strftime('%Y-%m-%d') }}</td>
+                <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span title="{{ pi.customer_name_snapshot or pi.customer.name }}">{{ pi.customer_name_snapshot or pi.customer.name }}</span>
+                </td>
+                <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span title="{{ pi.exporter_name_snapshot or pi.exporter.name }}">{{ pi.exporter_name_snapshot or pi.exporter.name }}</span>
+                </td>
+                <td>
+                  {% if pi.status == '已完成' %}
+                    <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary rounded-pill">{{ pi.status }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="d-flex flex-row gap-2">
+                    <a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="btn btn-sm btn-outline-navy me-1">
+                      <i class="fas fa-eye me-1"></i>查看
+                    </a>
+                    <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
+                      <i class="fas fa-edit me-1"></i>编辑
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* 自定义颜色变量 */
+  :root {
+    --navy-blue: #1e3a8a;
+    --light-navy: #3b82f6;
+    --accent-color: #f59e0b;
+    --light-gray: #f8fafc;
+    --medium-gray: #e2e8f0;
+    --dark-gray: #64748b;
+  }
+
+  /* 文字颜色 */
+  .text-navy { color: var(--navy-blue) !important; }
+  .text-accent { color: var(--accent-color) !important; }
+  
+  /* 背景颜色 */
+  .bg-navy { background-color: var(--navy-blue) !important; }
+  .bg-light-gray { background-color: var(--light-gray) !important; }
+  .bg-accent { background-color: var(--accent-color) !important; }
+
+  /* 按钮样式 */
+  .btn-outline-navy {
+    color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-outline-navy:hover {
+    color: white;
+    background-color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-accent {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+  }
+  .btn-accent:hover {
+    background-color: #d97706;
+    border-color: #d97706;
+    color: white;
+  }
+
+  /* 统计卡片样式 */
+  .stat-card {
+    transition: transform 0.2s ease-in-out;
+    background: linear-gradient(135deg, #ffffff 0%, var(--light-gray) 100%);
+  }
+  .stat-card:hover {
+    transform: translateY(-5px);
+  }
+
+  .stat-icon {
+    font-size: 2.5rem;
+    opacity: 0.8;
+  }
+
+  /* 表格样式 */
+  .table-row-hover:hover {
+    background-color: var(--light-gray) !important;
+  }
+  
+  .sortable-header {
+    cursor: pointer;
+    position: relative;
+    font-weight: 600;
+  }
+  .sortable-header::after {
+    content: "▼"; 
+    font-size: 0.7em;
+    color: var(--navy-blue);
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  /* 提醒事项样式 */
+  .reminder-section .card-header {
+    border-bottom: none;
+  }
+  .reminder-group {
+    border-left: 4px solid var(--accent-color);
+  }
+  .reminder-item {
+    color: var(--dark-gray);
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  .reminder-items .badge {
+    vertical-align: baseline;
+    font-size: 0.92em;
+    font-weight: 600;
+    padding: 0.13em 0.5em;
+    line-height: 1;
+  }
+
+  /* 响应式调整 */
+  @media (max-width: 768px) {
+    .display-4 {
+      font-size: 2rem;
+    }
+    .stat-icon {
+      font-size: 2rem;
+    }
+  }
+</style>
+
+<script>
+  // 简单表格排序（按点击的列排序）
+  function sortTable(n) {
+    const table = document.getElementById("piTable");
+    let switching = true, dir = "asc", switchcount = 0;
+    const statusOrder = ["新建", "待发运", "已发运", "已到港", "已完成"];
+    while (switching) {
+      switching = false;
+      const rows = table.rows;
+      for (let i = 1; i < rows.length - 1; i++) {
+        let shouldSwitch = false;
+        let x = rows[i].getElementsByTagName("TD")[n];
+        let y = rows[i + 1].getElementsByTagName("TD")[n];
+        let xContent = x.innerText || x.textContent;
+        let yContent = y.innerText || y.textContent;
+
+        if (!isNaN(Date.parse(xContent)) && !isNaN(Date.parse(yContent))) {
+          xContent = new Date(xContent);
+          yContent = new Date(yContent);
+        }
+
+        // 状态列自定义顺序
+        if (n === 4) {
+          xContent = statusOrder.indexOf(xContent.trim());
+          yContent = statusOrder.indexOf(yContent.trim());
+        }
+
+        if (dir == "asc" && xContent > yContent) shouldSwitch = true;
+        if (dir == "desc" && xContent < yContent) shouldSwitch = true;
+
+        if (shouldSwitch) {
+          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+          switching = true;
+          switchcount++;
+        }
+      }
+      if (switchcount == 0 && dir == "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+
+  // 页面加载完成后的初始化
+  document.addEventListener('DOMContentLoaded', function() {
+    // 添加卡片动画效果
+    const statCards = document.querySelectorAll('.stat-card');
+    statCards.forEach((card, index) => {
+      card.style.animationDelay = `${index * 0.1}s`;
+      card.classList.add('animate__animated', 'animate__fadeInUp');
+    });
+  });
+</script>
+{% endblock %}

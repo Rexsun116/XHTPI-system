@@ -1,0 +1,497 @@
+{% extends 'base.html' %}
+{% block title %}更新状态 - {{ pi.pi_no }}{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <!-- 页面标题区域 -->
+  <div class="text-center mb-4">
+    <h2 class="display-6 fw-bold text-navy">更新 PI 状态</h2>
+    <p class="text-muted">PI编号：{{ pi.pi_no }} | 当前状态：<span class="badge bg-secondary">{{ current_status }}</span></p>
+  </div>
+
+  <div class="row justify-content-center">
+    <div class="col-lg-10">
+      <form method="post">
+        <!-- 状态选择卡片 -->
+        <div class="card shadow-sm mb-4">
+          <div class="card-header bg-primary text-white">
+            <h5 class="mb-0"><i class="fas fa-arrow-right me-2"></i>状态更新</h5>
+          </div>
+          <div class="card-body">
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label for="new_status" class="form-label">下一步状态 <span class="text-danger">*</span></label>
+                <select class="form-select" id="new_status" name="new_status" required>
+                  {% for status in next_status_options %}
+                  <option value="{{ status }}">{{ status }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="remarks" class="form-label">备注（可选）</label>
+                <textarea class="form-control" id="remarks" name="remarks" rows="3" placeholder="如需记录原因可填写..."></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 🧭 新建 → 待发运 状态字段 -->
+        <div id="pre-shipment-block" class="status-block">
+          <!-- 发运准备信息卡片 -->
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-info text-white">
+              <h5 class="mb-0"><i class="fas fa-ship me-2"></i>发运准备信息</h5>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货代公司</label>
+                  <select class="form-select" name="freight_forwarder_id">
+                    <option value="">请选择货代</option>
+                    {% for ff in freight_forwarders %}
+                    <option value="{{ ff.id }}" {% if pi.freight_forwarder_id == ff.id %}selected{% endif %}>
+                      {{ ff.code }} - {{ ff.name }}
+                    </option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">海运费</label>
+                  <input type="number" step="0.01" class="form-control" name="ocean_freight" value="{{ pi.ocean_freight or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">装柜时间</label>
+                  <input type="date" class="form-control" name="container_date" value="{{ pi.container_date or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">装柜地址</label>
+                  <input type="text" class="form-control" name="container_location" value="{{ pi.container_location or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">ETD</label>
+                  <input type="date" class="form-control" name="etd" value="{{ pi.etd or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">ETA</label>
+                  <input type="date" class="form-control" name="eta" value="{{ pi.eta or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">产地证（COO）</label>
+                  <select class="form-select" name="coo_required">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.coo_required == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.coo_required == '不需要' %}selected{% endif %}>不需要</option>
+                    <option value="已完成" {% if pi.coo_required == '已完成' %}selected{% endif %}>已完成</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">产地证（APTA）</label>
+                  <select class="form-select" name="apta_required">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.apta_required == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.apta_required == '不需要' %}selected{% endif %}>不需要</option>
+                    <option value="已完成" {% if pi.apta_required == '已完成' %}selected{% endif %}>已完成</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">出口许可证</label>
+                  <select class="form-select" name="export_license_required">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.export_license_required == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.export_license_required == '不需要' %}selected{% endif %}>不需要</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">报关文件</label>
+                  <select class="form-select" name="customs_docs_required">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.customs_docs_required == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.customs_docs_required == '不需要' %}selected{% endif %}>不需要</option>
+                  </select>
+                </div>
+                <div class="col-md-12 mb-3">
+                  <label class="form-label">其他文件</label>
+                  <input type="text" class="form-control" name="other_documents" value="{{ pi.other_documents or '' }}">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 托书信息卡片 -->
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-warning text-dark">
+              <h5 class="mb-0"><i class="fas fa-file-alt me-2"></i>托书信息</h5>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">航名/航次</label>
+                  <input type="text" class="form-control" name="vessel_info" value="{{ pi.vessel_info or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">订舱号码</label>
+                  <input type="text" class="form-control" name="booking_number" value="{{ pi.booking_number or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">箱型和箱量</label>
+                  <select class="form-select" name="container_type_quantity">
+                    <option value="">请选择</option>
+                    <option value="1*20GP" {% if pi.container_type_quantity == '1*20GP' %}selected{% endif %}>1*20GP</option>
+                    <option value="2*20GP" {% if pi.container_type_quantity == '2*20GP' %}selected{% endif %}>2*20GP</option>
+                    <option value="3*20GP" {% if pi.container_type_quantity == '3*20GP' %}selected{% endif %}>3*20GP</option>
+                    <option value="1*40GP" {% if pi.container_type_quantity == '1*40GP' %}selected{% endif %}>1*40GP</option>
+                    <option value="2*40GP" {% if pi.container_type_quantity == '2*40GP' %}selected{% endif %}>2*40GP</option>
+                    <option value="1*40HQ" {% if pi.container_type_quantity == '1*40HQ' %}selected{% endif %}>1*40HQ</option>
+                    <option value="2*40HQ" {% if pi.container_type_quantity == '2*40HQ' %}selected{% endif %}>2*40HQ</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">SHIPPING MARK</label>
+                  <select class="form-select" name="shipping_mark">
+                    <option value="N/M" {% if pi.shipping_mark == 'N/M' %}selected{% endif %}>N/M</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">运输条款</label>
+                  <select class="form-select" name="freight_term">
+                    <option value="CY-CY" {% if pi.freight_term == 'CY-CY' %}selected{% endif %}>CY-CY</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">约号</label>
+                  <input type="text" class="form-control" name="contract_number" value="{{ pi.contract_number or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">运费条款</label>
+                  <input type="text" class="form-control" name="freight_clause" value="{{ pi.freight_clause or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">正本/WAYBILL</label>
+                  <select class="form-select" name="waybill_option">
+                    <option value="等通知电放" {% if pi.waybill_option == '等通知电放' %}selected{% endif %}>等通知电放</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">箱号</label>
+                  <input type="text" class="form-control" name="container_number" value="{{ pi.container_number or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">封号</label>
+                  <input type="text" class="form-control" name="seal_number" value="{{ pi.seal_number or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">箱型</label>
+                  <select class="form-select" name="container_type">
+                    <option value="20GP" {% if pi.container_type == '20GP' %}selected{% endif %}>20GP</option>
+                    <option value="40GP" {% if pi.container_type == '40GP' %}selected{% endif %}>40GP</option>
+                    <option value="40HQ" {% if pi.container_type == '40HQ' %}selected{% endif %}>40HQ</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">件数</label>
+                  <input type="number" step="1" class="form-control" name="quantity_units" value="{{ pi.quantity_units or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">毛重</label>
+                  <input type="number" step="0.01" class="form-control" name="gross_weight" value="{{ pi.gross_weight or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">体积</label>
+                  <input type="number" step="0.01" class="form-control" name="volume" value="{{ pi.volume or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">VGM</label>
+                  <input type="text" class="form-control" name="vgm" value="{{ pi.vgm or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计件数</label>
+                  <input type="number" step="1" class="form-control" name="total_quantity" value="{{ pi.total_quantity or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计件数单位</label>
+                  <select class="form-select" name="total_quantity_unit">
+                    <option value="BAGS" {% if pi.total_quantity_unit == 'BAGS' %}selected{% endif %}>BAGS</option>
+                    <option value="PALLETS" {% if pi.total_quantity_unit == 'PALLETS' %}selected{% endif %}>PALLETS</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计毛重</label>
+                  <input type="number" step="0.01" class="form-control" name="total_weight" value="{{ pi.total_weight or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计毛重单位</label>
+                  <select class="form-select" name="total_weight_unit">
+                    <option value="KGS" {% if pi.total_weight_unit == 'KGS' %}selected{% endif %}>KGS</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计体积</label>
+                  <input type="number" step="0.01" class="form-control" name="total_volume" value="{{ pi.total_volume or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计体积单位</label>
+                  <select class="form-select" name="total_volume_unit">
+                    <option value="CBM" {% if pi.total_volume_unit == 'CBM' %}selected{% endif %}>CBM</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">总计VGM</label>
+                  <input type="text" class="form-control" name="total_vgm" value="{{ pi.total_vgm or '' }}">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 📦 待发运 → 已发运 状态字段 -->
+        <div id="shipped-block" class="status-block">
+          <!-- 发运确认信息卡片 -->
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-success text-white">
+              <h5 class="mb-0"><i class="fas fa-shipping-fast me-2"></i>发运确认信息</h5>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">提单号 <span class="text-danger">*</span></label>
+                  <input type="text" class="form-control" name="bill_of_lading" value="{{ pi.bill_of_lading or '' }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">船公司</label>
+                  <input type="text" class="form-control" name="shipping_company" value="{{ pi.shipping_company or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">实际发运日期</label>
+                  <input type="date" class="form-control" name="actual_departure_date" value="{{ pi.actual_departure_date or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">批号（多个用英文分号 ; 分隔）</label>
+                  <input type="text" class="form-control" name="batch_no" value="{{ pi.batch_no or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">COA质检单</label>
+                  <select class="form-select" name="coa_status">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.coa_status == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.coa_status == '不需要' %}selected{% endif %}>不需要</option>
+                    <option value="已完成" {% if pi.coa_status == '已完成' %}selected{% endif %}>已完成</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">保险单</label>
+                  <select class="form-select" name="insurance_status">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.insurance_status == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.insurance_status == '不需要' %}selected{% endif %}>不需要</option>
+                    <option value="已完成" {% if pi.insurance_status == '已完成' %}selected{% endif %}>已完成</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">原件邮寄状态</label>
+                  <select class="form-select" name="document_shipping_status" id="document_shipping_status" onchange="toggleTrackingNumber(this)">
+                    <option value="">请选择</option>
+                    <option value="已邮寄" {% if pi.document_shipping_status == '已邮寄' %}selected{% endif %}>已邮寄</option>
+                    <option value="未邮寄" {% if pi.document_shipping_status == '未邮寄' %}selected{% endif %}>未邮寄</option>
+                    <option value="不需要" {% if pi.document_shipping_status == '不需要' %}selected{% endif %}>不需要</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3" id="tracking_number_div" style="display: {% if pi.document_shipping_status == '已邮寄' %}block{% else %}none{% endif %};">
+                  <label class="form-label">邮寄单号</label>
+                  <input type="text" class="form-control" name="tracking_number" value="{{ pi.tracking_number or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货款收齐状态</label>
+                  <select class="form-select" name="payment_received">
+                    <option value="">请选择</option>
+                    <option value="已收齐" {% if pi.payment_received == '已收齐' %}selected{% endif %}>已收齐</option>
+                    <option value="未收齐" {% if pi.payment_received == '未收齐' %}selected{% endif %}>未收齐</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">结汇文件需求</label>
+                  <select class="form-select" name="settlement_documents_required">
+                    <option value="">请选择</option>
+                    <option value="需要" {% if pi.settlement_documents_required == '需要' %}selected{% endif %}>需要</option>
+                    <option value="不需要" {% if pi.settlement_documents_required == '不需要' %}selected{% endif %}>不需要</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 🚢 已发运 → 已到港 状态字段 -->
+        <div id="arrived-block" class="status-block">
+          <!-- 到港确认信息卡片 -->
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-info text-white">
+              <h5 class="mb-0"><i class="fas fa-anchor me-2"></i>到港确认信息</h5>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">实际到港日期 <span class="text-danger">*</span></label>
+                  <input type="date" class="form-control" name="actual_arrival_date" value="{{ pi.actual_arrival_date or '' }}" required>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货款收齐状态</label>
+                  <select class="form-select" name="payment_received">
+                    <option value="">请选择</option>
+                    <option value="已收齐" {% if pi.payment_received == '已收齐' %}selected{% endif %}>已收齐</option>
+                    <option value="未收齐" {% if pi.payment_received == '未收齐' %}selected{% endif %}>未收齐</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货代账单金额</label>
+                  <input type="number" step="0.01" class="form-control" name="freight_invoice_amount" value="{{ pi.freight_invoice_amount or '' }}">
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货代账单确认状态</label>
+                  <select class="form-select" name="freight_invoice_confirmed">
+                    <option value="">请选择</option>
+                    <option value="已确认" {% if pi.freight_invoice_confirmed == '已确认' %}selected{% endif %}>已确认</option>
+                    <option value="未确认" {% if pi.freight_invoice_confirmed == '未确认' %}selected{% endif %}>未确认</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货代发票开具状态</label>
+                  <select class="form-select" name="freight_invoice_issued">
+                    <option value="">请选择</option>
+                    <option value="已开具" {% if pi.freight_invoice_issued == '已开具' %}selected{% endif %}>已开具</option>
+                    <option value="未开具" {% if pi.freight_invoice_issued == '未开具' %}selected{% endif %}>未开具</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">PI电放状态</label>
+                  <select class="form-select" name="telex_release">
+                    <option value="">请选择</option>
+                    <option value="已电放" {% if pi.telex_release == '已电放' %}selected{% endif %}>已电放</option>
+                    <option value="未电放" {% if pi.telex_release == '未电放' %}selected{% endif %}>未电放</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ✅ 已到港 → 已完成 状态字段 -->
+        <div id="completed-block" class="status-block">
+          <!-- 完成确认信息卡片 -->
+          <div class="card shadow-sm mb-4">
+            <div class="card-header bg-success text-white">
+              <h5 class="mb-0"><i class="fas fa-check-circle me-2"></i>完成确认信息</h5>
+            </div>
+            <div class="card-body">
+              <div class="row">
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货款收齐状态 <span class="text-danger">*</span></label>
+                  <select class="form-select" name="payment_received" required>
+                    <option value="">请选择</option>
+                    <option value="已收齐" {% if pi.payment_received == '已收齐' %}selected{% endif %}>已收齐</option>
+                    <option value="未收齐" {% if pi.payment_received == '未收齐' %}selected{% endif %}>未收齐</option>
+                  </select>
+                </div>
+                <div class="col-md-6 mb-3">
+                  <label class="form-label">货代运费付款状态 <span class="text-danger">*</span></label>
+                  <select class="form-select" name="freight_payment_status" required>
+                    <option value="">请选择</option>
+                    <option value="已付款" {% if pi.freight_payment_status == '已付款' %}selected{% endif %}>已付款</option>
+                    <option value="未付款" {% if pi.freight_payment_status == '未付款' %}selected{% endif %}>未付款</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
+          <a href="{{ url_for('show_pi_list') }}" class="btn btn-secondary me-md-2">取消</a>
+          <button type="submit" class="btn btn-primary">更新状态</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* 自定义颜色变量 */
+  :root {
+    --navy-blue: #1e3a8a;
+    --light-navy: #3b82f6;
+    --accent-color: #f59e0b;
+    --light-gray: #f8fafc;
+    --medium-gray: #e2e8f0;
+    --dark-gray: #64748b;
+  }
+
+  /* 文字颜色 */
+  .text-navy { color: var(--navy-blue) !important; }
+  .text-accent { color: var(--accent-color) !important; }
+  
+  /* 背景颜色 */
+  .bg-navy { background-color: var(--navy-blue) !important; }
+  .bg-light-gray { background-color: var(--light-gray) !important; }
+  .bg-accent { background-color: var(--accent-color) !important; }
+
+  /* 状态块样式 */
+  .status-block {
+    display: none;
+  }
+
+  /* 响应式调整 */
+  @media (max-width: 768px) {
+    .display-6 {
+      font-size: 1.5rem;
+    }
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const statusSelect = document.getElementById('new_status');
+    const blockPreShipment = document.getElementById('pre-shipment-block');
+    const blockShipped = document.getElementById('shipped-block');
+    const blockArrived = document.getElementById('arrived-block');
+    const blockCompleted = document.getElementById('completed-block');
+    const documentShippingStatusSelect = document.getElementById('document_shipping_status');
+    const trackingNumberDiv = document.getElementById('tracking_number_div');
+
+    function updateFormDisplay() {
+      const selected = statusSelect.value;
+      blockPreShipment.style.display = selected === '待发运' ? 'block' : 'none';
+      blockShipped.style.display = selected === '已发运' ? 'block' : 'none';
+      blockArrived.style.display = selected === '已到港' ? 'block' : 'none';
+      blockCompleted.style.display = selected === '已完成' ? 'block' : 'none';
+
+      // 禁用隐藏区块的表单元素
+      const isVisible = blockPreShipment.style.display === 'block';
+      blockPreShipment.querySelectorAll('input, select, textarea').forEach(input => {
+        input.disabled = !isVisible;
+      });
+
+      const isShippedVisible = blockShipped.style.display === 'block';
+      blockShipped.querySelectorAll('input, select, textarea').forEach(input => {
+        input.disabled = !isShippedVisible;
+      });
+
+      const isArrivedVisible = blockArrived.style.display === 'block';
+      blockArrived.querySelectorAll('input, select, textarea').forEach(input => {
+        input.disabled = !isArrivedVisible;
+      });
+
+      const isCompletedVisible = blockCompleted.style.display === 'block';
+      blockCompleted.querySelectorAll('input, select, textarea').forEach(input => {
+        input.disabled = !isCompletedVisible;
+      });
+    }
+
+    function toggleTrackingNumber(select) {
+      const isSelected = select.value === '已邮寄';
+      trackingNumberDiv.style.display = isSelected ? 'block' : 'none';
+    }
+
+    statusSelect.addEventListener('change', updateFormDisplay);
+    updateFormDisplay(); // 初始化一次
+  });
+</script>
+{% endblock %}

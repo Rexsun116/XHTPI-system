@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row">
+    <div class="col-md-8">
+      <h2><i class="fas fa-edit me-2"></i>编辑报价</h2>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="col-md-8">
+      <div class="card shadow-sm">
+        <div class="card-header bg-warning text-white">
+          <h5 class="mb-0"><i class="fas fa-dollar-sign me-2"></i>报价信息</h5>
+        </div>
+        <div class="card-body">
+          <form method="post">
+            <div class="mb-3">
+              <label for="freight_forwarder_id" class="form-label">货代公司 *</label>
+              <select class="form-select" id="freight_forwarder_id" name="freight_forwarder_id" required>
+                <option value="">请选择货代</option>
+                {% for ff in freight_forwarders %}
+                <option value="{{ ff.id }}" {% if quote.freight_forwarder_id == ff.id %}selected{% endif %}>
+                  {{ ff.code }} - {{ ff.name }}
+                </option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="shipping_company" class="form-label">船公司 *</label>
+              <input type="text" class="form-control" id="shipping_company" name="shipping_company" 
+                     value="{{ quote.shipping_company }}" required>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label for="departure_port" class="form-label">出发港 *</label>
+                <input type="text" class="form-control" id="departure_port" name="departure_port" 
+                       value="{{ quote.departure_port }}" required>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="destination_port" class="form-label">目的港 *</label>
+                <input type="text" class="form-control" id="destination_port" name="destination_port" 
+                       value="{{ quote.destination_port }}" required>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label for="route_type" class="form-label">航线类型 *</label>
+              <select class="form-select" id="route_type" name="route_type" required>
+                <option value="">请选择</option>
+                <option value="直航" {% if quote.route_type == '直航' %}selected{% endif %}>直航</option>
+                <option value="转运" {% if quote.route_type == '转运' %}selected{% endif %}>转运</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="price" class="form-label">价格 (USD) *</label>
+              <input type="number" step="0.01" class="form-control" id="price" name="price" 
+                     value="{{ quote.price }}" required>
+            </div>
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label for="quote_date" class="form-label">报价日期 *</label>
+                <input type="date" class="form-control" id="quote_date" name="quote_date" 
+                       value="{{ quote.quote_date.strftime('%Y-%m-%d') }}" required>
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="valid_until" class="form-label">有效期至 *</label>
+                <input type="date" class="form-control" id="valid_until" name="valid_until" 
+                       value="{{ quote.valid_until.strftime('%Y-%m-%d') }}" required>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label for="destination_14_days" class="form-label">目的港14天</label>
+              <select class="form-select" id="destination_14_days" name="destination_14_days">
+                <option value="">请选择</option>
+                <option value="有" {% if quote.destination_14_days == '有' %}selected{% endif %}>有</option>
+                <option value="无" {% if quote.destination_14_days == '无' %}selected{% endif %}>无</option>
+              </select>
+            </div>
+            <div class="mb-3">
+              <label for="remarks" class="form-label">备注</label>
+              <textarea class="form-control" id="remarks" name="remarks" rows="3">{{ quote.remarks or '' }}</textarea>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-warning">
+                <i class="fas fa-save me-1"></i>保存修改
+              </button>
+              <a href="{{ url_for('freight_quotes') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>返回列表
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %} 

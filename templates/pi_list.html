@@ -1,0 +1,203 @@
+{% extends "base.html" %}
+{% block title %}PI 列表 - 西合钛贸易管理系统{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <!-- PI列表区域 -->
+  <div class="pi-list-section">
+    <div class="card border-0 shadow-sm">
+      <div class="card-header bg-navy text-white">
+        <h5 class="mb-0">
+          <i class="fas fa-list me-2"></i> PI 列表
+        </h5>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table id="piTable" class="table table-hover mb-0">
+            <thead class="bg-light-gray">
+              <tr>
+                <th onclick="sortTable(0)" class="sortable-header text-navy">PI 编号</th>
+                <th onclick="sortTable(1)" class="sortable-header text-navy">日期</th>
+                <th class="text-navy">客户</th>
+                <th class="text-navy">出口商</th>
+                <th class="text-navy">产品型号</th>
+                <th class="text-navy">厂家</th>
+                <th class="text-navy">数量(MT)</th>
+                <th class="text-navy">金额(USD)</th>
+                <th class="text-navy">出发港</th>
+                <th class="text-navy">目的港</th>
+                <th onclick="sortTable(10)" class="sortable-header text-navy">状态</th>
+                <th class="text-navy">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pi in pi_list %}
+              <tr class="table-row-hover">
+                <td class="fw-bold text-navy">{{ pi.pi_no }}</td>
+                <td>{{ pi.pi_date.strftime('%Y-%m-%d') }}</td>
+                <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span title="{{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '') }}">{{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '') }}</span>
+                </td>
+                <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  <span title="{{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '') }}">{{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '') }}</span>
+                </td>
+                <td>
+                  {% for item in pi.products %}
+                    {{ item.product_model_snapshot or item.product.model }}<br>
+                  {% endfor %}
+                </td>
+                <td>
+                  {% for item in pi.products %}
+                    {{ item.factory_name_snapshot or item.factory.name }}<br>
+                  {% endfor %}
+                </td>
+                <td>
+                  {% for item in pi.products %}
+                    {{ item.quantity | int }}<br>
+                  {% endfor %}
+                </td>
+                <td>{{ (pi.products | sum(attribute='total_price')) | int | format_number }}</td>
+                <td>{{ pi.loading_port }}</td>
+                <td>{{ pi.destination_port }}</td>
+                <td>
+                  {% if pi.status == '已完成' %}
+                    <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
+                  {% else %}
+                    <span class="badge bg-secondary rounded-pill">{{ pi.status }}</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="d-flex flex-row gap-2">
+                    <a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="btn btn-sm btn-outline-navy me-1">
+                      <i class="fas fa-eye me-1"></i>查看
+                    </a>
+                    <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
+                      <i class="fas fa-edit me-1"></i>编辑
+                    </a>
+                  </div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* 自定义颜色变量 */
+  :root {
+    --navy-blue: #1e3a8a;
+    --light-navy: #3b82f6;
+    --accent-color: #f59e0b;
+    --light-gray: #f8fafc;
+    --medium-gray: #e2e8f0;
+    --dark-gray: #64748b;
+  }
+
+  /* 文字颜色 */
+  .text-navy { color: var(--navy-blue) !important; }
+  .text-accent { color: var(--accent-color) !important; }
+  
+  /* 背景颜色 */
+  .bg-navy { background-color: var(--navy-blue) !important; }
+  .bg-light-gray { background-color: var(--light-gray) !important; }
+  .bg-accent { background-color: var(--accent-color) !important; }
+
+  /* 按钮样式 */
+  .btn-outline-navy {
+    color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-outline-navy:hover {
+    color: white;
+    background-color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-accent {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+  }
+  .btn-accent:hover {
+    background-color: #d97706;
+    border-color: #d97706;
+    color: white;
+  }
+
+  /* 表格样式 */
+  .sortable-header {
+    cursor: pointer;
+    position: relative;
+  }
+  .sortable-header::after {
+    content: "▼";
+    font-size: 0.7em;
+    color: #6c757d;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  .table-row-hover:hover {
+    background-color: var(--light-gray);
+  }
+
+  /* 卡片样式 */
+  .card {
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-header {
+    border-radius: 15px 15px 0 0;
+    border: none;
+  }
+
+  /* 响应式调整 */
+  @media (max-width: 768px) {
+    .display-6 {
+      font-size: 1.5rem;
+    }
+  }
+</style>
+
+<script>
+  // 简单表格排序（按点击的列排序）
+  function sortTable(n) {
+    const table = document.getElementById("piTable");
+    let switching = true, dir = "asc", switchcount = 0;
+    while (switching) {
+      switching = false;
+      const rows = table.rows;
+      for (let i = 1; i < rows.length - 1; i++) {
+        let shouldSwitch = false;
+        let x = rows[i].getElementsByTagName("TD")[n];
+        let y = rows[i + 1].getElementsByTagName("TD")[n];
+        let xContent = x.innerText || x.textContent;
+        let yContent = y.innerText || y.textContent;
+
+        if (!isNaN(Date.parse(xContent)) && !isNaN(Date.parse(yContent))) {
+          xContent = new Date(xContent);
+          yContent = new Date(yContent);
+        }
+
+        if (dir == "asc" && xContent > yContent) shouldSwitch = true;
+        if (dir == "desc" && xContent < yContent) shouldSwitch = true;
+
+        if (shouldSwitch) {
+          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+          switching = true;
+          switchcount++;
+        }
+      }
+      if (switchcount == 0 && dir == "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+</script>
+{% endblock %}

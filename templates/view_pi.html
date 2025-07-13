@@ -1,0 +1,335 @@
+{% extends 'base.html' %}
+{% block title %}查看 PI - {{ pi.pi_no }}{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <div class="row mb-4">
+    <div class="col-12">
+      <h2 class="text-center mb-4 text-navy">查看 PI - {{ pi.pi_no }}</h2>
+      <div class="alert alert-info text-center border-0" role="alert">
+        <i class="fas fa-info-circle me-2"></i>订单详情信息，仅供查看。
+      </div>
+    </div>
+  </div>
+
+  <!-- 基本信息卡片 -->
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-navy text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-info-circle me-2"></i>基本信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">PI编号：</strong> {{ pi.pi_no }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">PI日期：</strong> {{ pi.pi_date }}</div>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">出口商：</strong> {{ pi.exporter_name_snapshot or pi.exporter.name }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">客户（进口商）：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">付款方式：</strong> {{ pi.payment_terms }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">计划发运日期：</strong> {{ pi.shipment_date }}</div>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">出发港口：</strong> {{ pi.loading_port }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">目的港口：</strong> {{ pi.destination_port }}</div>
+      </div>
+      <div class="mb-3"><strong class="text-navy">收款银行信息：</strong><br><pre class="mb-0 bg-light p-3 rounded">{{ pi.bank }}</pre></div>
+      <div class="mb-3"><strong class="text-navy">备注：</strong> {{ pi.note or '-' }}</div>
+      <div class="mb-3">
+        <strong class="text-navy">当前状态：</strong> 
+        {% if pi.status == '已完成' %}
+          <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
+        {% else %}
+          <span class="badge bg-secondary rounded-pill">{{ pi.status }}</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- 产品明细卡片 -->
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-navy text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-boxes me-2"></i>产品明细
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-bordered">
+          <thead class="bg-light-gray">
+            <tr>
+              <th class="text-center text-navy">产品</th>
+              <th class="text-center text-navy">厂家</th>
+              <th class="text-center text-navy">贸易方式</th>
+              <th class="text-center text-navy">单价 (USD)</th>
+              <th class="text-center text-navy">数量 (MT)</th>
+              <th class="text-center text-navy">总价</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in pi.products %}
+            <tr>
+              <td>{{ item.product_model_snapshot or item.product.model }}{% if item.product_brand_snapshot or item.product.brand %} / {{ item.product_brand_snapshot or item.product.brand }}{% endif %}</td>
+              <td>{{ item.factory_name_snapshot or item.factory.name }}</td>
+              <td>{{ item.trade_term }}</td>
+              <td>{{ item.unit_price }}</td>
+              <td>{{ item.quantity|int }}</td>
+              <td>{{ item.total_price }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  {# 发运准备信息 #}
+  {% if pi.status in ['待发运', '已发运', '已到港', '已完成'] %}
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-accent text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-ship me-2"></i>发运准备信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代公司：</strong> {{ pi.freight_forwarder.name if pi.freight_forwarder else '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">海运费：</strong> {{ pi.ocean_freight or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">装柜时间：</strong> {{ pi.container_date or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">装柜地址：</strong> {{ pi.container_location or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">ETD：</strong> {{ pi.etd or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">ETA：</strong> {{ pi.eta or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">产地证（COO）：</strong> {{ pi.coo_required or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">产地证（APTA）：</strong> {{ pi.apta_required or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">出口许可证：</strong> {{ pi.export_license_required or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">报关文件：</strong> {{ pi.customs_docs_required or '-' }}</div>
+        <div class="col-md-12 mb-3"><strong class="text-navy">其他文件：</strong> {{ pi.other_documents or '-' }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# 托书信息 #}
+  {% if pi.status in ['待发运', '已发运', '已到港', '已完成'] %}
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-navy text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-file-contract me-2"></i>托书信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">航名/航次：</strong> {{ pi.vessel_info or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">订舱号码：</strong> {{ pi.booking_number or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">箱型和箱量：</strong> {{ pi.container_type_quantity or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">SHIPPING MARK：</strong> {{ pi.shipping_mark or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">运输条款：</strong> {{ pi.freight_term or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">约号：</strong> {{ pi.contract_number or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">运费条款：</strong> {{ pi.freight_clause or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">正本/WAYBILL：</strong> {{ pi.waybill_option or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">箱号：</strong> {{ pi.container_number or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">封号：</strong> {{ pi.seal_number or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">箱型：</strong> {{ pi.container_type or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">件数：</strong> {{ pi.quantity_units or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">毛重：</strong> {{ pi.gross_weight or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">体积：</strong> {{ pi.volume or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">VGM：</strong> {{ pi.vgm or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计件数：</strong> {{ pi.total_quantity or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计件数单位：</strong> {{ pi.total_quantity_unit or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计毛重：</strong> {{ pi.total_weight or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计毛重单位：</strong> {{ pi.total_weight_unit or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计体积：</strong> {{ pi.total_volume or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计体积单位：</strong> {{ pi.total_volume_unit or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">总计VGM：</strong> {{ pi.total_vgm or '-' }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# 已发运信息 #}
+  {% if pi.status in ['已发运', '已到港', '已完成'] %}
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-accent text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-shipping-fast me-2"></i>已发运信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">提单号：</strong> {{ pi.bill_of_lading or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">船公司：</strong> {{ pi.shipping_company or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">实际发运日期：</strong> {{ pi.actual_departure_date or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">批号：</strong> {{ pi.batch_no or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">COA质检单：</strong> {{ pi.coa_status or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">保险单：</strong> {{ pi.insurance_status or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">原件邮寄状态：</strong> {{ pi.document_shipping_status or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">邮件单号：</strong> {{ pi.tracking_number or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货款收齐状态：</strong> {{ pi.payment_received or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">结汇文件需求：</strong> {{ pi.settlement_documents_required or '-' }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# 已到港信息 #}
+  {% if pi.status in ['已到港', '已完成'] %}
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-navy text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-anchor me-2"></i>已到港信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">实际到港日期：</strong> {{ pi.actual_arrival_date or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货款收齐状态：</strong> {{ pi.payment_received or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代账单金额：</strong> {{ pi.freight_invoice_amount or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代账单确认状态：</strong> {{ pi.freight_invoice_confirmed or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代发票开具状态：</strong> {{ pi.freight_invoice_issued or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">电放状态：</strong> {{ pi.telex_release or '-' }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# 已完成信息 #}
+  {% if pi.status == '已完成' %}
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-success text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-check-circle me-2"></i>已完成信息
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代账单付款状态：</strong> {{ pi.freight_payment_status or '-' }}</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
+    <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-outline-navy me-md-2">
+      <i class="fas fa-edit me-1"></i>编辑
+    </a>
+    {% if pi.status != '已完成' %}
+    <a href="{{ url_for('update_pi_status', pi_id=pi.id) }}" class="btn btn-accent">
+      <i class="fas fa-sync-alt me-1"></i>状态更新
+    </a>
+    {% else %}
+    <button class="btn btn-secondary" disabled title="订单已完成，无法进行状态更新">
+      <i class="fas fa-lock me-1"></i>状态更新
+    </button>
+    {% endif %}
+  </div>
+
+  <!-- 文档生成区：统一风格 -->
+  <div class="card mb-4 border-0">
+    <div class="card-header bg-navy text-white">
+      <h5 class="mb-0">
+        <i class="fas fa-file-alt me-2"></i>文档生成
+      </h5>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-wrap gap-2">
+        <a href="/generate-invoice-pdf/{{ pi.id }}" class="btn btn-outline-navy" target="_blank">
+          <i class="fas fa-file-pdf me-1"></i>生成 INVOICE
+        </a>
+        <a href="/generate-invoice/{{ pi.id }}" class="btn btn-accent" target="_blank">
+          <i class="fas fa-file-invoice me-1"></i>生成 Proforma Invoice
+        </a>
+        <a href="/generate-packing-list/{{ pi.id }}" class="btn btn-outline-navy" target="_blank">
+          <i class="fas fa-boxes me-1"></i>生成 Packing List
+        </a>
+        <a href="/generate-booking/{{ pi.id }}" class="btn btn-outline-navy" target="_blank">
+          <i class="fas fa-file-contract me-1"></i>生成 托书
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* 自定义颜色变量 */
+  :root {
+    --navy-blue: #1e3a8a;
+    --light-navy: #3b82f6;
+    --accent-color: #f59e0b;
+    --light-gray: #f8fafc;
+    --medium-gray: #e2e8f0;
+    --dark-gray: #64748b;
+  }
+
+  /* 文字颜色 */
+  .text-navy { color: var(--navy-blue) !important; }
+  .text-accent { color: var(--accent-color) !important; }
+  
+  /* 背景颜色 */
+  .bg-navy { background-color: var(--navy-blue) !important; }
+  .bg-light-gray { background-color: var(--light-gray) !important; }
+  .bg-accent { background-color: var(--accent-color) !important; }
+
+  /* 按钮样式 */
+  .btn-outline-navy {
+    color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-outline-navy:hover {
+    color: white;
+    background-color: var(--navy-blue);
+    border-color: var(--navy-blue);
+  }
+  .btn-accent {
+    background-color: var(--accent-color);
+    border-color: var(--accent-color);
+    color: white;
+  }
+  .btn-accent:hover {
+    background-color: #d97706;
+    border-color: #d97706;
+    color: white;
+  }
+
+  /* 卡片样式 */
+  .card {
+    border-radius: 15px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+
+  .card-header {
+    border-radius: 15px 15px 0 0;
+    border: none;
+  }
+
+  /* 表格样式 */
+  .table {
+    border-radius: 10px;
+    overflow: hidden;
+  }
+
+  .table thead th {
+    border-bottom: 2px solid var(--medium-gray);
+    font-weight: 600;
+  }
+
+  /* 预格式化文本样式 */
+  pre {
+    background-color: var(--light-gray);
+    border: 1px solid var(--medium-gray);
+    border-radius: 8px;
+  }
+
+  /* 响应式调整 */
+  @media (max-width: 768px) {
+    .card {
+      border-radius: 10px;
+    }
+    
+    .btn {
+      font-size: 0.9rem;
+    }
+  }
+</style>
+{% endblock %}

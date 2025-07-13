@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}厂家管理 - 西合钛贸易管理系统{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <div class="row mb-4">
+    <div class="col-12">
+      <h2 class="mb-4"><i class="fas fa-industry me-2"></i>厂家管理</h2>
+      <div class="alert alert-info text-center" role="alert">
+        可添加新厂家，或管理现有厂家信息。
+      </div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-12">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0"><i class="fas fa-user-plus me-2"></i>添加厂家</h5>
+        </div>
+        <div class="card-body">
+          <form method="POST">
+            <div class="mb-3">
+              <label class="form-label">厂家名称<span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="name" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">国家<span class="text-danger">*</span></label>
+              <input type="text" class="form-control" name="country" required />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">厂址</label>
+              <input type="text" class="form-control" name="address" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">企业/税号</label>
+              <input type="text" class="form-control" name="tax_code" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">联系人</label>
+              <input type="text" class="form-control" name="contact_person" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">电话</label>
+              <input type="text" class="form-control" name="phone" />
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Email</label>
+              <input type="email" class="form-control" name="email" />
+            </div>
+            <div class="d-flex justify-content-end gap-2">
+              <button type="submit" class="btn btn-primary"><i class="fas fa-save me-1"></i>添加厂家</button>
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-info text-white">
+          <h5 class="mb-0"><i class="fas fa-list me-2"></i>厂家列表</h5>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-bordered table-hover align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>编码</th>
+                  <th>名称</th>
+                  <th>国家</th>
+                  <th>厂址</th>
+                  <th>联系人</th>
+                  <th>电话</th>
+                  <th>Email</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for f in factories %}
+                <tr>
+                  <td><span class="badge bg-secondary">{{ f.code }}</span></td>
+                  <td>{{ f.name }}</td>
+                  <td>{{ f.country }}</td>
+                  <td>{{ f.address or '-' }}</td>
+                  <td>{{ f.contact_person or '-' }}</td>
+                  <td>{{ f.phone or '-' }}</td>
+                  <td>{{ f.email or '-' }}</td>
+                  <td>
+                    <div class="btn-group btn-group-sm" role="group">
+                      <a href="{{ url_for('edit_factory', factory_id=f.id) }}" class="btn btn-outline-primary btn-sm" title="编辑">
+                        <i class="fas fa-edit"></i>
+                      </a>
+                      <a href="{{ url_for('delete_factory', factory_id=f.id) }}" class="btn btn-outline-danger btn-sm" title="删除" onclick="return confirm('确定要删除此厂家吗？');">
+                        <i class="fas fa-trash"></i>
+                      </a>
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

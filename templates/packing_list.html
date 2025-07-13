@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>PACKING LIST - {{ pi.pi_no }}</title>
+  <style>
+    body {
+      font-family: "Microsoft YaHei","Arial", sans-serif;
+      margin: 40px;
+      font-size: 15px;
+    }
+    h1 {
+      font-family: "Arial", sans-serif;
+      font-weight: bold;
+      text-align: center;
+      font-size: 22px;
+      margin-bottom: 20px;
+      letter-spacing: 4px;
+    }
+    .section { margin-bottom: 20px; }
+    .bold { font-weight: bold; }
+    .right { text-align: right; }
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    .table th, .table td {
+      border: 1px solid black;
+      padding: 6px;
+      text-align: center;
+      font-size: 15px;
+    }
+    .no-border td {
+      border: none;
+      padding: 4px;
+    }
+    .company-title {
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+    .company-address {
+      text-align: center;
+      font-size: 13px;
+      margin-bottom: 18px;
+    }
+    .footer-company {
+      text-align: right;
+      margin-top: 40px;
+      font-size: 15px;
+    }
+  </style>
+</head>
+<body>
+  <!-- 公司信息 -->
+  <div class="company-title">{{ pi.exporter.name }}</div>
+  <div class="company-address">
+    {{ pi.exporter.address }}
+  </div>
+
+  <!-- 标题 -->
+  <h1>PACKING&nbsp;&nbsp;LIST</h1>
+
+  <!-- 客户与发票信息 -->
+  <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+    <div style="max-width: 60%;">
+      TO: <span class="bold">{{ pi.customer.name }}</span><br>
+      {{ pi.customer.address.replace(';', '<br>')|safe }}<br>
+      {% if pi.customer.tax_code %}GST No: {{ pi.customer.tax_code.replace(';', '<br>')|safe }}<br>{% endif %}
+      {% if pi.customer.pan_no %}PAN No: {{ pi.customer.pan_no }}<br>{% endif %}
+      {% if pi.customer.iec_code %}IEC Code: {{ pi.customer.iec_code }}<br>{% endif %}
+    </div>
+    <div style="text-align: right; min-width: 180px;">
+      <div>INVOICE NO: {{ pi.pi_no }}</div>
+      <div>DATE: {{ pi.pi_date.strftime('%Y/%m/%d') }}</div>
+    </div>
+  </div>
+
+  <!-- 表格 -->
+  <table class="table">
+    <thead>
+      <tr>
+        <th>MARK & NO.</th>
+        <th>QUANTITIES & DESCRIPTIONS</th>
+        <th>QUANTITY<br>(BAGS)</th>
+        <th>GROSS WEIGHT<br>(KGS)</th>
+        <th>NET WEIGHT<br>(KGS)</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set ns = namespace(total_bags=0, total_gross=0, total_net=0) %}
+      {% for item in pi.products %}
+      <tr>
+        <td>{{ pi.shipping_mark or 'N/M' }}</td>
+        <td>{{ item.product.category }} {{ item.product.brand or '' }} {{ item.product.model }}</td>
+        <td>{{ pi.total_quantity | int | format_number }}</td>
+        <td>{{ pi.total_weight | int | format_number }}</td>
+        <td>{{ (item.quantity * 1000) | int | format_number }}</td>
+      </tr>
+      {% set ns.total_bags = ns.total_bags + (pi.total_quantity or 0) %}
+      {% set ns.total_gross = ns.total_gross + (pi.total_weight or 0) %}
+      {% set ns.total_net = ns.total_net + ((item.quantity or 0) * 1000) %}
+      {% endfor %}
+      <tr>
+        <td>TOTAL</td>
+        <td></td>
+        <td>{{ ns.total_bags | int | format_number }}</td>
+        <td>{{ ns.total_gross | int | format_number }}</td>
+        <td>{{ ns.total_net | int | format_number }}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section" style="margin-top: 18px;">
+    PACKING: {{ pi.products[0].product.packaging if pi.products and pi.products[0].product.packaging else '' }}
+  </div>
+
+  <div class="footer-company">
+    {{ pi.exporter.name }}
+  </div>
+</body>
+</html> 

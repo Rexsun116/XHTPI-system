@@ -1,0 +1,19 @@
+[[source]]
+url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
+verify_ssl = false
+name = "pip_conf_index_global"
+
+[packages]
+flask = "*"
+flask-sqlalchemy = "*"
+flask-migrate = "*"
+python-docx = "*"
+weasyprint = "*"
+flask-login = "*"
+flask-wtf = "*"
+requests = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.13"

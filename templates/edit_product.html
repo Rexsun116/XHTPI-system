@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}编辑产品信息{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row">
+    <div class="col-md-8">
+      <h2><i class="fas fa-edit me-2"></i>编辑产品信息</h2>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-md-8">
+      <div class="card shadow-sm">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-box me-2"></i>产品信息</h5>
+        </div>
+        <div class="card-body">
+          <form method="post">
+            <div class="mb-3">
+              <label for="category" class="form-label">分类</label>
+              <input type="text" class="form-control" id="category" name="category" value="{{ product.category or 'Titanium dioxide' }}">
+            </div>
+            <div class="mb-3">
+              <label for="brand" class="form-label">品牌</label>
+              <input type="text" class="form-control" id="brand" name="brand" value="{{ product.brand or '' }}">
+            </div>
+            <div class="mb-3">
+              <label for="model" class="form-label">型号 <span class="text-danger">*</span></label>
+              <input type="text" class="form-control" id="model" name="model" value="{{ product.model }}" required>
+            </div>
+            <div class="mb-3">
+              <label for="packaging" class="form-label">包装规格</label>
+              <input type="text" class="form-control" id="packaging" name="packaging" value="{{ product.packaging or '' }}">
+            </div>
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-navy">
+                <i class="fas fa-save me-1"></i>保存修改
+              </button>
+              <a href="{{ url_for('products') }}" class="btn btn-secondary">
+                <i class="fas fa-arrow-left me-1"></i>返回产品列表
+              </a>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
