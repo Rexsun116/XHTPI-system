@@ -1,10 +1,10 @@
 {% extends 'base.html' %}
-{% block title %}更新状态 - {{ pi.pi_no }}{% endblock %}
+{% block title %}更新工厂直发订单状态 - {{ pi.pi_no }}{% endblock %}
 {% block content %}
 <div class="container mt-4">
   <!-- 页面标题区域 -->
   <div class="text-center mb-4">
-    <h2 class="display-6 fw-bold text-navy">更新 PI 状态</h2>
+    <h2 class="display-6 fw-bold text-navy">更新工厂直发订单状态</h2>
     <p class="text-muted">PI编号：{{ pi.pi_no }} | 当前状态：<span class="badge bg-secondary">{{ current_status }}</span></p>
   </div>
 
@@ -14,7 +14,7 @@
         <!-- 状态选择卡片 -->
         <div class="card shadow-sm mb-4">
           <div class="card-header bg-primary text-white">
-            <h5 class="mb-0"><i class="fas fa-arrow-right me-2"></i>状态更新</h5>
+            <h5 class="mb-0"><i class="fas fa-arrow-right me-2"></i>工厂直发订单状态更新</h5>
           </div>
           <div class="card-body">
             <div class="row">
@@ -384,7 +384,7 @@
             </div>
             <div class="card-body">
               <div class="row">
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                   <label class="form-label">货款收齐状态 <span class="text-danger">*</span></label>
                   <select class="form-select" name="payment_received" required>
                     <option value="">请选择</option>
@@ -392,12 +392,20 @@
                     <option value="未收齐" {% if pi.payment_received == '未收齐' %}selected{% endif %}>未收齐</option>
                   </select>
                 </div>
-                <div class="col-md-6 mb-3">
+                <div class="col-md-4 mb-3">
                   <label class="form-label">货代运费付款状态 <span class="text-danger">*</span></label>
                   <select class="form-select" name="freight_payment_status" required>
                     <option value="">请选择</option>
                     <option value="已付款" {% if pi.freight_payment_status == '已付款' %}selected{% endif %}>已付款</option>
                     <option value="未付款" {% if pi.freight_payment_status == '未付款' %}selected{% endif %}>未付款</option>
+                  </select>
+                </div>
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">佣金结算状态 <span class="text-danger">*</span></label>
+                  <select class="form-select" name="commission_status" required>
+                    <option value="">请选择</option>
+                    <option value="已结算" {% if pi.commission_status == '已结算' %}selected{% endif %}>已结算</option>
+                    <option value="未结算" {% if pi.commission_status == '未结算' %}selected{% endif %}>未结算</option>
                   </select>
                 </div>
               </div>
@@ -407,7 +415,7 @@
 
         <!-- 操作按钮 -->
         <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
-          <a href="{{ url_for('show_pi_list') }}" class="btn btn-secondary me-md-2">取消</a>
+          <a href="{{ url_for('commission_pi_list') }}" class="btn btn-secondary me-md-2">取消</a>
           <button type="submit" class="btn btn-primary">更新状态</button>
         </div>
       </form>
@@ -496,4 +504,4 @@
     updateFormDisplay(); // 初始化一次
   });
 </script>
-{% endblock %}
+{% endblock %} 

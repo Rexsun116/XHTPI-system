@@ -286,7 +286,7 @@ class PI(db.Model):
 
     products = db.relationship('PIItem', backref='pi', cascade="all, delete-orphan")  # 👈 注意这里不用引号
     customer = db.relationship('Customer')
-    exporter = db.relationship('Exporter')
+    exporter = db.relationship('Exporter', foreign_keys='PI.exporter_id')
     # 装运准备字段（可为空）
     freight_forwarder_id = db.Column(db.Integer, db.ForeignKey('freight_forwarder.id'))
     freight_forwarder = db.relationship('FreightForwarder')
@@ -348,6 +348,13 @@ class PI(db.Model):
     #PI状态选择已完成时需要填写的字段（新增）
     freight_payment_status = db.Column(db.String(10))  # 运费付款状态：'已付款' / '未付款'
     
+    commission_factory_id = db.Column(db.Integer, db.ForeignKey('factory.id'))
+    commission_exporter_id = db.Column(db.Integer, db.ForeignKey('exporter.id'))
+    commission_amount = db.Column(db.Float)
+    commission_rate = db.Column(db.Float)
+    commission_status = db.Column(db.String(20))
+    factory_sale_amount = db.Column(db.Float)
+    
     def __init__(self, pi_no=None, pi_date=None, customer_id=None, exporter_id=None, payment_terms=None, 
                  loading_port=None, destination_port=None, bank=None, shipment_date=None, note=None, 
                  status='新建', customer_name_snapshot=None, customer_address_snapshot=None, 
@@ -367,7 +374,8 @@ class PI(db.Model):
                  total_volume=None, total_volume_unit=None, total_vgm=None, actual_arrival_date=None,
                  payment_received=None, freight_invoice_amount=None, freight_invoice_confirmed=None,
                  freight_invoice_issued=None, telex_release=None, settlement_documents_required=None,
-                 freight_payment_status=None):
+                 freight_payment_status=None,
+                 commission_factory_id=None, commission_exporter_id=None, commission_amount=None, commission_rate=None, commission_status=None, factory_sale_amount=None):
         self.pi_no = pi_no
         self.pi_date = pi_date
         self.customer_id = customer_id
@@ -442,6 +450,16 @@ class PI(db.Model):
         self.telex_release = telex_release
         self.settlement_documents_required = settlement_documents_required
         self.freight_payment_status = freight_payment_status
+        # 新增工厂直发订单相关字段
+        self.commission_factory_id = commission_factory_id
+        self.commission_exporter_id = commission_exporter_id
+        self.commission_amount = commission_amount
+        self.commission_rate = commission_rate
+        self.commission_status = commission_status
+        self.factory_sale_amount = factory_sale_amount
+
+    commission_factory = db.relationship('Factory', foreign_keys='PI.commission_factory_id')
+    commission_exporter = db.relationship('Exporter', foreign_keys='PI.commission_exporter_id')
 
 
 class PIItem(db.Model):
@@ -637,14 +655,22 @@ def index():
         # 原件邮寄状态（字段名修正为document_shipping_status）
         if (pi.document_shipping_status or '').strip() == '未邮寄':
             pi_reminders.append('📄 客户需要邮寄纸质文件，请及时寄出')
-        # 出口许可证（仅在待发运状态时显示）
-        if pi.status == '待发运' and (pi.export_license_required or '').strip() == '需要':
+        elif (pi.document_shipping_status or '').strip() == '已邮寄' and pi.tracking_number:
+            pi_reminders.append(f'📄 纸质文件已经通过 {pi.tracking_number} 寄出 <span class="badge bg-success ms-2">已完成</span>')
+        # 出口许可证
+        if (pi.export_license_required or '').strip() == '需要':
             freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
             pi_reminders.append(f'📑 需要出口许可证，请尽快处理并发送给 {freight_forwarder_name} 联系人')
-        # 报关文件（仅在待发运状态时显示）
-        if pi.status == '待发运' and (pi.customs_docs_required or '').strip() == '需要':
+        elif (pi.export_license_required or '').strip() == '已完成':
+            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
+            pi_reminders.append(f'📑 需要出口许可证，请尽快处理并发送给 {freight_forwarder_name} 联系人 <span class="badge bg-success ms-2">已完成</span>')
+        # 报关文件
+        if (pi.customs_docs_required or '').strip() == '需要':
             freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
             pi_reminders.append(f'🧾 需要报关文件，请尽快准备并发送给 {freight_forwarder_name} 联系人')
+        elif (pi.customs_docs_required or '').strip() == '已完成':
+            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
+            pi_reminders.append(f'🧾 需要报关文件，请尽快准备并发送给 {freight_forwarder_name} 联系人 <span class="badge bg-success ms-2">已完成</span>')
         
         # 已发运确认提醒（仅在已发运状态且相关字段已填写时显示）
         if (pi.status == '已发运' and 
@@ -678,7 +704,7 @@ def index():
 
     # 统计本月订单数量，确保pi_date不为None再用extract
     month_order_count = PI.query.filter(
-        PI.pi_date != None,
+        PI.pi_date.isnot(None),
         extract('year', PI.pi_date) == today.year,
         extract('month', PI.pi_date) == today.month
     ).count()
@@ -1285,8 +1311,8 @@ def create_pi():
 @login_required
 def show_pi_list():
     status_order = ['新建', '待发运', '已发运', '已到港', '已完成']
-    # 查询所有PI
-    pi_list = PI.query.all()
+    # 只查询销售订单
+    pi_list = PI.query.filter(PI.commission_factory_id.is_(None), PI.commission_exporter_id.is_(None)).all()
     # 按自定义状态顺序和PI日期倒序排序
     pi_list = sorted(
         pi_list,
@@ -1768,6 +1794,427 @@ def logout():
     flash('已安全退出', 'success')
     return redirect(url_for('login'))
 
+# 创建工厂直发订单PI
+@app.route('/create-pi-commission', methods=['GET', 'POST'])
+@login_required
+def create_pi_commission():
+    customers = Customer.query.all()
+    exporters = Exporter.query.all()
+    products = Product.query.all()
+    factories = Factory.query.all()
+    banks = ["Hang Seng Bank Limited", "BOC CHINA", "OCBC Bank HK"]
+
+    if request.method == 'POST':
+        pi_no = request.form['pi_no']
+        pi_date = datetime.strptime(request.form['pi_date'], '%Y-%m-%d').date()
+        customer_id = int(request.form['customer'])
+        payment_terms = request.form.get('payment_terms', '')
+        loading_port = request.form.get('loading_port', '')
+        destination_port = request.form.get('destination_port', '')
+        bank = request.form.get('bank', '')
+        shipment_date_str = request.form.get('shipment_date')
+        shipment_date = datetime.strptime(shipment_date_str, '%Y-%m-%d').date() if shipment_date_str else None
+        note = request.form.get('note', 'Please arrange shipment as scheduled.')
+        # 工厂直发订单专属字段
+        commission_factory_id = int(request.form['commission_factory_id'])
+        commission_exporter_id = int(request.form['commission_exporter_id'])
+        commission_amount = request.form.get('commission_amount')
+        commission_rate = request.form.get('commission_rate')
+        commission_status = request.form.get('commission_status')
+        factory_sale_amount = request.form.get('factory_sale_amount')
+
+        # 校验 PI 编号不重复
+        existing = PI.query.filter_by(pi_no=pi_no).first()
+        if existing:
+            return "⚠️ PI 编号已存在，请返回修改", 400
+
+        # 获取客户、厂家、佣金收取方信息用于快照
+        customer = Customer.query.get(customer_id)
+        factory = Factory.query.get(commission_factory_id)
+        exporter = Exporter.query.get(commission_exporter_id)
+        if customer is None or factory is None or exporter is None:
+            return "客户、厂家或佣金收取方不存在", 400
+
+        # 创建主表 PI 记录
+        pi = PI(
+            pi_no=pi_no,
+            pi_date=pi_date,
+            customer_id=customer_id,
+            payment_terms=payment_terms,
+            loading_port=loading_port,
+            destination_port=destination_port,
+            bank=bank,
+            shipment_date=shipment_date,
+            note=note,
+            # 工厂直发订单专属字段
+            commission_factory_id=commission_factory_id,
+            commission_exporter_id=commission_exporter_id,
+            commission_amount=float(commission_amount) if commission_amount else None,
+            commission_rate=float(commission_rate) if commission_rate else None,
+            commission_status=commission_status,
+            factory_sale_amount=float(factory_sale_amount) if factory_sale_amount else None,
+            # 快照
+            customer_name_snapshot=customer.name,
+            customer_address_snapshot=customer.address,
+            customer_tax_code_snapshot=customer.tax_code,
+            customer_country_snapshot=customer.country,
+            customer_contact_snapshot=customer.contact_person,
+            customer_phone_snapshot=customer.phone,
+            customer_email_snapshot=customer.email,
+            exporter_name_snapshot=exporter.name,
+            exporter_address_snapshot=exporter.address,
+            exporter_tax_code_snapshot=exporter.tax_code,
+            exporter_country_snapshot=exporter.country,
+            exporter_contact_snapshot=exporter.contact_person,
+            exporter_phone_snapshot=exporter.phone,
+            exporter_email_snapshot=exporter.email
+        )
+        db.session.add(pi)
+        db.session.flush()  # 获取 pi.id
+
+        # 创建产品明细行（如有产品明细表单，可参考销售订单逻辑）
+        index = 0
+        while f'product_{index}' in request.form:
+            product_id = int(request.form[f'product_{index}'])
+            factory_id = int(request.form[f'factory_{index}'])
+            trade_term = request.form.get(f'trade_term_{index}', '')
+            unit_price = float(request.form.get(f'unit_price_{index}', 0))
+            quantity = float(request.form.get(f'quantity_{index}', 0))
+            total_price = unit_price * quantity
+
+            product = Product.query.get(product_id)
+            factory = Factory.query.get(factory_id)
+            if product is None or factory is None:
+                return "产品或厂家不存在", 400
+
+            item = PIItem(
+                pi_id=pi.id,
+                product_id=product_id,
+                factory_id=factory_id,
+                trade_term=trade_term,
+                unit_price=unit_price,
+                quantity=quantity,
+                total_price=total_price,
+                product_category_snapshot=product.category,
+                product_brand_snapshot=product.brand,
+                product_model_snapshot=product.model,
+                product_packaging_snapshot=product.packaging,
+                factory_name_snapshot=factory.name,
+                factory_address_snapshot=factory.address,
+                factory_tax_code_snapshot=factory.tax_code,
+                factory_country_snapshot=factory.country,
+                factory_contact_snapshot=factory.contact_person,
+                factory_phone_snapshot=factory.phone,
+                factory_email_snapshot=factory.email
+            )
+            db.session.add(item)
+            index += 1
+
+        db.session.commit()
+        return redirect(url_for('index'))
+
+    return render_template('create_pi_commission.html', customers=customers, exporters=exporters, factories=factories, products=products, banks=banks)
+
+@app.route('/commission-pi-list')
+@login_required
+def commission_pi_list():
+    # 只查询工厂直发订单
+    pi_list = PI.query.filter((PI.commission_factory_id.isnot(None)) | (PI.commission_exporter_id.isnot(None))).all()
+    return render_template('commission_pi_list.html', pi_list=pi_list)
+
+@app.route('/commission-pi/<int:pi_id>/update-status', methods=['GET', 'POST'])
+@login_required
+def update_commission_pi_status(pi_id):
+    pi = PI.query.get_or_404(pi_id)
+    # 只允许工厂直发订单
+    if not (pi.commission_factory_id or pi.commission_exporter_id):
+        return "该订单不是工厂直发订单", 400
+    all_status = ['新建', '待发运', '已发运', '已到港', '已完成']
+    current_index = all_status.index(pi.status)
+    next_status_options = all_status[current_index + 1:] if current_index < len(all_status) - 1 else []
+    if request.method == 'POST':
+        new_status = request.form.get('new_status')
+        remarks = request.form.get('remarks')
+        commission_status = request.form.get('commission_status', pi.commission_status)
+        if new_status and new_status in next_status_options:
+            pi.status = new_status
+            
+            # 根据新状态处理对应字段
+            date_fmt = "%Y-%m-%d"
+            
+            # 待发运状态字段处理
+            if new_status == '待发运':
+                # 发运准备信息
+                pi.freight_forwarder_id = request.form.get('freight_forwarder_id')
+                pi.ocean_freight = request.form.get('ocean_freight') or None
+                container_date_str = request.form.get('container_date')
+                pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else None
+                pi.container_location = request.form.get('container_location')
+                etd_str = request.form.get('etd')
+                pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
+                eta_str = request.form.get('eta')
+                pi.eta = datetime.strptime(eta_str, date_fmt).date() if eta_str else pi.eta
+                pi.coo_required = request.form.get('coo_required')
+                pi.apta_required = request.form.get('apta_required')
+                pi.export_license_required = request.form.get('export_license_required')
+                pi.customs_docs_required = request.form.get('customs_docs_required')
+                pi.other_documents = request.form.get('other_documents') or None
+
+                # 托书信息
+                pi.vessel_info = request.form.get('vessel_info')
+                pi.booking_number = request.form.get('booking_number')
+                pi.container_type_quantity = request.form.get('container_type_quantity')
+                pi.shipping_mark = request.form.get('shipping_mark')
+                pi.freight_term = request.form.get('freight_term')
+                pi.contract_number = request.form.get('contract_number')
+                pi.freight_clause = request.form.get('freight_clause')
+                pi.waybill_option = request.form.get('waybill_option')
+                pi.container_number = request.form.get('container_number')
+                pi.seal_number = request.form.get('seal_number')
+                pi.container_type = request.form.get('container_type')
+                pi.quantity_units = float(request.form.get('quantity_units') or 0)
+                pi.gross_weight = float(request.form.get('gross_weight') or 0)
+                pi.volume = float(request.form.get('volume') or 0)
+                pi.vgm = request.form.get('vgm')
+                pi.total_quantity = float(request.form.get('total_quantity') or 0)
+                pi.total_quantity_unit = request.form.get('total_quantity_unit')
+                pi.total_weight = float(request.form.get('total_weight') or 0)
+                pi.total_weight_unit = request.form.get('total_weight_unit')
+                pi.total_volume = float(request.form.get('total_volume') or 0)
+                pi.total_volume_unit = request.form.get('total_volume_unit')
+                pi.total_vgm = request.form.get('total_vgm')
+
+            # 已发运状态字段处理
+            if new_status == '已发运':
+                pi.bill_of_lading = request.form.get('bill_of_lading')
+                pi.shipping_company = request.form.get('shipping_company') or None
+                pi.batch_no = request.form.get('batch_no') or None
+                pi.coa_status = request.form.get('coa_status')
+                pi.insurance_status = request.form.get('insurance_status')
+                pi.document_shipping_status = request.form.get('document_shipping_status')
+                # 实际发运日期
+                actual_departure_date_str = request.form.get('actual_departure_date')
+                pi.actual_departure_date = datetime.strptime(actual_departure_date_str, date_fmt).date() if actual_departure_date_str else None
+                if pi.document_shipping_status == '已邮寄':
+                   pi.tracking_number = request.form.get('tracking_number') 
+                else:
+                   pi.tracking_number = None
+                # 货款收齐状态
+                pi.payment_received = request.form.get('payment_received')
+                # 结汇文件需求
+                pi.settlement_documents_required = request.form.get('settlement_documents_required')
+
+            # 已到港状态字段处理
+            if new_status == '已到港':
+                actual_arrival_date_str = request.form.get('actual_arrival_date')
+                pi.actual_arrival_date = datetime.strptime(actual_arrival_date_str, date_fmt).date() if actual_arrival_date_str else pi.actual_arrival_date
+                pi.payment_received = request.form.get('payment_received')
+                pi.freight_invoice_amount = float(request.form.get('freight_invoice_amount') or 0) if request.form.get('freight_invoice_amount') else None
+                pi.freight_invoice_confirmed = request.form.get('freight_invoice_confirmed')
+                pi.freight_invoice_issued = request.form.get('freight_invoice_issued')
+                pi.telex_release = request.form.get('telex_release')
+
+            # 已完成状态字段处理
+            if new_status == '已完成':
+                pi.payment_received = request.form.get('payment_received')
+                pi.freight_payment_status = request.form.get('freight_payment_status')
+                pi.commission_status = commission_status
+                # 新增校验：佣金结算状态必须为已结算
+                if pi.payment_received != '已收齐' or pi.freight_payment_status != '已付款' or pi.commission_status != '已结算':
+                    return "无法完成状态更新：需确认货款收齐、货代运费已付款且佣金已结算", 400
+            
+            db.session.commit()
+            return redirect(url_for('commission_pi_list'))
+    freight_forwarders = FreightForwarder.query.all()
+    return render_template('update_commission_status.html', pi=pi, current_status=pi.status, next_status_options=next_status_options, freight_forwarders=freight_forwarders)
+
+@app.route('/commission-pi/<int:pi_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_commission_pi(pi_id):
+    pi = PI.query.get_or_404(pi_id)
+    if not (pi.commission_factory_id or pi.commission_exporter_id):
+        return "该订单不是工厂直发订单", 400
+    customers = Customer.query.all()
+    exporters = Exporter.query.all()
+    products = Product.query.all()
+    factories = Factory.query.all()
+    freight_forwarders = FreightForwarder.query.all()
+    banks = ["Hang Seng Bank Limited", "BOC CHINA", "OCBC Bank HK"]
+    if request.method == 'POST':
+        try:
+            date_fmt = "%Y-%m-%d"
+            # 基本信息字段
+            pi.pi_no = request.form.get('pi_no')
+            pi_date_str = request.form.get('pi_date')
+            if pi_date_str:
+                pi.pi_date = datetime.strptime(pi_date_str, date_fmt).date()
+            pi.customer_id = int(request.form.get('customer_id'))
+            pi.commission_factory_id = int(request.form.get('commission_factory_id'))
+            pi.commission_exporter_id = int(request.form.get('commission_exporter_id'))
+            pi.payment_terms = request.form.get('payment_terms')
+            pi.loading_port = request.form.get('loading_port')
+            pi.destination_port = request.form.get('destination_port')
+            shipment_date_str = request.form.get('shipment_date')
+            pi.shipment_date = datetime.strptime(shipment_date_str, date_fmt).date() if shipment_date_str else None
+            pi.note = request.form.get('note')
+            pi.bank = request.form.get('bank')
+            pi.commission_amount = float(request.form.get('commission_amount') or 0)
+            pi.commission_rate = float(request.form.get('commission_rate') or 0)
+            pi.commission_status = request.form.get('commission_status')
+            pi.factory_sale_amount = float(request.form.get('factory_sale_amount') or 0)
+            
+            # 发运准备信息字段
+            pi.freight_forwarder_id = request.form.get('freight_forwarder_id', pi.freight_forwarder_id)
+            pi.ocean_freight = float(request.form.get('ocean_freight', pi.ocean_freight) or 0) if request.form.get('ocean_freight') is not None else pi.ocean_freight
+            container_date_str = request.form.get('container_date')
+            pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else pi.container_date
+            pi.container_location = request.form.get('container_location', pi.container_location)
+            etd_str = request.form.get('etd')
+            pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
+            eta_str = request.form.get('eta')
+            pi.eta = datetime.strptime(eta_str, date_fmt).date() if eta_str else pi.eta
+            pi.coo_required = request.form.get('coo_required', pi.coo_required)
+            pi.apta_required = request.form.get('apta_required', pi.apta_required)
+            pi.export_license_required = request.form.get('export_license_required', pi.export_license_required)
+            pi.customs_docs_required = request.form.get('customs_docs_required', pi.customs_docs_required)
+            pi.other_documents = request.form.get('other_documents', pi.other_documents)
+            
+            # 托书信息字段
+            pi.vessel_info = request.form.get('vessel_info', pi.vessel_info)
+            pi.booking_number = request.form.get('booking_number', pi.booking_number)
+            pi.container_type_quantity = request.form.get('container_type_quantity', pi.container_type_quantity)
+            pi.shipping_mark = request.form.get('shipping_mark', pi.shipping_mark)
+            pi.freight_term = request.form.get('freight_term', pi.freight_term)
+            pi.contract_number = request.form.get('contract_number', pi.contract_number)
+            pi.freight_clause = request.form.get('freight_clause', pi.freight_clause)
+            pi.waybill_option = request.form.get('waybill_option', pi.waybill_option)
+            pi.container_number = request.form.get('container_number', pi.container_number)
+            pi.seal_number = request.form.get('seal_number', pi.seal_number)
+            pi.container_type = request.form.get('container_type', pi.container_type)
+            pi.quantity_units = float(request.form.get('quantity_units', pi.quantity_units) or 0) if request.form.get('quantity_units') is not None else pi.quantity_units
+            pi.gross_weight = float(request.form.get('gross_weight', pi.gross_weight) or 0) if request.form.get('gross_weight') is not None else pi.gross_weight
+            pi.volume = float(request.form.get('volume', pi.volume) or 0) if request.form.get('volume') is not None else pi.volume
+            pi.vgm = request.form.get('vgm', pi.vgm)
+            pi.total_quantity = float(request.form.get('total_quantity', pi.total_quantity) or 0) if request.form.get('total_quantity') is not None else pi.total_quantity
+            pi.total_quantity_unit = request.form.get('total_quantity_unit', pi.total_quantity_unit)
+            pi.total_weight = float(request.form.get('total_weight', pi.total_weight) or 0) if request.form.get('total_weight') is not None else pi.total_weight
+            pi.total_weight_unit = request.form.get('total_weight_unit', pi.total_weight_unit)
+            pi.total_volume = float(request.form.get('total_volume', pi.total_volume) or 0) if request.form.get('total_volume') is not None else pi.total_volume
+            pi.total_volume_unit = request.form.get('total_volume_unit', pi.total_volume_unit)
+            pi.total_vgm = request.form.get('total_vgm', pi.total_vgm)
+            
+            # 已发运信息字段
+            pi.bill_of_lading = request.form.get('bill_of_lading', pi.bill_of_lading)
+            pi.shipping_company = request.form.get('shipping_company', pi.shipping_company)
+            actual_departure_date_str = request.form.get('actual_departure_date')
+            pi.actual_departure_date = datetime.strptime(actual_departure_date_str, date_fmt).date() if actual_departure_date_str else pi.actual_departure_date
+            pi.batch_no = request.form.get('batch_no', pi.batch_no)
+            pi.coa_status = request.form.get('coa_status', pi.coa_status)
+            pi.insurance_status = request.form.get('insurance_status', pi.insurance_status)
+            pi.document_shipping_status = request.form.get('document_shipping_status', pi.document_shipping_status)
+            # 新增实际发运日期保存逻辑
+            if pi.document_shipping_status == '已邮寄':
+                pi.tracking_number = request.form.get('tracking_number')
+            else:
+                pi.tracking_number = None
+                
+            # 已到港信息字段
+            actual_arrival_date_str = request.form.get('actual_arrival_date')
+            pi.actual_arrival_date = datetime.strptime(actual_arrival_date_str, date_fmt).date() if actual_arrival_date_str else pi.actual_arrival_date
+            pi.payment_received = request.form.get('payment_received')
+            pi.freight_invoice_amount = float(request.form.get('freight_invoice_amount', pi.freight_invoice_amount) or 0) if request.form.get('freight_invoice_amount') is not None else pi.freight_invoice_amount
+            pi.freight_invoice_confirmed = request.form.get('freight_invoice_confirmed', pi.freight_invoice_confirmed)
+            pi.freight_invoice_issued = request.form.get('freight_invoice_issued', pi.freight_invoice_issued)
+            pi.telex_release = request.form.get('telex_release', pi.telex_release)
+            pi.settlement_documents_required = request.form.get('settlement_documents_required')
+            
+            # 已完成状态字段处理
+            pi.freight_payment_status = request.form.get('freight_payment_status')
+            
+            # 处理产品明细的更新
+            index = 0
+            print(f"🔍 开始处理产品明细，表单字段: {[k for k in request.form.keys() if k.startswith('product_')]}")
+            while f'product_{index}' in request.form:
+                product_id = int(request.form[f'product_{index}'])
+                factory_id = int(request.form[f'factory_{index}'])
+                trade_term = request.form.get(f'trade_term_{index}', '')
+                unit_price = float(request.form.get(f'unit_price_{index}', 0))
+                quantity = float(request.form.get(f'quantity_{index}', 0))
+                total_price = unit_price * quantity
+                
+                if index < len(pi.products):
+                    # 更新现有的产品明细
+                    item = pi.products[index]
+                    
+                    # 获取产品和厂家信息用于更新快照
+                    product = Product.query.get(product_id)
+                    factory = Factory.query.get(factory_id)
+                    
+                    if product is None or factory is None:
+                        return "产品或厂家不存在", 400
+                    
+                    item.product_id = product_id
+                    item.factory_id = factory_id
+                    item.trade_term = trade_term
+                    item.unit_price = unit_price
+                    item.quantity = quantity
+                    item.total_price = total_price
+                    
+                    # 更新快照数据
+                    item.product_category_snapshot = product.category
+                    item.product_brand_snapshot = product.brand
+                    item.product_model_snapshot = product.model
+                    item.product_packaging_snapshot = product.packaging
+                    item.factory_name_snapshot = factory.name
+                    item.factory_address_snapshot = factory.address
+                    item.factory_tax_code_snapshot = factory.tax_code
+                    item.factory_country_snapshot = factory.country
+                    item.factory_contact_snapshot = factory.contact_person
+                    item.factory_phone_snapshot = factory.phone
+                    item.factory_email_snapshot = factory.email
+                else:
+                    # 创建新的产品明细
+                    product = Product.query.get(product_id)
+                    factory = Factory.query.get(factory_id)
+                    
+                    if product is None or factory is None:
+                        return "产品或厂家不存在", 400
+                    
+                    item = PIItem(
+                        pi_id=pi.id,
+                        product_id=product_id,
+                        factory_id=factory_id,
+                        trade_term=trade_term,
+                        unit_price=unit_price,
+                        quantity=quantity,
+                        total_price=total_price,
+                        product_category_snapshot=product.category,
+                        product_brand_snapshot=product.brand,
+                        product_model_snapshot=product.model,
+                        product_packaging_snapshot=product.packaging,
+                        factory_name_snapshot=factory.name,
+                        factory_address_snapshot=factory.address,
+                        factory_tax_code_snapshot=factory.tax_code,
+                        factory_country_snapshot=factory.country,
+                        factory_contact_snapshot=factory.contact_person,
+                        factory_phone_snapshot=factory.phone,
+                        factory_email_snapshot=factory.email
+                    )
+                    db.session.add(item)
+                index += 1
+            
+            # 删除多余的产品明细
+            while len(pi.products) > index:
+                db.session.delete(pi.products[-1])
+            
+            db.session.commit()
+            return redirect(url_for('commission_pi_list'))
+        except Exception as e:
+            db.session.rollback()
+            flash('保存失败：请检查输入内容或稍后重试。', 'danger')
+            return f"保存失败: {e}", 400
+    return render_template('edit_commission_pi.html', pi=pi, customers=customers, exporters=exporters, factories=factories, products=products, freight_forwarders=freight_forwarders, banks=banks)
+
 # -----------------------------
 # 启动应用
 # -----------------------------
@@ -1776,4 +2223,5 @@ if __name__ == '__main__':
     with app.app_context():
         db.create_all()
     app.run(debug=True)
+
 

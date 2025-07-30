@@ -11,7 +11,7 @@
     </div>
   </div>
 
-  <!-- 基本信息卡片 -->
+  {% set is_commission = pi.commission_factory_id or pi.commission_exporter_id %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-navy text-white">
       <h5 class="mb-0">
@@ -24,8 +24,13 @@
         <div class="col-md-6 mb-3"><strong class="text-navy">PI日期：</strong> {{ pi.pi_date }}</div>
       </div>
       <div class="row">
-        <div class="col-md-6 mb-3"><strong class="text-navy">出口商：</strong> {{ pi.exporter_name_snapshot or pi.exporter.name }}</div>
-        <div class="col-md-6 mb-3"><strong class="text-navy">客户（进口商）：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
+        {% if is_commission %}
+          <div class="col-md-6 mb-3"><strong class="text-navy">厂家：</strong> {{ pi.commission_factory.name if pi.commission_factory else '-' }}</div>
+          <div class="col-md-6 mb-3"><strong class="text-navy">客户：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
+        {% else %}
+          <div class="col-md-6 mb-3"><strong class="text-navy">出口商：</strong> {{ pi.exporter_name_snapshot or pi.exporter.name }}</div>
+          <div class="col-md-6 mb-3"><strong class="text-navy">客户（进口商）：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
+        {% endif %}
       </div>
       <div class="row">
         <div class="col-md-6 mb-3"><strong class="text-navy">付款方式：</strong> {{ pi.payment_terms }}</div>
@@ -47,6 +52,29 @@
       </div>
     </div>
   </div>
+
+  {% if is_commission %}
+    <div class="card mb-4 border-0">
+      <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">
+          <i class="fas fa-coins me-2"></i>工厂直发订单信息
+        </h5>
+      </div>
+      <div class="card-body">
+        <div class="row">
+          <div class="col-md-6 mb-3"><strong class="text-navy">佣金收取方：</strong> {{ pi.commission_exporter.name if pi.commission_exporter else '-' }}</div>
+          <div class="col-md-6 mb-3"><strong class="text-navy">佣金金额：</strong> {{ pi.commission_amount or '-' }}</div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3"><strong class="text-navy">佣金比例：</strong> {{ pi.commission_rate or '-' }}{% if pi.commission_rate %}%{% endif %}</div>
+          <div class="col-md-6 mb-3"><strong class="text-navy">佣金结算状态：</strong> {{ pi.commission_status or '-' }}</div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3"><strong class="text-navy">厂家实际销售金额：</strong> {{ pi.factory_sale_amount or '-' }}</div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
 
   <!-- 产品明细卡片 -->
   <div class="card mb-4 border-0">
@@ -211,13 +239,25 @@
   {% endif %}
 
   <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
+    {% if is_commission %}
+    <a href="{{ url_for('edit_commission_pi', pi_id=pi.id) }}" class="btn btn-outline-navy me-md-2">
+      <i class="fas fa-edit me-1"></i>编辑
+    </a>
+    {% else %}
     <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-outline-navy me-md-2">
       <i class="fas fa-edit me-1"></i>编辑
     </a>
+    {% endif %}
     {% if pi.status != '已完成' %}
+    {% if is_commission %}
+    <a href="{{ url_for('update_commission_pi_status', pi_id=pi.id) }}" class="btn btn-accent">
+      <i class="fas fa-sync-alt me-1"></i>状态更新
+    </a>
+    {% else %}
     <a href="{{ url_for('update_pi_status', pi_id=pi.id) }}" class="btn btn-accent">
       <i class="fas fa-sync-alt me-1"></i>状态更新
     </a>
+    {% endif %}
     {% else %}
     <button class="btn btn-secondary" disabled title="订单已完成，无法进行状态更新">
       <i class="fas fa-lock me-1"></i>状态更新

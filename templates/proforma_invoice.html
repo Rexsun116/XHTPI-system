@@ -4,122 +4,209 @@
   <meta charset="UTF-8">
   <title>PROFORMA INVOICE - {{ pi.pi_no }}</title>
   <style>
+    @page {
+      size: A4;
+      margin: 30px;
+    }
+    
     body {
       font-family: "Microsoft YaHei","Arial", sans-serif;
-      margin: 40px;
-      font-size: 15px;
+      margin: 0;
+      padding: 15px;
+      font-size: 14px;
+      line-height: 1.2;
     }
+    
     h1 {
       font-family: "Arial", sans-serif;
       font-weight: bold;
       text-align: center;
-      font-size: 20px;
-      margin-bottom: 10px;
+      font-size: 18px;
+      margin: 8px 0;
     }
-    .section { margin-bottom: 20px; }
-    .bold { font-weight: bold; }
-    .right { text-align: right; }
+    
+    .section { 
+      margin-bottom: 12px; 
+    }
+    
+    .bold { 
+      font-weight: bold; 
+    }
+    
+    .right { 
+      text-align: right; 
+    }
+    
     table {
       width: 100%;
       border-collapse: collapse;
-      margin-top: 10px;
+      margin-top: 8px;
+      font-size: 12px;
     }
+    
     th, td {
       border: 1px solid black;
-      padding: 6px;
+      padding: 4px;
       text-align: center;
+      vertical-align: middle;
     }
+    
     .no-border td {
       border: none;
-      padding: 4px;
+      padding: 2px;
+    }
+    
+    .company-header {
+      text-align: center;
+      font-size: 20px;
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    
+    .company-address {
+      text-align: center;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    
+    .invoice-info {
+      margin-bottom: 10px;
+    }
+    
+    .customer-info {
+      margin-bottom: 10px;
+    }
+    
+    .payment-shipping {
+      margin-bottom: 10px;
+    }
+    
+    .product-table {
+      margin-bottom: 8px;
+    }
+    
+    .bank-info {
+      margin-bottom: 8px;
+    }
+    
+    .footer-note {
+      font-size: 10px;
+      margin-bottom: 5px;
+    }
+    
+    .footer-company {
+      text-align: right;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    
+    .flex-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    
+    .flex-item {
+      flex: 1;
+    }
+    
+    pre {
+      font-family: inherit;
+      white-space: pre-wrap;
+      margin: 0;
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
 
   <!-- 出口商信息 -->
-  <div style="text-align: center; font-size: 25px; font-weight: bold;">
+  <div class="company-header">
     {{ pi.exporter.name.replace(';', '<br>')|safe }}
   </div>
-  <hr align="center" width="400" color="black" size="1">
-  <div style="text-align: center; font-size: 13px;">
-    {{ pi.exporter.address }}<br>
+  <hr align="center" width="300" color="black" size="1" style="margin: 3px auto;">
+  <div class="company-address">
+    {{ pi.exporter.address }}
   </div>
 
   <!-- 标题 -->
   <h1>PROFORMA INVOICE</h1>
 
   <!-- 发票信息 -->
-  <table class="no-border">
-    <tr>
-      <td style="text-align: right;"><strong>INVOICE NO:</strong> {{ pi.pi_no }}</td>
-    </tr>
-    <tr>
-      <td style="text-align: right;"><strong>DATE:</strong> {{ pi.pi_date.strftime('%Y/%m/%d') }}</td>
-    </tr>
-  </table>
+  <div class="invoice-info">
+    <table class="no-border">
+      <tr>
+        <td style="text-align: right;"><strong>INVOICE NO:</strong> {{ pi.pi_no }}</td>
+      </tr>
+      <tr>
+        <td style="text-align: right;"><strong>DATE:</strong> {{ pi.pi_date.strftime('%Y/%m/%d') }}</td>
+      </tr>
+    </table>
+  </div>
 
   <!-- 客户信息 -->
-  <div class="section">
+  <div class="customer-info">
     <strong>TO:</strong> 
     <strong>{{ pi.customer.name.replace(';', '<br>')|safe }}</strong><br>
     {{ pi.customer.address.replace(';', '<br>')|safe }}<br>
-    {{ pi.customer.tax_code.replace(';','<br>')|safe or "" }}<br>
-    {{ pi.customer.phone.replace(';', '<br>')|safe or "" }}<br>
+    {% if pi.customer.tax_code %}{{ pi.customer.tax_code.replace(';','<br>')|safe }}<br>{% endif %}
+    {% if pi.customer.phone %}{{ pi.customer.phone.replace(';', '<br>')|safe }}<br>{% endif %}
   </div>
 
   <!-- 付款及装运信息 -->
-  <div class="section">
+  <div class="payment-shipping">
     <strong>PAYMENT:</strong> {{ pi.payment_terms }}<br><br>
-    <div style="display: flex; justify-content: space-between; align-items: center;">
-      <div><strong>LOADING PORT:</strong> {{ pi.loading_port }}</div>
-      <div style="text-align: right;"><strong>DESTINATION PORT:</strong> {{ pi.destination_port }}</div>
+    <div class="flex-container">
+      <div class="flex-item"><strong>LOADING PORT:</strong> {{ pi.loading_port }}</div>
+      <div class="flex-item" style="text-align: right;"><strong>DESTINATION PORT:</strong> {{ pi.destination_port }}</div>
     </div>
   </div>
 
   <!-- 产品表格 -->
-  <table>
-    <thead>
-      <tr>
-        <th>Name of the Commodity</th>
-        <th>Unit Price (USD)</th>
-        <th>Quantity (MT)</th>
-        <th>Amount (USD)</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% set ns = namespace(total=0) %}
-      {% for item in pi.products %}
-      <tr>
-        <td>
-          {{ item.product.category }} {{ item.product.brand or "" }} {{ item.product.model }}
-        </td>
-        <td>{{ item.unit_price | round(0, 'floor') | int }}<br>{{ item.trade_term }} {{ pi.destination_port }}</td>
-        <td>{{ item.quantity | round(0, 'floor') | int }}</td>
-        <td>{{ item.total_price | round(0, 'floor') | int }}</td>
-      </tr>
-      {% set ns.total = ns.total + (item.total_price or 0) %}
-      {% endfor %}
-      <tr>
-        <td colspan="3" class="right bold">TOTAL</td>
-        <td class="bold">{{ ns.total | round(0, 'floor') | int }}</td>
-      </tr>
-    </tbody>
-  </table><br>
+  <div class="product-table">
+    <table>
+      <thead>
+        <tr>
+          <th>Name of the Commodity</th>
+          <th>Unit Price (USD)</th>
+          <th>Quantity (MT)</th>
+          <th>Amount (USD)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set ns = namespace(total=0) %}
+        {% for item in pi.products %}
+        <tr>
+          <td>
+            {{ item.product.category }} {{ item.product.brand or "" }} {{ item.product.model }}
+          </td>
+          <td>{{ item.unit_price | round(0, 'floor') | int }}<br>{{ item.trade_term }} {{ pi.destination_port }}</td>
+          <td>{{ item.quantity | round(0, 'floor') | int }}</td>
+          <td>{{ item.total_price | round(0, 'floor') | int }}</td>
+        </tr>
+        {% set ns.total = ns.total + (item.total_price or 0) %}
+        {% endfor %}
+        <tr>
+          <td colspan="3" class="right bold">TOTAL</td>
+          <td class="bold">{{ ns.total | round(0, 'floor') | int }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 
   <!-- 银行信息 -->
-  <div class="section">
+  <div class="bank-info">
     <strong>PAYMENT ROUTE:</strong>
-    <pre style="font-family: inherit; white-space: pre-wrap;">{{ pi.bank or "" }}</pre>
+    <pre>{{ pi.bank or "" }}</pre>
   </div>
 
   <!-- 页脚 -->
-  <div class="section" style="font-size: 12px;">
+  <div class="footer-note">
     **NOTE <br>
     DOCUMENTS ISSUED BY ELECTRONIC PROCESS. NO SIGN OR STAMP REQUIRED.
-  </div><br><br>
+  </div>
 
-  <div class="section" style="text-align: right; font-size: 15px;">
+  <div class="footer-company">
     {{ pi.exporter.name.replace(';', '<br>')|safe }}
   </div>
 

@@ -105,7 +105,7 @@
     <div class="card border-0 shadow-sm">
       <div class="card-header bg-navy text-white">
         <h5 class="mb-0">
-          <i class="fas fa-list me-2"></i> PI 列表
+          <i class="fas fa-list me-2"></i> 订单列表
         </h5>
       </div>
       <div class="card-body p-0">
@@ -114,10 +114,11 @@
             <thead class="bg-light-gray">
               <tr>
                 <th onclick="sortTable(0)" class="sortable-header text-navy">PI 编号</th>
-                <th onclick="sortTable(1)" class="sortable-header text-navy">日期</th>
+                <th onclick="sortTable(1)" class="sortable-header text-navy">订单类别</th>
+                <th onclick="sortTable(2)" class="sortable-header text-navy">日期</th>
                 <th class="text-navy">客户</th>
                 <th class="text-navy">出口商</th>
-                <th onclick="sortTable(4)" class="sortable-header text-navy">状态</th>
+                <th onclick="sortTable(5)" class="sortable-header text-navy">状态</th>
                 <th class="text-navy">操作</th>
               </tr>
             </thead>
@@ -125,6 +126,7 @@
               {% for pi in pis %}
               <tr class="table-row-hover">
                 <td class="fw-bold text-navy">{{ pi.pi_no }}</td>
+                <td>{% if pi.commission_factory_id or pi.commission_exporter_id %}工厂直发订单{% else %}销售订单{% endif %}</td>
                 <td>{{ pi.pi_date.strftime('%Y-%m-%d') }}</td>
                 <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <span title="{{ pi.customer_name_snapshot or pi.customer.name }}">{{ pi.customer_name_snapshot or pi.customer.name }}</span>
@@ -144,9 +146,15 @@
                     <a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="btn btn-sm btn-outline-navy me-1">
                       <i class="fas fa-eye me-1"></i>查看
                     </a>
+                    {% if pi.commission_factory_id or pi.commission_exporter_id %}
+                    <a href="{{ url_for('edit_commission_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
+                      <i class="fas fa-edit me-1"></i>编辑
+                    </a>
+                    {% else %}
                     <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
                       <i class="fas fa-edit me-1"></i>编辑
                     </a>
+                    {% endif %}
                   </div>
                 </td>
               </tr>
@@ -287,9 +295,14 @@
         }
 
         // 状态列自定义顺序
-        if (n === 4) {
+        if (n === 5) {
           xContent = statusOrder.indexOf(xContent.trim());
           yContent = statusOrder.indexOf(yContent.trim());
+        }
+        // 订单类别列自定义顺序
+        if (n === 1) {
+          xContent = xContent.trim() === '销售订单' ? 0 : 1;
+          yContent = yContent.trim() === '销售订单' ? 0 : 1;
         }
 
         if (dir == "asc" && xContent > yContent) shouldSwitch = true;

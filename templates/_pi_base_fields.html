@@ -1,0 +1,56 @@
+{# PI基础字段片段，可被销售/工厂直发订单表单复用 #}
+<div class="row">
+  <div class="col-md-6 mb-3">
+    <label for="pi_no" class="form-label">PI编号 <span class="text-danger">*</span></label>
+    <input type="text" class="form-control" id="pi_no" name="pi_no" required>
+  </div>
+  <div class="col-md-6 mb-3">
+    <label for="pi_date" class="form-label">PI日期 <span class="text-danger">*</span></label>
+    <input type="date" class="form-control" id="pi_date" name="pi_date" required>
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-6 mb-3">
+    <label for="customer" class="form-label">客户 <span class="text-danger">*</span></label>
+    <select class="form-select" id="customer" name="customer" required>
+      <option value="">请选择客户</option>
+      {% for c in customers %}
+      <option value="{{ c.id }}">{{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-6 mb-3">
+    <label for="payment_terms" class="form-label">付款方式</label>
+    <input type="text" class="form-control" id="payment_terms" name="payment_terms">
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-6 mb-3">
+    <label for="shipment_date" class="form-label">计划发运日期</label>
+    <input type="date" class="form-control" id="shipment_date" name="shipment_date">
+  </div>
+  <div class="col-md-6 mb-3">
+    <label for="loading_port" class="form-label">出发港口</label>
+    <input type="text" class="form-control" id="loading_port" name="loading_port">
+  </div>
+</div>
+<div class="row">
+  <div class="col-md-6 mb-3">
+    <label for="destination_port" class="form-label">目的港口</label>
+    <input type="text" class="form-control" id="destination_port" name="destination_port">
+  </div>
+  <div class="col-md-6 mb-3">
+    <label for="bank_selector" class="form-label">收款银行</label>
+    <select class="form-select mb-2" id="bank_selector">
+      <option value="">请选择银行账户</option>
+      <option value="Account with Bank: Hang Seng Bank Limited&#10;Bank address: 83 Des Voeux Road Central Hong Kong&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 255-563587-883&#10;SWIFT Code: HASEHKHH">银行账户 1 - Hang Seng Bank HK</option>
+      <option value="ACCOUNT WITH BANK: BANK OF CHINA,CHENGDU QINGYANG SUB-BRANCH&#10;ADD: TOWER B JINGSHA WINERA PLAZA,&#10;NO 1 SHUJIN ROAD, CHENGDU, SICHUAN, CHINA&#10;SWIFT CODE: BKCHCNBJ570&#10;BENEFICIARY: CHENGDU XHTI TECHNOLOGY CO.,LTD&#10;ADDRESS: Room 1823,No 7 HangKong Road,Chengdu City&#10;ACCOUNT NO: 117206727382">银行账户 2 - BOC CHINA</option>
+      <option value="Account with Bank: OCBC BANK (HONGKONG) LIMITED&#10;Bank address: 161 QUEEN'S ROAD CENTRAL, HONGKONG&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 802-215349-831&#10;SWIFT Code: WIHBHKHH&#10;Bank Code: 035">银行账户 3 - OCBC Bank HK</option>
+    </select>
+    <textarea class="form-control" id="bank_text" name="bank" rows="6" placeholder="请选择银行账户或手动填写银行信息"></textarea>
+  </div>
+  <div class="col-md-6 mb-3">
+    <label for="note" class="form-label">备注</label>
+    <input type="text" class="form-control" id="note" name="note" placeholder="默认：Please arrange shipment as scheduled.">
+  </div>
+</div> 

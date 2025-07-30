@@ -1,19 +1,19 @@
 {% extends "base.html" %}
-{% block title %}PI 列表 - 西合钛贸易管理系统{% endblock %}
+{% block title %}工厂直发订单列表 - 西合钛贸易管理系统{% endblock %}
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>PI 列表</h2>
+    <h2>工厂直发订单列表</h2>
     <div>
-      <a href="{{ url_for('create_pi') }}" class="btn btn-primary me-2">新建销售订单</a>
+              <a href="{{ url_for('create_pi_commission') }}" class="btn btn-warning me-2">新建工厂直发订单</a>
     </div>
   </div>
-  <!-- PI列表区域 -->
+      <!-- 工厂直发订单列表区域 -->
   <div class="pi-list-section">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-navy text-white">
+      <div class="card-header bg-warning text-dark">
         <h5 class="mb-0">
-          <i class="fas fa-list me-2"></i> PI 列表
+          <i class="fas fa-list me-2"></i> 工厂直发订单列表
         </h5>
       </div>
       <div class="card-body p-0">
@@ -24,46 +24,29 @@
                 <th onclick="sortTable(0)" class="sortable-header text-navy">PI 编号</th>
                 <th onclick="sortTable(1)" class="sortable-header text-navy">日期</th>
                 <th class="text-navy">客户</th>
-                <th class="text-navy">出口商</th>
-                <th class="text-navy">产品型号</th>
                 <th class="text-navy">厂家</th>
-                <th class="text-navy">数量(MT)</th>
-                <th class="text-navy">金额(USD)</th>
-                <th class="text-navy">出发港</th>
-                <th class="text-navy">目的港</th>
-                <th onclick="sortTable(10)" class="sortable-header text-navy">状态</th>
+                <th class="text-navy">佣金收取方</th>
+                <th class="text-navy">佣金金额</th>
+                <th class="text-navy">佣金比例</th>
+                <th class="text-navy">厂家实际销售金额</th>
+                <th class="text-navy">状态</th>
                 <th class="text-navy">操作</th>
               </tr>
             </thead>
             <tbody>
               {% for pi in pi_list %}
+              {% if pi.commission_factory_id or pi.commission_exporter_id %}
               <tr class="table-row-hover">
                 <td class="fw-bold text-navy">{{ pi.pi_no }}</td>
                 <td>{{ pi.pi_date.strftime('%Y-%m-%d') }}</td>
                 <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                   <span title="{{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '') }}">{{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '') }}</span>
                 </td>
-                <td style="max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                  <span title="{{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '') }}">{{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '') }}</span>
-                </td>
-                <td>
-                  {% for item in pi.products %}
-                    {{ item.product_model_snapshot or item.product.model }}<br>
-                  {% endfor %}
-                </td>
-                <td>
-                  {% for item in pi.products %}
-                    {{ item.factory_name_snapshot or item.factory.name }}<br>
-                  {% endfor %}
-                </td>
-                <td>
-                  {% for item in pi.products %}
-                    {{ item.quantity | int }}<br>
-                  {% endfor %}
-                </td>
-                <td>{{ (pi.products | sum(attribute='total_price')) | int | format_number }}</td>
-                <td>{{ pi.loading_port }}</td>
-                <td>{{ pi.destination_port }}</td>
+                <td>{{ pi.commission_factory.name if pi.commission_factory else '-' }}</td>
+                <td>{{ pi.commission_exporter.name if pi.commission_exporter else '-' }}</td>
+                <td>{{ pi.commission_amount or '-' }}</td>
+                <td>{{ pi.commission_rate or '-' }}{% if pi.commission_rate %}%{% endif %}</td>
+                <td>{{ pi.factory_sale_amount or '-' }}</td>
                 <td>
                   {% if pi.status == '已完成' %}
                     <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
@@ -76,12 +59,13 @@
                     <a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="btn btn-sm btn-outline-navy me-1">
                       <i class="fas fa-eye me-1"></i>查看
                     </a>
-                    <a href="{{ url_for('edit_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
+                    <a href="{{ url_for('edit_commission_pi', pi_id=pi.id) }}" class="btn btn-sm btn-accent">
                       <i class="fas fa-edit me-1"></i>编辑
                     </a>
                   </div>
                 </td>
               </tr>
+              {% endif %}
               {% endfor %}
             </tbody>
           </table>
@@ -92,7 +76,7 @@
 </div>
 
 <style>
-  /* 自定义颜色变量 */
+  /* 复用pi_list页面样式 */
   :root {
     --navy-blue: #1e3a8a;
     --light-navy: #3b82f6;
@@ -101,17 +85,11 @@
     --medium-gray: #e2e8f0;
     --dark-gray: #64748b;
   }
-
-  /* 文字颜色 */
   .text-navy { color: var(--navy-blue) !important; }
   .text-accent { color: var(--accent-color) !important; }
-  
-  /* 背景颜色 */
   .bg-navy { background-color: var(--navy-blue) !important; }
   .bg-light-gray { background-color: var(--light-gray) !important; }
   .bg-accent { background-color: var(--accent-color) !important; }
-
-  /* 按钮样式 */
   .btn-outline-navy {
     color: var(--navy-blue);
     border-color: var(--navy-blue);
@@ -131,8 +109,6 @@
     border-color: #d97706;
     color: white;
   }
-
-  /* 表格样式 */
   .sortable-header {
     cursor: pointer;
     position: relative;
@@ -146,23 +122,17 @@
     top: 50%;
     transform: translateY(-50%);
   }
-
   .table-row-hover:hover {
     background-color: var(--light-gray);
   }
-
-  /* 卡片样式 */
   .card {
     border-radius: 15px;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
   }
-
   .card-header {
     border-radius: 15px 15px 0 0;
     border: none;
   }
-
-  /* 响应式调整 */
   @media (max-width: 768px) {
     .display-6 {
       font-size: 1.5rem;
@@ -184,15 +154,12 @@
         let y = rows[i + 1].getElementsByTagName("TD")[n];
         let xContent = x.innerText || x.textContent;
         let yContent = y.innerText || y.textContent;
-
         if (!isNaN(Date.parse(xContent)) && !isNaN(Date.parse(yContent))) {
           xContent = new Date(xContent);
           yContent = new Date(yContent);
         }
-
         if (dir == "asc" && xContent > yContent) shouldSwitch = true;
         if (dir == "desc" && xContent < yContent) shouldSwitch = true;
-
         if (shouldSwitch) {
           rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
           switching = true;
@@ -206,4 +173,4 @@
     }
   }
 </script>
-{% endblock %}
+{% endblock %} 

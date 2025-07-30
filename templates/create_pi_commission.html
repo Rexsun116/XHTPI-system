@@ -1,18 +1,9 @@
 {% extends "base.html" %}
-{% block title %}创建 PI - 西合钛贸易管理系统{% endblock %}
+{% block title %}创建工厂直发订单PI{% endblock %}
 {% block content %}
 <div class="container mt-4">
-  <div class="row mb-4">
-    <div class="col-12">
-      <h2 class="text-center mb-4">创建 PI</h2>
-      <div class="alert alert-info text-center" role="alert">
-        请填写以下PI信息，带 <span class="text-danger">*</span> 为必填项
-      </div>
-    </div>
-  </div>
-
+      <h2 class="text-center mb-4">创建工厂直发订单 PI</h2>
   <form method="POST" class="needs-validation" novalidate>
-    <!-- 基本信息卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-primary text-white">
         <h5 class="mb-0">基本信息</h5>
@@ -22,27 +13,15 @@
           <div class="col-md-6 mb-3">
             <label for="pi_no" class="form-label">PI编号 <span class="text-danger">*</span></label>
             <input type="text" class="form-control" id="pi_no" name="pi_no" required>
-            <div id="pi_no_feedback" class="form-text"></div>
-            <div id="pi_no_validation" class="invalid-feedback"></div>
           </div>
           <div class="col-md-6 mb-3">
             <label for="pi_date" class="form-label">PI日期 <span class="text-danger">*</span></label>
             <input type="date" class="form-control" id="pi_date" name="pi_date" required>
           </div>
         </div>
-
         <div class="row">
           <div class="col-md-6 mb-3">
-            <label for="exporter" class="form-label">出口商 <span class="text-danger">*</span></label>
-            <select class="form-select" id="exporter" name="exporter" required>
-              <option value="">请选择出口商</option>
-              {% for e in exporters %}
-              <option value="{{ e.id }}">{{ e.name }}</option>
-              {% endfor %}
-            </select>
-          </div>
-          <div class="col-md-6 mb-3">
-            <label for="customer" class="form-label">客户（进口商） <span class="text-danger">*</span></label>
+            <label for="customer" class="form-label">客户 <span class="text-danger">*</span></label>
             <select class="form-select" id="customer" name="customer" required>
               <option value="">请选择客户</option>
               {% for c in customers %}
@@ -50,57 +29,88 @@
               {% endfor %}
             </select>
           </div>
-        </div>
-
-        <div class="row">
           <div class="col-md-6 mb-3">
             <label for="payment_terms" class="form-label">付款方式</label>
             <input type="text" class="form-control" id="payment_terms" name="payment_terms">
           </div>
+        </div>
+        <div class="row">
           <div class="col-md-6 mb-3">
             <label for="shipment_date" class="form-label">计划发运日期</label>
             <input type="date" class="form-control" id="shipment_date" name="shipment_date">
           </div>
-        </div>
-
-        <div class="row">
           <div class="col-md-6 mb-3">
             <label for="loading_port" class="form-label">出发港口</label>
             <input type="text" class="form-control" id="loading_port" name="loading_port">
           </div>
+        </div>
+        <div class="row">
           <div class="col-md-6 mb-3">
             <label for="destination_port" class="form-label">目的港口</label>
             <input type="text" class="form-control" id="destination_port" name="destination_port">
           </div>
+          <div class="col-md-6 mb-3">
+            <label for="bank_selector" class="form-label">收款银行</label>
+            <select class="form-select mb-2" id="bank_selector">
+              <option value="">请选择银行账户</option>
+              <option value="Account with Bank: Hang Seng Bank Limited&#10;Bank address: 83 Des Voeux Road Central Hong Kong&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 255-563587-883&#10;SWIFT Code: HASEHKHH">银行账户 1 - Hang Seng Bank HK</option>
+              <option value="ACCOUNT WITH BANK: BANK OF CHINA,CHENGDU QINGYANG SUB-BRANCH&#10;ADD: TOWER B JINGSHA WINERA PLAZA,&#10;NO 1 SHUJIN ROAD, CHENGDU, SICHUAN, CHINA&#10;SWIFT CODE: BKCHCNBJ570&#10;BENEFICIARY: CHENGDU XHTI TECHNOLOGY CO.,LTD&#10;ADDRESS: Room 1823,No 7 HangKong Road,Chengdu City&#10;ACCOUNT NO: 117206727382">银行账户 2 - BOC CHINA</option>
+              <option value="Account with Bank: OCBC BANK (HONGKONG) LIMITED&#10;Bank address: 161 QUEEN'S ROAD CENTRAL, HONGKONG&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 802-215349-831&#10;SWIFT Code: WIHBHKHH&#10;Bank Code: 035">银行账户 3 - OCBC Bank HK</option>
+            </select>
+            <textarea class="form-control" id="bank_text" name="bank" rows="6" placeholder="请选择银行账户或手动填写银行信息"></textarea>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="note" class="form-label">备注</label>
+            <input type="text" class="form-control" id="note" name="note" placeholder="默认：Please arrange shipment as scheduled.">
+          </div>
         </div>
-
-        <div class="mb-3">
-          <label for="bank_selector" class="form-label">收款银行</label>
-          <select class="form-select mb-2" id="bank_selector">
-            <option value="">请选择银行账户</option>
-            <option value="Account with Bank: Hang Seng Bank Limited&#10;Bank address: 83 Des Voeux Road Central Hong Kong&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 255-563587-883&#10;SWIFT Code: HASEHKHH">
-              银行账户 1 - Hang Seng Bank HK
-            </option>
-            <option value="ACCOUNT WITH BANK: BANK OF CHINA,CHENGDU QINGYANG SUB-BRANCH&#10;ADD: TOWER B JINGSHA WINERA PLAZA,&#10;NO 1 SHUJIN ROAD, CHENGDU, SICHUAN, CHINA&#10;SWIFT CODE: BKCHCNBJ570&#10;BENEFICIARY: CHENGDU XHTI TECHNOLOGY CO.,LTD&#10;ADDRESS: Room 1823,No 7 HangKong Road,Chengdu City&#10;ACCOUNT NO: 117206727382">
-              银行账户 2 - BOC CHINA
-            </option>
-            <option value="Account with Bank: OCBC BANK (HONGKONG) LIMITED&#10;Bank address: 161 QUEEN'S ROAD CENTRAL, HONGKONG&#10;Beneficiary: AEA MARKETING LIMITED&#10;Account number: 802-215349-831&#10;SWIFT Code: WIHBHKHH&#10;Bank Code: 035">
-              银行账户 3 - OCBC Bank HK
-            </option>
-            <option value="Beneficiary Name: titax chemical Limited&#10;Beneficiary Address: FLAT 3B,3F BANK TOWER NOS,351-353 KING'S ROAD,NORTH POINT,HK&#10;Beneficiary Account Number:801-770892-838&#10;Beneficiary Bank: The Hongkong and Shanghai Banking Corporation Limited&#10;SWIFT CODE: HSBCHKHHHKH&#10;Bank Code: 004&#10;Bank Address: 1 QUEEN'S ROAD CENTRAL HONGKONG">
-              银行账户 4 - HSBC
-            </option>
-          </select>
-          <textarea class="form-control" id="bank_text" name="bank" rows="6" placeholder="请选择银行账户或手动填写银行信息"></textarea>
+        <!-- 工厂直发订单专属字段 -->
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="commission_factory_id" class="form-label">厂家 <span class="text-danger">*</span></label>
+            <select class="form-select" id="commission_factory_id" name="commission_factory_id" required>
+              <option value="">请选择厂家</option>
+              {% for f in factories %}
+              <option value="{{ f.id }}">{{ f.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="commission_exporter_id" class="form-label">佣金收取方 <span class="text-danger">*</span></label>
+            <select class="form-select" id="commission_exporter_id" name="commission_exporter_id" required>
+              <option value="">请选择佣金收取方</option>
+              {% for e in exporters %}
+              <option value="{{ e.id }}">{{ e.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
-
-        <div class="mb-3">
-          <label for="note" class="form-label">备注</label>
-          <input type="text" class="form-control" id="note" name="note" placeholder="默认：Please arrange shipment as scheduled.">
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="commission_amount" class="form-label">佣金金额</label>
+            <input type="number" step="0.01" class="form-control" id="commission_amount" name="commission_amount">
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="commission_rate" class="form-label">佣金比例（%）</label>
+            <input type="number" step="0.01" class="form-control" id="commission_rate" name="commission_rate">
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <label for="commission_status" class="form-label">佣金结算状态</label>
+            <select class="form-select" id="commission_status" name="commission_status">
+              <option value="">请选择</option>
+              <option value="已结算">已结算</option>
+              <option value="未结算">未结算</option>
+            </select>
+          </div>
+          <div class="col-md-6 mb-3">
+            <label for="factory_sale_amount" class="form-label">厂家实际销售金额</label>
+            <input type="number" step="0.01" class="form-control" id="factory_sale_amount" name="factory_sale_amount">
+          </div>
         </div>
       </div>
     </div>
-
     <!-- 产品明细卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-primary text-white">
@@ -198,75 +208,6 @@
     row.querySelector(`[name^='total_price_']`).value = (price * qty).toFixed(2);
   }
 
-  // PI编号即时验证
-  let piNoValidationTimer;
-  const piNoInput = document.getElementById('pi_no');
-  const piNoFeedback = document.getElementById('pi_no_feedback');
-  const piNoValidation = document.getElementById('pi_no_validation');
-  
-  piNoInput.addEventListener('input', function() {
-    const piNo = this.value.trim();
-    
-    // 清除之前的定时器
-    clearTimeout(piNoValidationTimer);
-    
-    // 重置状态
-    this.classList.remove('is-valid', 'is-invalid');
-    piNoFeedback.textContent = '';
-    piNoValidation.textContent = '';
-    
-    if (piNo === '') {
-      piNoFeedback.textContent = '请输入PI编号';
-      return;
-    }
-    
-    // 显示加载状态
-    piNoFeedback.textContent = '正在验证...';
-    piNoFeedback.className = 'form-text text-muted';
-    
-    // 延迟500ms后验证，避免频繁请求
-    piNoValidationTimer = setTimeout(() => {
-      validatePiNo(piNo);
-    }, 500);
-  });
-  
-  function validatePiNo(piNo) {
-    const formData = new FormData();
-    formData.append('pi_no', piNo);
-    
-    fetch('/check-pi-no', {
-      method: 'POST',
-      body: formData,
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest'
-      }
-    })
-    .then(response => response.json())
-    .then(data => {
-      const input = document.getElementById('pi_no');
-      
-      if (data.valid) {
-        // 验证成功
-        input.classList.remove('is-invalid');
-        input.classList.add('is-valid');
-        piNoFeedback.textContent = data.message;
-        piNoFeedback.className = 'form-text text-success';
-        piNoValidation.textContent = '';
-      } else {
-        // 验证失败
-        input.classList.remove('is-valid');
-        input.classList.add('is-invalid');
-        piNoFeedback.textContent = '';
-        piNoValidation.textContent = data.message;
-      }
-    })
-    .catch(error => {
-      console.error('验证PI编号时出错:', error);
-      piNoFeedback.textContent = '验证时出现错误，请重试';
-      piNoFeedback.className = 'form-text text-danger';
-    });
-  }
-  
   // 表单验证
   (function () {
     'use strict';
@@ -274,15 +215,6 @@
     Array.prototype.slice.call(forms)
       .forEach(function (form) {
         form.addEventListener('submit', function (event) {
-          // 检查PI编号是否有效
-          const piNoInput = document.getElementById('pi_no');
-          if (piNoInput.classList.contains('is-invalid')) {
-            event.preventDefault();
-            event.stopPropagation();
-            alert('请先解决PI编号的问题');
-            return;
-          }
-          
           if (!form.checkValidity()) {
             event.preventDefault();
             event.stopPropagation();
@@ -292,4 +224,4 @@
       });
   })();
 </script>
-{% endblock %}
+{% endblock %} 

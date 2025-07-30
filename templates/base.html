@@ -59,15 +59,25 @@
               <i class="fas fa-box me-1"></i>产品
             </a>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" href="/create-pi">
-              <i class="fas fa-plus-circle me-1"></i>创建 PI
+          <!-- 销售订单下拉菜单 -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="salesOrderDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-file-invoice me-1"></i>销售订单
             </a>
+            <ul class="dropdown-menu" aria-labelledby="salesOrderDropdown">
+              <li><a class="dropdown-item" href="/create-pi"><i class="fas fa-plus-circle me-1"></i>创建 PI</a></li>
+              <li><a class="dropdown-item" href="/pi-list"><i class="fas fa-list me-1"></i>PI 列表</a></li>
+            </ul>
           </li>
-          <li class="nav-item">
-            <a class="nav-link" href="/pi-list">
-              <i class="fas fa-list me-1"></i>PI 列表
+          <!-- 工厂直发订单下拉菜单 -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="commissionOrderDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+              <i class="fas fa-coins me-1"></i>工厂直发订单
             </a>
+            <ul class="dropdown-menu" aria-labelledby="commissionOrderDropdown">
+              <li><a class="dropdown-item" href="/create-pi-commission"><i class="fas fa-plus-circle me-1"></i>创建工厂直发订单</a></li>
+              <li><a class="dropdown-item" href="/commission-pi-list"><i class="fas fa-list me-1"></i>工厂直发订单列表</a></li>
+            </ul>
           </li>
         </ul>
         {% if current_user.is_authenticated %}

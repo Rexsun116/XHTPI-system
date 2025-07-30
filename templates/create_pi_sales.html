@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}创建销售订单PI{% endblock %}
+{% block content %}
+<div class="container mt-4">
+  <h2 class="text-center mb-4">创建销售订单 PI</h2>
+  <form method="POST" class="needs-validation" novalidate>
+    <div class="card mb-4 shadow-sm">
+      <div class="card-header bg-primary text-white">
+        <h5 class="mb-0">基本信息</h5>
+      </div>
+      <div class="card-body">
+        {% include '_pi_base_fields.html' %}
+        <div class="mb-3">
+          <label for="exporter" class="form-label">出口商 <span class="text-danger">*</span></label>
+          <select class="form-select" id="exporter" name="exporter" required>
+            <option value="">请选择出口商</option>
+            {% for e in exporters %}
+            <option value="{{ e.id }}">{{ e.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+    <!-- 可在此处插入产品明细等其他表单内容 -->
+    <button type="submit" class="btn btn-success">提交</button>
+  </form>
+</div>
+<script>
+  document.getElementById('bank_selector').addEventListener('change', function () {
+    const selectedValue = this.value;
+    if (selectedValue) {
+      document.getElementById('bank_text').value = selectedValue.replace(/&#10;/g, '\n');
+    }
+  });
+</script>
+{% endblock %} 
