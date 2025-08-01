@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
 from sqlalchemy import func, extract
+from sqlalchemy.orm import joinedload
 from docx import Document
 from weasyprint import HTML
 import requests
@@ -1918,8 +1919,10 @@ def create_pi_commission():
 @app.route('/commission-pi-list')
 @login_required
 def commission_pi_list():
-    # 只查询工厂直发订单
-    pi_list = PI.query.filter((PI.commission_factory_id.isnot(None)) | (PI.commission_exporter_id.isnot(None))).all()
+    # 只查询工厂直发订单，并预加载产品信息
+    pi_list = PI.query.filter((PI.commission_factory_id.isnot(None)) | (PI.commission_exporter_id.isnot(None))).options(
+        db.joinedload(PI.products).joinedload(PIItem.product)
+    ).all()
     return render_template('commission_pi_list.html', pi_list=pi_list)
 
 @app.route('/commission-pi/<int:pi_id>/update-status', methods=['GET', 'POST'])

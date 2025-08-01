@@ -26,9 +26,11 @@
                 <th class="text-navy">客户</th>
                 <th class="text-navy">厂家</th>
                 <th class="text-navy">佣金收取方</th>
-                <th class="text-navy">佣金金额</th>
-                <th class="text-navy">佣金比例</th>
-                <th class="text-navy">厂家实际销售金额</th>
+                <th class="text-navy">产品型号</th>
+                <th class="text-navy">数量</th>
+                <th class="text-navy">金额</th>
+                <th class="text-navy">出发港</th>
+                <th class="text-navy">目的港</th>
                 <th class="text-navy">状态</th>
                 <th class="text-navy">操作</th>
               </tr>
@@ -44,9 +46,27 @@
                 </td>
                 <td>{{ pi.commission_factory.name if pi.commission_factory else '-' }}</td>
                 <td>{{ pi.commission_exporter.name if pi.commission_exporter else '-' }}</td>
-                <td>{{ pi.commission_amount or '-' }}</td>
-                <td>{{ pi.commission_rate or '-' }}{% if pi.commission_rate %}%{% endif %}</td>
-                <td>{{ pi.factory_sale_amount or '-' }}</td>
+                <td>
+                  {% if pi.products %}
+                    {% for item in pi.products %}
+                      {{ item.product_model_snapshot or (item.product.model if item.product else '-') }}{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>
+                  {% if pi.products %}
+                    {% for item in pi.products %}
+                      {{ item.quantity | int if item.quantity else '-' }}{% if not loop.last %}<br>{% endif %}
+                    {% endfor %}
+                  {% else %}
+                    -
+                  {% endif %}
+                </td>
+                <td>{{ (pi.products | sum(attribute='total_price')) | int | format_number if pi.products else '-' }}</td>
+                <td>{{ pi.loading_port or '-' }}</td>
+                <td>{{ pi.destination_port or '-' }}</td>
                 <td>
                   {% if pi.status == '已完成' %}
                     <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
