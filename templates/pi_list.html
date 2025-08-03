@@ -3,9 +3,128 @@
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>PI 列表</h2>
+    <h2>PI Dashboard</h2>
     <div>
       <a href="{{ url_for('create_pi') }}" class="btn btn-primary me-2">新建销售订单</a>
+    </div>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div class="row mb-4">
+    <div class="col-md-3">
+      <div class="card bg-primary text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.total_stats.total_orders }}</h4>
+              <small>总订单数</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-file-invoice fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-success text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.total_stats.completed_orders }}</h4>
+              <small>已完成订单</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-check-circle fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-warning text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.total_stats.pending_orders }}</h4>
+              <small>进行中订单</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-clock fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-info text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">${{ "{:,.0f}".format(chart_data.total_stats.total_amount) }}</h4>
+              <small>总金额(USD)</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-dollar-sign fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图表区域 -->
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>订单状态分布</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="statusChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>月度订单趋势</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>客户订单金额排行</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="customerChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>产品销量统计</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="productChart"></canvas>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
   <!-- PI列表区域 -->
@@ -26,12 +145,11 @@
                 <th class="text-navy">客户</th>
                 <th class="text-navy">出口商</th>
                 <th class="text-navy">产品型号</th>
-                <th class="text-navy">厂家</th>
                 <th class="text-navy">数量(MT)</th>
                 <th class="text-navy">金额(USD)</th>
                 <th class="text-navy">出发港</th>
                 <th class="text-navy">目的港</th>
-                <th onclick="sortTable(10)" class="sortable-header text-navy">状态</th>
+                <th onclick="sortTable(9)" class="sortable-header text-navy">状态</th>
                 <th class="text-navy">操作</th>
               </tr>
             </thead>
@@ -49,11 +167,6 @@
                 <td>
                   {% for item in pi.products %}
                     {{ item.product_model_snapshot or item.product.model }}<br>
-                  {% endfor %}
-                </td>
-                <td>
-                  {% for item in pi.products %}
-                    {{ item.factory_name_snapshot or item.factory.name }}<br>
                   {% endfor %}
                 </td>
                 <td>
@@ -168,9 +281,204 @@
       font-size: 1.5rem;
     }
   }
+
+  /* 图表容器样式 */
+  .chart-container {
+    position: relative;
+    height: 300px;
+    width: 100%;
+  }
+
+  /* 统计卡片悬停效果 */
+  .card:hover {
+    transform: translateY(-2px);
+    transition: transform 0.3s ease;
+  }
+
+  /* 图表卡片样式 */
+  .chart-card {
+    transition: all 0.3s ease;
+  }
+
+  .chart-card:hover {
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  }
 </style>
 
+<!-- Chart.js 库 -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
+  // 图表数据
+  const chartData = {
+    statusData: {{ chart_data.status_data | tojson }},
+    monthlyTrend: {{ chart_data.monthly_trend | tojson }},
+    customerData: {{ chart_data.customer_data | tojson }},
+    productData: {{ chart_data.product_data | tojson }}
+  };
+
+  // 初始化图表
+  document.addEventListener('DOMContentLoaded', function() {
+    // 1. 订单状态分布饼图
+    const statusCtx = document.getElementById('statusChart').getContext('2d');
+    new Chart(statusCtx, {
+      type: 'doughnut',
+      data: {
+        labels: chartData.statusData.labels,
+        datasets: [{
+          data: chartData.statusData.data,
+          backgroundColor: chartData.statusData.colors,
+          borderWidth: 2,
+          borderColor: '#fff'
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'bottom',
+            labels: {
+              padding: 20,
+              usePointStyle: true
+            }
+          }
+        }
+      }
+    });
+
+    // 2. 月度订单趋势图
+    const trendCtx = document.getElementById('trendChart').getContext('2d');
+    new Chart(trendCtx, {
+      type: 'line',
+      data: {
+        labels: chartData.monthlyTrend.map(item => item.month),
+        datasets: [{
+          label: '订单数量',
+          data: chartData.monthlyTrend.map(item => item.count),
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          borderWidth: 3,
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              stepSize: 1
+            }
+          }
+        }
+      }
+    });
+
+    // 3. 客户订单金额排行
+    const customerCtx = document.getElementById('customerChart').getContext('2d');
+    new Chart(customerCtx, {
+      type: 'bar',
+      data: {
+        labels: chartData.customerData.labels,
+        datasets: [{
+          label: '订单金额 (USD)',
+          data: chartData.customerData.data,
+          backgroundColor: [
+            'rgba(59, 130, 246, 0.8)',   // 蓝色
+            'rgba(16, 185, 129, 0.8)',   // 绿色
+            'rgba(245, 158, 11, 0.8)',   // 橙色
+            'rgba(239, 68, 68, 0.8)',    // 红色
+            'rgba(139, 92, 246, 0.8)',   // 紫色
+            'rgba(236, 72, 153, 0.8)',   // 粉色
+            'rgba(34, 197, 94, 0.8)',    // 翠绿
+            'rgba(251, 146, 60, 0.8)',   // 橙红
+            'rgba(99, 102, 241, 0.8)',   // 靛蓝
+            'rgba(14, 165, 233, 0.8)'    // 天蓝
+          ],
+          borderColor: [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+            '#ec4899', '#22c55e', '#fb923c', '#6366f1', '#0ea5e9'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return '$' + value.toLocaleString();
+              }
+            }
+          }
+        }
+      }
+    });
+
+    // 4. 产品销量统计
+    const productCtx = document.getElementById('productChart').getContext('2d');
+    new Chart(productCtx, {
+      type: 'bar',
+      data: {
+        labels: chartData.productData.labels,
+        datasets: [{
+          label: '销量 (MT)',
+          data: chartData.productData.data,
+          backgroundColor: [
+            'rgba(34, 197, 94, 0.8)',    // 翠绿
+            'rgba(59, 130, 246, 0.8)',   // 蓝色
+            'rgba(245, 158, 11, 0.8)',   // 橙色
+            'rgba(239, 68, 68, 0.8)',    // 红色
+            'rgba(139, 92, 246, 0.8)',   // 紫色
+            'rgba(236, 72, 153, 0.8)',   // 粉色
+            'rgba(16, 185, 129, 0.8)',   // 绿色
+            'rgba(251, 146, 60, 0.8)'    // 橙红
+          ],
+          borderColor: [
+            '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+            '#ec4899', '#10b981', '#fb923c'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function(value) {
+                return value.toLocaleString() + ' MT';
+              }
+            }
+          }
+        }
+      }
+    });
+  });
+
   // 简单表格排序（按点击的列排序）
   function sortTable(n) {
     const table = document.getElementById("piTable");

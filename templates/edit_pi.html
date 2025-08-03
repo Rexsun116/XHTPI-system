@@ -411,7 +411,7 @@
               <option value="不需要" {% if pi.document_shipping_status == '不需要' %}selected{% endif %}>不需要</option>
             </select>
           </div>
-          <div class="col-md-6 mb-3" id="tracking_number_div" style="display: {% if pi.document_shipping_status == '已邮寄' %}block{% else %}none{% endif %};">
+          <div class="col-md-6 mb-3" id="tracking_number_div" style="display: {% if pi.document_shipping_status == '已邮寄' %}block{% else %}none{% endif %}">
             <label>邮件单号</label>
             <input type="text" class="form-control" name="tracking_number" value="{{ pi.tracking_number or '' }}" {% if readonly %}readonly disabled{% endif %}>
           </div>

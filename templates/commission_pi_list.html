@@ -1,17 +1,152 @@
 {% extends "base.html" %}
-{% block title %}工厂直发订单列表 - 西合钛贸易管理系统{% endblock %}
+{% block title %}工厂直发订单Dashboard - 西合钛贸易管理系统{% endblock %}
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>工厂直发订单列表</h2>
+    <h2>工厂直发订单 Dashboard</h2>
     <div>
-              <a href="{{ url_for('create_pi_commission') }}" class="btn btn-warning me-2">新建工厂直发订单</a>
+      <a href="{{ url_for('create_pi_commission') }}" class="btn btn-warning me-2">新建工厂直发订单</a>
     </div>
   </div>
-      <!-- 工厂直发订单列表区域 -->
+
+  <!-- 统计卡片 -->
+  <div class="row mb-4">
+    <div class="col-md-3">
+      <div class="card bg-primary text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.totalStats.totalOrders }}</h4>
+              <small>总订单数</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-file-invoice fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-success text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.totalStats.completedOrders }}</h4>
+              <small>已完成订单</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-check-circle fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-warning text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">{{ chart_data.totalStats.inProgressOrders }}</h4>
+              <small>进行中订单</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-clock fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="card bg-info text-white">
+        <div class="card-body">
+          <div class="d-flex justify-content-between">
+            <div>
+              <h4 class="mb-0">${{ "{:,.0f}".format(chart_data.totalStats.totalAmount) }}</h4>
+              <small>总金额(USD)</small>
+            </div>
+            <div class="align-self-center">
+              <i class="fas fa-dollar-sign fa-2x"></i>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 图表区域 -->
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-pie me-2"></i>订单状态分布</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="statusChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-line me-2"></i>月度订单趋势</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="trendChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>客户订单金额排行</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="customerChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>厂家订单金额排行</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="factoryChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row mb-4">
+    <div class="col-md-6">
+      <div class="card shadow-sm chart-card">
+        <div class="card-header bg-navy text-white">
+          <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>产品销量统计</h5>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="productChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 工厂直发订单列表区域 -->
   <div class="pi-list-section">
     <div class="card border-0 shadow-sm">
-      <div class="card-header bg-warning text-dark">
+      <div class="card-header bg-navy text-white">
         <h5 class="mb-0">
           <i class="fas fa-list me-2"></i> 工厂直发订单列表
         </h5>
@@ -153,6 +288,22 @@
     border-radius: 15px 15px 0 0;
     border: none;
   }
+  .chart-container {
+    position: relative;
+    height: 200px;
+  }
+  .chart-card {
+    transition: transform 0.2s ease-in-out;
+  }
+  .chart-card:hover {
+    transform: translateY(-2px);
+  }
+  .card {
+    transition: all 0.3s ease;
+  }
+  .card:hover {
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  }
   @media (max-width: 768px) {
     .display-6 {
       font-size: 1.5rem;
@@ -160,7 +311,223 @@
   }
 </style>
 
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
+  // 图表数据
+  const chartData = {{ chart_data | tojson }};
+
+  // 1. 订单状态分布（环形图）
+  const statusCtx = document.getElementById('statusChart').getContext('2d');
+  new Chart(statusCtx, {
+    type: 'doughnut',
+    data: {
+      labels: chartData.statusData.labels,
+      datasets: [{
+        data: chartData.statusData.data,
+        backgroundColor: [
+          'rgba(34, 197, 94, 0.8)',   // 绿色 - 已完成
+          'rgba(59, 130, 246, 0.8)',  // 蓝色 - 进行中
+          'rgba(245, 158, 11, 0.8)',  // 橙色 - 待发运
+          'rgba(239, 68, 68, 0.8)',   // 红色 - 已发运
+          'rgba(139, 92, 246, 0.8)'   // 紫色 - 已到港
+        ],
+        borderColor: [
+          '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'
+        ],
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom'
+        }
+      }
+    }
+  });
+
+  // 2. 月度订单趋势（折线图）
+  const trendCtx = document.getElementById('trendChart').getContext('2d');
+  new Chart(trendCtx, {
+    type: 'line',
+    data: {
+      labels: chartData.trendData.labels,
+      datasets: [{
+        label: '订单数量',
+        data: chartData.trendData.data,
+        borderColor: '#f59e0b',
+        backgroundColor: 'rgba(245, 158, 11, 0.1)',
+        borderWidth: 3,
+        fill: true,
+        tension: 0.4
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            stepSize: 1
+          }
+        }
+      }
+    }
+  });
+
+  // 3. 客户订单金额排行
+  const customerCtx = document.getElementById('customerChart').getContext('2d');
+  new Chart(customerCtx, {
+    type: 'bar',
+    data: {
+      labels: chartData.customerData.labels,
+      datasets: [{
+        label: '订单金额 (USD)',
+        data: chartData.customerData.data,
+        backgroundColor: [
+          'rgba(59, 130, 246, 0.8)',   // 蓝色
+          'rgba(16, 185, 129, 0.8)',   // 绿色
+          'rgba(245, 158, 11, 0.8)',   // 橙色
+          'rgba(239, 68, 68, 0.8)',    // 红色
+          'rgba(139, 92, 246, 0.8)',   // 紫色
+          'rgba(236, 72, 153, 0.8)',   // 粉色
+          'rgba(34, 197, 94, 0.8)',    // 翠绿
+          'rgba(251, 146, 60, 0.8)'    // 橙红
+        ],
+        borderColor: [
+          '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+          '#ec4899', '#22c55e', '#fb923c'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return '$' + value.toLocaleString();
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // 4. 厂家订单金额排行
+  const factoryCtx = document.getElementById('factoryChart').getContext('2d');
+  new Chart(factoryCtx, {
+    type: 'bar',
+    data: {
+      labels: chartData.factoryData.labels,
+      datasets: [{
+        label: '订单金额 (USD)',
+        data: chartData.factoryData.data,
+        backgroundColor: [
+          'rgba(34, 197, 94, 0.8)',    // 翠绿
+          'rgba(59, 130, 246, 0.8)',   // 蓝色
+          'rgba(245, 158, 11, 0.8)',   // 橙色
+          'rgba(239, 68, 68, 0.8)',    // 红色
+          'rgba(139, 92, 246, 0.8)',   // 紫色
+          'rgba(236, 72, 153, 0.8)',   // 粉色
+          'rgba(16, 185, 129, 0.8)',   // 绿色
+          'rgba(251, 146, 60, 0.8)'    // 橙红
+        ],
+        borderColor: [
+          '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+          '#ec4899', '#10b981', '#fb923c'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return '$' + value.toLocaleString();
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // 5. 产品销量统计
+  const productCtx = document.getElementById('productChart').getContext('2d');
+  new Chart(productCtx, {
+    type: 'bar',
+    data: {
+      labels: chartData.productData.labels,
+      datasets: [{
+        label: '销量 (MT)',
+        data: chartData.productData.data,
+        backgroundColor: [
+          'rgba(16, 185, 129, 0.8)',   // 绿色
+          'rgba(59, 130, 246, 0.8)',   // 蓝色
+          'rgba(245, 158, 11, 0.8)',   // 橙色
+          'rgba(239, 68, 68, 0.8)',    // 红色
+          'rgba(139, 92, 246, 0.8)',   // 紫色
+          'rgba(236, 72, 153, 0.8)',   // 粉色
+          'rgba(34, 197, 94, 0.8)',    // 翠绿
+          'rgba(251, 146, 60, 0.8)'    // 橙红
+        ],
+        borderColor: [
+          '#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+          '#ec4899', '#22c55e', '#fb923c'
+        ],
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          display: false
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            callback: function(value) {
+              return value.toLocaleString() + ' MT';
+            }
+          }
+        }
+      }
+    }
+  });
+
+
+
   // 简单表格排序（按点击的列排序）
   function sortTable(n) {
     const table = document.getElementById("piTable");

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import os
 from sqlalchemy import func, extract
 from sqlalchemy.orm import joinedload
+from sqlalchemy.orm.attributes import flag_modified
 from docx import Document
 from weasyprint import HTML
 import requests
@@ -1319,7 +1320,84 @@ def show_pi_list():
         pi_list,
         key=lambda pi: (status_order.index(pi.status) if pi.status in status_order else len(status_order), -pi.pi_date.toordinal() if pi.pi_date else 0)
     )
-    return render_template('pi_list.html', pi_list=pi_list)
+    
+    # 准备图表数据
+    chart_data = prepare_chart_data(pi_list)
+    
+    return render_template('pi_list.html', pi_list=pi_list, chart_data=chart_data)
+
+def prepare_chart_data(pi_list):
+    """准备图表数据"""
+    from collections import defaultdict, Counter
+    from datetime import datetime
+    
+    # 1. 订单状态分布
+    status_counts = Counter(pi.status for pi in pi_list)
+    status_data = {
+        'labels': list(status_counts.keys()),
+        'data': list(status_counts.values()),
+        'colors': ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF']
+    }
+    
+    # 2. 月度订单趋势（最近12个月）
+    monthly_counts = defaultdict(int)
+    current_date = datetime.now()
+    for pi in pi_list:
+        if pi.pi_date:
+            month_key = pi.pi_date.strftime('%Y-%m')
+            monthly_counts[month_key] += 1
+    
+    # 生成最近12个月的完整数据
+    monthly_trend = []
+    for i in range(11, -1, -1):
+        month_date = current_date.replace(day=1) - timedelta(days=i*30)
+        month_key = month_date.strftime('%Y-%m')
+        monthly_trend.append({
+            'month': month_date.strftime('%Y年%m月'),
+            'count': monthly_counts.get(month_key, 0)
+        })
+    
+    # 3. 客户订单金额排行（前10名）
+    customer_amounts = defaultdict(float)
+    for pi in pi_list:
+        customer_name = pi.customer_name_snapshot or (pi.customer.name if pi.customer else '未知客户')
+        total_amount = sum(item.total_price for item in pi.products) if pi.products else 0
+        customer_amounts[customer_name] += total_amount
+    
+    top_customers = sorted(customer_amounts.items(), key=lambda x: x[1], reverse=True)[:10]
+    customer_data = {
+        'labels': [name for name, _ in top_customers],
+        'data': [amount for _, amount in top_customers]
+    }
+    
+    # 4. 产品销量统计
+    product_quantities = defaultdict(float)
+    for pi in pi_list:
+        for item in pi.products:
+            product_name = item.product_model_snapshot or (item.product.model if item.product else '未知产品')
+            product_quantities[product_name] += item.quantity
+    
+    top_products = sorted(product_quantities.items(), key=lambda x: x[1], reverse=True)[:8]
+    product_data = {
+        'labels': [name for name, _ in top_products],
+        'data': [qty for _, qty in top_products]
+    }
+    
+    # 5. 总体统计
+    total_stats = {
+        'total_orders': len(pi_list),
+        'total_amount': sum(sum(item.total_price for item in pi.products) for pi in pi_list if pi.products),
+        'completed_orders': len([pi for pi in pi_list if pi.status == '已完成']),
+        'pending_orders': len([pi for pi in pi_list if pi.status in ['新建', '待发运', '已发运', '已到港']])
+    }
+    
+    return {
+        'status_data': status_data,
+        'monthly_trend': monthly_trend,
+        'customer_data': customer_data,
+        'product_data': product_data,
+        'total_stats': total_stats
+    }
 #
 #PI View查看
 #
@@ -1336,16 +1414,28 @@ def view_pi(pi_id):
 @login_required
 def edit_pi(pi_id):
     pi = PI.query.get_or_404(pi_id)
+    
+    # 添加调试信息
+    print(f"🔍 PI状态检查: {pi.pi_no} 的状态是 '{pi.status}'")
 
     if request.method == 'POST':
         try:
+
+            
             date_fmt = "%Y-%m-%d"
             pi.pi_no = request.form.get('pi_no')
             pi_date_str = request.form.get('pi_date')
             if pi_date_str:
                 pi.pi_date = datetime.strptime(pi_date_str, date_fmt).date()
-            pi.customer_id = request.form.get('customer_id')
-            pi.exporter_id = request.form.get('exporter_id')
+            new_customer_id = int(request.form['customer_id'])
+            new_exporter_id = int(request.form['exporter_id'])
+            
+            # 强制更新字段，即使值相同
+            pi.customer_id = new_customer_id
+            pi.exporter_id = new_exporter_id
+            
+            pi.customer_id = new_customer_id
+            pi.exporter_id = new_exporter_id
             pi.payment_terms = request.form.get('payment_terms')
             pi.loading_port = request.form.get('loading_port')
             pi.destination_port = request.form.get('destination_port')
@@ -1359,7 +1449,8 @@ def edit_pi(pi_id):
             pi.apta_required = request.form.get('apta_required', pi.apta_required)
             pi.export_license_required = request.form.get('export_license_required', pi.export_license_required)
             pi.other_documents = request.form.get('other_documents', pi.other_documents)
-            pi.freight_forwarder_id = request.form.get('freight_forwarder_id', pi.freight_forwarder_id)
+            freight_forwarder_id_str = request.form.get('freight_forwarder_id')
+            pi.freight_forwarder_id = int(freight_forwarder_id_str) if freight_forwarder_id_str else pi.freight_forwarder_id
             pi.ocean_freight = float(request.form.get('ocean_freight', pi.ocean_freight) or 0) if request.form.get('ocean_freight') is not None else pi.ocean_freight
             container_date_str = request.form.get('container_date')
             pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else pi.container_date
@@ -1503,9 +1594,28 @@ def edit_pi(pi_id):
             while index < len(pi.products):
                 db.session.delete(pi.products[index])
             
+            # 添加调试信息 - 提交前检查
+            print(f"🔍 提交前检查:")
+            print(f"   pi.customer_id: {pi.customer_id} (类型: {type(pi.customer_id)})")
+            print(f"   pi.exporter_id: {pi.exporter_id} (类型: {type(pi.exporter_id)})")
+            print(f"   pi 对象是否被标记为已修改: {pi in db.session.dirty}")
+            
+            # 强制刷新会话并提交
+            db.session.flush()
             db.session.commit()
+            
+            # 添加调试信息 - 提交后重新查询
+            pi_after_commit = PI.query.get(pi.id)
+            print(f"💾 数据库提交后的值:")
+            print(f"   customer_id: {pi_after_commit.customer_id} (类型: {type(pi_after_commit.customer_id)})")
+            print(f"   exporter_id: {pi_after_commit.exporter_id} (类型: {type(pi_after_commit.exporter_id)})")
+            
             return render_template('success_and_redirect.html', pi_id=pi.id)
         except Exception as e:
+            print(f"❌ 保存过程中发生异常: {e}")
+            print(f"❌ 异常类型: {type(e)}")
+            import traceback
+            print(f"❌ 异常堆栈: {traceback.format_exc()}")
             db.session.rollback()
             flash('保存失败：请检查输入内容或稍后重试。', 'danger')
             # 继续渲染编辑页面并保留输入内容
@@ -1923,7 +2033,97 @@ def commission_pi_list():
     pi_list = PI.query.filter((PI.commission_factory_id.isnot(None)) | (PI.commission_exporter_id.isnot(None))).options(
         db.joinedload(PI.products).joinedload(PIItem.product)
     ).all()
-    return render_template('commission_pi_list.html', pi_list=pi_list)
+    
+    # 准备图表数据
+    chart_data = prepare_commission_chart_data(pi_list)
+    
+    return render_template('commission_pi_list.html', pi_list=pi_list, chart_data=chart_data)
+
+def prepare_commission_chart_data(pi_list):
+    """准备工厂直发订单图表数据"""
+    from collections import defaultdict, Counter
+    from datetime import datetime, timedelta
+    
+    # 1. 状态分布统计
+    status_counts = Counter()
+    for pi in pi_list:
+        status_counts[pi.status] += 1
+    
+    # 2. 月度趋势统计
+    monthly_counts = defaultdict(int)
+    for pi in pi_list:
+        if pi.pi_date:
+            month_key = pi.pi_date.strftime('%Y-%m')
+            monthly_counts[month_key] += 1
+    
+    # 3. 客户订单金额排行
+    customer_amounts = defaultdict(float)
+    for pi in pi_list:
+        customer_name = pi.customer_name_snapshot or (pi.customer.name if pi.customer else '未知客户')
+        total_amount = sum(item.total_price for item in pi.products) if pi.products else 0
+        customer_amounts[customer_name] += total_amount
+    
+    # 按金额排序，取前8名
+    top_customers = sorted(customer_amounts.items(), key=lambda x: x[1], reverse=True)[:8]
+    
+    # 4. 厂家订单金额排行
+    factory_amounts = defaultdict(float)
+    for pi in pi_list:
+        factory_name = pi.commission_factory.name if pi.commission_factory else '未知厂家'
+        total_amount = sum(item.total_price for item in pi.products) if pi.products else 0
+        factory_amounts[factory_name] += total_amount
+    
+    # 按金额排序，取前8名
+    top_factories = sorted(factory_amounts.items(), key=lambda x: x[1], reverse=True)[:8]
+    
+    # 5. 产品销量统计
+    product_quantities = defaultdict(float)
+    for pi in pi_list:
+        for item in pi.products:
+            product_name = item.product_model_snapshot or (item.product.model if item.product else '未知产品')
+            product_quantities[product_name] += item.quantity
+    
+    # 按销量排序，取前8名
+    top_products = sorted(product_quantities.items(), key=lambda x: x[1], reverse=True)[:8]
+    
+
+    
+    # 7. 总体统计
+    total_orders = len(pi_list)
+    completed_orders = sum(1 for pi in pi_list if pi.status == '已完成')
+    in_progress_orders = total_orders - completed_orders
+    total_amount = sum(sum(item.total_price for item in pi.products) for pi in pi_list if pi.products)
+    total_commission = sum(pi.commission_amount for pi in pi_list if pi.commission_amount)
+    
+    return {
+        'statusData': {
+            'labels': list(status_counts.keys()),
+            'data': list(status_counts.values())
+        },
+        'trendData': {
+            'labels': sorted(monthly_counts.keys()),
+            'data': [monthly_counts[month] for month in sorted(monthly_counts.keys())]
+        },
+        'customerData': {
+            'labels': [customer[0] for customer in top_customers],
+            'data': [customer[1] for customer in top_customers]
+        },
+        'factoryData': {
+            'labels': [factory[0] for factory in top_factories],
+            'data': [factory[1] for factory in top_factories]
+        },
+        'productData': {
+            'labels': [product[0] for product in top_products],
+            'data': [product[1] for product in top_products]
+        },
+        'totalStats': {
+            'totalOrders': total_orders,
+            'completedOrders': completed_orders,
+            'inProgressOrders': in_progress_orders,
+            'totalAmount': total_amount,
+            'totalCommission': total_commission
+        }
+    }
 
 @app.route('/commission-pi/<int:pi_id>/update-status', methods=['GET', 'POST'])
 @login_required
