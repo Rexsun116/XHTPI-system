@@ -1,1 +1,17 @@
-instance/database.db 
+# 忽略数据库文件
+instance/database.db
+instance/*.db
+
+# 忽略 Python 缓存目录
+__pycache__/
+
+# 忽略虚拟环境目录
+venv/
+
+# 忽略压缩包
+*.tar.gz
+
+# 忽略自动生成的静态文档（根据你项目情况）
+static/invoices/
+static/packing_lists/
+static/booking_docs/
