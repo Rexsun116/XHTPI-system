@@ -1329,7 +1329,7 @@ def show_pi_list():
 def prepare_chart_data(pi_list):
     """准备图表数据"""
     from collections import defaultdict, Counter
-    from datetime import datetime
+    from datetime import datetime, timedelta
     
     # 1. 订单状态分布
     status_counts = Counter(pi.status for pi in pi_list)
