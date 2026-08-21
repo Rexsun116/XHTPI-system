@@ -44,13 +44,37 @@
       <div class="mb-3"><strong class="text-navy">备注：</strong> {{ pi.note or '-' }}</div>
       <div class="mb-3">
         <strong class="text-navy">当前状态：</strong> 
-        {% if pi.status == '已完成' %}
+        {% if lifecycle.is_completed %}
           <span class="badge bg-success rounded-pill">{{ pi.status }}</span>
         {% else %}
           <span class="badge bg-secondary rounded-pill">{{ pi.status }}</span>
         {% endif %}
       </div>
     </div>
+  </div>
+
+  <div class="card mb-4 border-0" data-module="PAYMENT_PLAN">
+    <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-money-check-alt me-2"></i>付款计划</h5></div>
+    <div class="card-body"><div class="row">
+      <div class="col-md-3 mb-2"><strong>币种：</strong>{{ pi.currency or '未确认' }}</div>
+      <div class="col-md-3 mb-2"><strong>预付款比例：</strong>{{ pi.advance_payment_percent if pi.advance_payment_percent is not none else '-' }}{% if pi.advance_payment_percent is not none %}%{% endif %}</div>
+      <div class="col-md-3 mb-2"><strong>预付款应收：</strong>{{ pi.advance_payment_amount if pi.advance_payment_amount is not none else '-' }}</div>
+      <div class="col-md-3 mb-2"><strong>尾款应收：</strong>{{ pi.balance_payment_amount if pi.balance_payment_amount is not none else '-' }}</div>
+    </div></div>
+  </div>
+
+  <div class="card mb-4 border-0" data-module="DOCUMENT_REQUIREMENTS">
+    <div class="card-header bg-light"><h5 class="mb-0"><i class="fas fa-file-signature me-2"></i>文件要求</h5></div>
+    <div class="card-body"><div class="row">
+      {% for label, value in [
+        ('COC', pi.coc_required), ('COA', pi.coa_required), ('提单原件', pi.original_bl_required),
+        ('OBD 电子提单', pi.obd_electronic_required), ('保单原件', pi.insurance_original_required),
+        ('保单电子版', pi.insurance_electronic_required), ('原件邮寄', pi.original_documents_mail_required),
+        ('电放件', pi.telex_release_required)
+      ] %}
+      <div class="col-md-3 mb-2"><strong>{{ label }}：</strong>{% if value is sameas true %}需要{% elif value is sameas false %}不需要{% else %}未确认{% endif %}</div>
+      {% endfor %}
+    </div></div>
   </div>
 
   {% if is_commission %}
@@ -114,7 +138,7 @@
   </div>
 
   {# 发运准备信息 #}
-  {% if pi.status in ['待发运', '已发运', '已到港', '已完成'] %}
+  {% if lifecycle.can_view('SHIPPING_PREPARATION') %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-accent text-white">
       <h5 class="mb-0">
@@ -133,6 +157,8 @@
         <div class="col-md-6 mb-3"><strong class="text-navy">装柜地址：</strong> {{ pi.container_location or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">ETD：</strong> {{ pi.etd or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">ETA：</strong> {{ pi.eta or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">USD 海运费账单：</strong> {% if pi.freight_usd_bill_required is sameas true %}需要{% elif pi.freight_usd_bill_required is sameas false %}不需要{% else %}未确认{% endif %}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">CNY 本地费用账单：</strong> {% if pi.freight_cny_bill_required is sameas true %}需要{% elif pi.freight_cny_bill_required is sameas false %}不需要{% else %}未确认{% endif %}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">产地证（COO）：</strong> {{ pi.coo_required or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">产地证（APTA）：</strong> {{ pi.apta_required or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">出口许可证：</strong> {{ pi.export_license_required or '-' }}</div>
@@ -144,7 +170,7 @@
   {% endif %}
 
   {# 托书信息 #}
-  {% if pi.status in ['待发运', '已发运', '已到港', '已完成'] %}
+  {% if lifecycle.can_view('SHIPPING_PREPARATION') %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-navy text-white">
       <h5 class="mb-0">
@@ -181,7 +207,7 @@
   {% endif %}
 
   {# 已发运信息 #}
-  {% if pi.status in ['已发运', '已到港', '已完成'] %}
+  {% if lifecycle.can_view('POST_SHIPMENT') %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-accent text-white">
       <h5 class="mb-0">
@@ -211,7 +237,7 @@
   {% endif %}
 
   {# 已到港信息 #}
-  {% if pi.status in ['已到港', '已完成'] %}
+  {% if lifecycle.can_view('FREIGHT_AMOUNTS') %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-navy text-white">
       <h5 class="mb-0">
@@ -235,7 +261,7 @@
   {% endif %}
 
   {# 已完成信息 #}
-  {% if pi.status == '已完成' %}
+  {% if lifecycle.is_completed %}
   <div class="card mb-4 border-0">
     <div class="card-header bg-success text-white">
       <h5 class="mb-0">
@@ -251,6 +277,11 @@
   {% endif %}
 
   <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
+    {% if lifecycle.is_completed %}
+    <button class="btn btn-secondary me-md-2" disabled title="已完成订单只读；后续通过 Reopen for Correction 受控修正">
+      <i class="fas fa-lock me-1"></i>订单只读
+    </button>
+    {% else %}
     {% if is_commission %}
     <a href="{{ url_for('edit_commission_pi', pi_id=pi.id) }}" class="btn btn-outline-navy me-md-2">
       <i class="fas fa-edit me-1"></i>编辑
@@ -260,7 +291,8 @@
       <i class="fas fa-edit me-1"></i>编辑
     </a>
     {% endif %}
-    {% if pi.status != '已完成' %}
+    {% endif %}
+    {% if not lifecycle.is_completed %}
     {% if is_commission %}
     <a href="{{ url_for('update_commission_pi_status', pi_id=pi.id) }}" class="btn btn-accent">
       <i class="fas fa-sync-alt me-1"></i>状态更新

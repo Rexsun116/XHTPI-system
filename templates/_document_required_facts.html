@@ -1,4 +1,5 @@
 {# Phase 2A: Required Fact is independent from Task completion. Legacy fields remain above. #}
+{% set document_pi = pi if pi is defined and pi else none %}
 {% set document_required_fields = [
   ('coc_required', 'COC'),
   ('coa_required', 'COA 质检单'),
@@ -15,7 +16,7 @@
   </div>
 </div>
 {% for field_name, field_label in document_required_fields %}
-  {% set current_value = pi|attr(field_name) %}
+  {% set current_value = document_pi|attr(field_name) if document_pi else none %}
   <div class="col-md-6 mb-3">
     <label class="form-label">{{ field_label }}（Required）</label>
     <select class="form-select" name="{{ field_name }}" {% if readonly|default(false) %}disabled{% endif %}>

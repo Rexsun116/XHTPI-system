@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
 {% block title %}编辑工厂直发订单 - {{ pi.pi_no }}{% endblock %}
 {% block content %}
-{% set readonly = (pi.status == '已完成') %}
+{% set readonly = not lifecycle.can_edit('COMMERCIAL_CORE') %}
 <div class="container mt-4">
   <div class="row mb-4">
     <div class="col-12">
       <h2 class="text-center mb-4">编辑工厂直发订单 - {{ pi.pi_no }}</h2>
       <div class="alert alert-info text-center" role="alert">
-        {% if pi.status == '已完成' %}
+        {% if lifecycle.is_completed %}
         订单已完成，无法编辑。如需修改，请联系管理员。
         {% else %}
                   请填写或更新以下工厂直发订单信息，带 <span class="text-danger">*</span> 为必填项
@@ -181,7 +181,8 @@
         </div>
       </div>
     </div>
-    {% if pi.status in ['待发运', '已发运', '已到港', '已完成'] %}
+    {% if lifecycle.can_view('SHIPPING_PREPARATION') %}
+    {% set readonly = not lifecycle.can_edit('SHIPPING_PREPARATION') %}
     <!-- 发运准备信息卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-success text-white">
@@ -383,7 +384,8 @@
       </div>
     </div>
     {% endif %}
-    {% if pi.status in ['已发运', '已到港', '已完成'] %}
+    {% if lifecycle.can_view('POST_SHIPMENT') %}
+    {% set readonly = not lifecycle.can_edit('POST_SHIPMENT') %}
     <!-- 已发运信息卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-warning text-dark">
@@ -458,7 +460,8 @@
       </div>
     </div>
     {% endif %}
-    {% if pi.status in ['已到港', '已完成'] %}
+    {% if lifecycle.can_view('ACTUAL_ARRIVAL') %}
+    {% set readonly = not lifecycle.can_edit('ACTUAL_ARRIVAL') %}
     <!-- 已到港信息卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-info text-white">
@@ -510,7 +513,7 @@
       </div>
     </div>
     {% endif %}
-    {% if pi.status == '已完成' %}
+    {% if lifecycle.is_completed %}
     <!-- 已完成信息卡片 -->
     <div class="card mb-4 shadow-sm">
       <div class="card-header bg-secondary text-white">
@@ -530,10 +533,17 @@
       </div>
     </div>
     {% endif %}
+    {% set readonly = lifecycle.is_completed %}
+    {% set payment_plan_readonly = not lifecycle.can_edit('PAYMENT_PLAN') %}
+    {% set payment_receipts_readonly = not lifecycle.can_edit('PAYMENT_RECEIPTS') %}
     {% include '_payment_facts.html' %}
-    {% include '_freight_facts.html' %}
+    {% if lifecycle.can_view('FREIGHT_REQUIREMENTS') %}
+      {% set readonly = not (lifecycle.can_edit('FREIGHT_REQUIREMENTS') or lifecycle.can_edit('FREIGHT_AMOUNTS')) %}
+      {% set show_freight_amounts = lifecycle.can_view('FREIGHT_AMOUNTS') %}
+      {% include '_freight_facts.html' %}
+    {% endif %}
 
-    {% if not readonly %}
+    {% if not lifecycle.is_completed %}
     <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
       <a href="{{ url_for('commission_pi_list') }}" class="btn btn-secondary me-md-2">取消</a>
       <button type="submit" class="btn btn-primary">保存修改</button>

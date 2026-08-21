@@ -13,6 +13,11 @@ from sqlalchemy.orm.attributes import flag_modified
 from docx import Document
 from weasyprint import HTML
 import requests
+from order_lifecycle import (
+    LifecyclePolicyError,
+    lifecycle_context,
+    validate_lifecycle_submission,
+)
 
 # 初始化app、db、login_manager
 app = Flask(__name__)
@@ -1324,6 +1329,11 @@ def create_pi():
     banks = ["Hang Seng Bank Limited", "BOC CHINA", "OCBC Bank HK"]
 
     if request.method == 'POST':
+        try:
+            validate_lifecycle_submission('新建', request.form, operation='create')
+        except LifecyclePolicyError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('create_pi'))
         # 获取表单基础字段
         pi_no = request.form['pi_no']
         pi_date = datetime.strptime(request.form['pi_date'], '%Y-%m-%d').date()
@@ -1542,7 +1552,7 @@ def prepare_chart_data(pi_list):
 @login_required
 def view_pi(pi_id):
     pi = PI.query.get_or_404(pi_id)
-    return render_template('view_pi.html', pi=pi)
+    return render_template('view_pi.html', pi=pi, lifecycle=lifecycle_context(pi))
 
 #
 #PI Edit编辑
@@ -1557,6 +1567,7 @@ def edit_pi(pi_id):
 
     if request.method == 'POST':
         try:
+            validate_lifecycle_submission(pi, request.form, operation='edit')
 
             
             date_fmt = "%Y-%m-%d"
@@ -1751,6 +1762,10 @@ def edit_pi(pi_id):
             print(f"   exporter_id: {pi_after_commit.exporter_id} (类型: {type(pi_after_commit.exporter_id)})")
             
             return render_template('success_and_redirect.html', pi_id=pi.id)
+        except LifecyclePolicyError as e:
+            db.session.rollback()
+            flash(str(e), 'warning')
+            return redirect(url_for('view_pi', pi_id=pi.id))
         except Exception as e:
             print(f"❌ 保存过程中发生异常: {e}")
             print(f"❌ 异常类型: {type(e)}")
@@ -1764,7 +1779,7 @@ def edit_pi(pi_id):
     products = Product.query.all()
     factories = Factory.query.all()
     freight_forwarders = FreightForwarder.query.all()
-    return render_template('edit_pi.html', pi=pi, customers=customers, exporters=exporters, products=products, factories=factories, freight_forwarders=freight_forwarders)
+    return render_template('edit_pi.html', pi=pi, lifecycle=lifecycle_context(pi), customers=customers, exporters=exporters, products=products, factories=factories, freight_forwarders=freight_forwarders)
 
 
 
@@ -1786,6 +1801,11 @@ def update_pi_status(pi_id):
         remarks = request.form.get('remarks')
 
         if new_status and new_status in next_status_options:
+            try:
+                validate_lifecycle_submission(new_status, request.form, operation='status_transition')
+            except LifecyclePolicyError as exc:
+                flash(str(exc), 'danger')
+                return redirect(url_for('update_pi_status', pi_id=pi.id))
             pi.status = new_status
             update_document_required_facts(pi, request.form)
             update_payment_facts(pi, request.form)
@@ -2065,6 +2085,11 @@ def create_pi_commission():
     banks = ["Hang Seng Bank Limited", "BOC CHINA", "OCBC Bank HK"]
 
     if request.method == 'POST':
+        try:
+            validate_lifecycle_submission('新建', request.form, operation='create')
+        except LifecyclePolicyError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('create_pi_commission'))
         pi_no = request.form['pi_no']
         pi_date = datetime.strptime(request.form['pi_date'], '%Y-%m-%d').date()
         customer_id = int(request.form['customer'])
@@ -2297,6 +2322,11 @@ def update_commission_pi_status(pi_id):
         remarks = request.form.get('remarks')
         commission_status = request.form.get('commission_status', pi.commission_status)
         if new_status and new_status in next_status_options:
+            try:
+                validate_lifecycle_submission(new_status, request.form, operation='status_transition')
+            except LifecyclePolicyError as exc:
+                flash(str(exc), 'danger')
+                return redirect(url_for('update_commission_pi_status', pi_id=pi.id))
             pi.status = new_status
             update_document_required_facts(pi, request.form)
             update_payment_facts(pi, request.form)
@@ -2411,6 +2441,7 @@ def edit_commission_pi(pi_id):
     banks = ["Hang Seng Bank Limited", "BOC CHINA", "OCBC Bank HK"]
     if request.method == 'POST':
         try:
+            validate_lifecycle_submission(pi, request.form, operation='edit')
             date_fmt = "%Y-%m-%d"
             # 基本信息字段
             pi.pi_no = request.form.get('pi_no')
@@ -2584,11 +2615,15 @@ def edit_commission_pi(pi_id):
             
             commit_pi_with_targeted_reconcile(pi)
             return redirect(url_for('commission_pi_list'))
+        except LifecyclePolicyError as e:
+            db.session.rollback()
+            flash(str(e), 'warning')
+            return redirect(url_for('view_pi', pi_id=pi.id))
         except Exception as e:
             db.session.rollback()
             flash('保存失败：请检查输入内容或稍后重试。', 'danger')
             return redirect(url_for('edit_commission_pi', pi_id=pi.id))
-    return render_template('edit_commission_pi.html', pi=pi, customers=customers, exporters=exporters, factories=factories, products=products, freight_forwarders=freight_forwarders, banks=banks)
+    return render_template('edit_commission_pi.html', pi=pi, lifecycle=lifecycle_context(pi), customers=customers, exporters=exporters, factories=factories, products=products, freight_forwarders=freight_forwarders, banks=banks)
 
 # -----------------------------
 # 启动应用

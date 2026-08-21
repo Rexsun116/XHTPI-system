@@ -19,6 +19,7 @@
           <option value="false" {% if required_value is sameas false %}selected{% endif %}>不需要</option>
         </select>
       </div>
+      {% if show_freight_amounts|default(true) %}
       <div class="col-md-4 mb-3">
         <label class="form-label">{{ currency }} Amount / 金额</label>
         {% set amount_value = pi|attr(amount_field) %}
@@ -29,7 +30,9 @@
         {% set confirmed_value = pi|attr(confirmed_field) %}
         <input class="form-control" value="{% if confirmed_value is sameas true %}已确认{% elif confirmed_value is sameas false %}未确认{% else %}未进入新流程{% endif %}" disabled>
       </div>
+      {% endif %}
       {% endfor %}
+      {% if show_freight_amounts|default(true) %}
       <div class="col-md-4 mb-3">
         <label class="form-label">Freight Invoice / 货代发票</label>
         <input class="form-control" value="{{ pi.freight_invoice_issued or '未确认' }}" disabled>
@@ -45,6 +48,7 @@
       <div class="col-12">
         <div class="small text-muted">Legacy amount（币种未知）：{{ pi.freight_invoice_amount if pi.freight_invoice_amount is not none else '-' }}</div>
       </div>
+      {% endif %}
     </div>
   </div>
 </div>
