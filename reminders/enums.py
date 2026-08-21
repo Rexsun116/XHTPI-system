@@ -1,0 +1,78 @@
+"""String constants shared by task models, services, routes, and tests."""
+
+
+class TaskScope:
+    ORDER = "ORDER"
+    SHIPMENT = "SHIPMENT"
+    VALUES = (ORDER, SHIPMENT)
+
+
+class TaskSource:
+    AUTO = "AUTO"
+    MANUAL = "MANUAL"
+    VALUES = (AUTO, MANUAL)
+
+
+class TaskStatus:
+    UPCOMING = "UPCOMING"
+    ACTION = "ACTION"
+    WAITING = "WAITING"
+    DONE = "DONE"
+    CANCELLED = "CANCELLED"
+    VALUES = (UPCOMING, ACTION, WAITING, DONE, CANCELLED)
+    ACTIVE = (UPCOMING, ACTION, WAITING)
+
+
+class TaskHealth:
+    NORMAL = "NORMAL"
+    OVERDUE = "OVERDUE"
+    EXCEPTION = "EXCEPTION"
+    VALUES = (NORMAL, OVERDUE, EXCEPTION)
+
+
+class CompletionMode:
+    MANUAL = "MANUAL"
+    RULE_DATA = "RULE_DATA"
+    MANUAL_REQUIRED_INPUT = "MANUAL_REQUIRED_INPUT"
+    VALUES = (MANUAL, RULE_DATA, MANUAL_REQUIRED_INPUT)
+
+
+class WaitingOn:
+    CUSTOMER = "CUSTOMER"
+    FACTORY = "FACTORY"
+    FREIGHT_FORWARDER = "FREIGHT_FORWARDER"
+    BANK = "BANK"
+    INTERNAL = "INTERNAL"
+    OTHER = "OTHER"
+    VALUES = (CUSTOMER, FACTORY, FREIGHT_FORWARDER, BANK, INTERNAL, OTHER)
+
+
+class ActivityEvent:
+    CREATED = "CREATED"
+    STATUS_CHANGED = "STATUS_CHANGED"
+    FOLLOW_UP = "FOLLOW_UP"
+    WAITING_STARTED = "WAITING_STARTED"
+    COMPLETED = "COMPLETED"
+    AUTO_RESOLVED = "AUTO_RESOLVED"
+    REOPENED = "REOPENED"
+    NOTE = "NOTE"
+    CANCELLED = "CANCELLED"
+    REACTIVATED = "REACTIVATED"
+    VALUES = (
+        CREATED,
+        STATUS_CHANGED,
+        FOLLOW_UP,
+        WAITING_STARTED,
+        COMPLETED,
+        AUTO_RESOLVED,
+        REOPENED,
+        NOTE,
+        CANCELLED,
+        REACTIVATED,
+    )
+
+
+class ActorType:
+    USER = "USER"
+    SYSTEM = "SYSTEM"
+    VALUES = (USER, SYSTEM)

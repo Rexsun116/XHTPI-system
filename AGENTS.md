@@ -47,25 +47,30 @@
 ## 项目结构与技术栈（基于当前代码）
 
 - **应用核心**：`app.py` 是单文件 Flask 单体应用，定义 Flask app、Flask-Login、SQLAlchemy models、业务路由、统计/提醒、文档生成和启动入口。
+- **任务基础设施**：`task_models.py` 定义 `OrderTask` / `TaskActivity`；`reminders/` 保存任务枚举、状态转换 service、Next Action selector、Document AUTO Rules 与 Shipping RULE_DATA Rules。规则必须继续集中在 `reminders/rules/` 并通过统一 Engine reconcile，不得散落回 Dashboard route。
 - **技术栈**：Python 3.13（`Pipfile`），Flask 3、Flask-SQLAlchemy、SQLAlchemy 2、Flask-Migrate/Alembic、Flask-Login、Jinja2、Bootstrap 5、Font Awesome、python-docx、WeasyPrint 和 requests。依赖清单见 `requirements.txt` 与 `Pipfile`。
 - **模板**：`templates/` 存放 Jinja2 页面；`base.html` 是全局 Sidebar 布局；`_pi_base_fields.html` 为 PI 共用字段；`proforma_invoice.html`、`invoice.html`、`packing_list.html` 用于 PDF 渲染；`templates/word/` 存放 Word 模板。
 - **静态与生成文件**：`static/style.css` 为共享样式；业务生成物写入 `static/invoices/`、`static/packing_lists/` 与 `static/booking_docs/`，均为本地生成文件。
 - **数据库与迁移**：SQLite URI 配置为 `sqlite:///database.db`，在 Flask 的 instance 目录下对应 `instance/database.db`；`migrations/` 存放 Alembic 配置与历史迁移。
 - **辅助脚本与文档**：`delete_pi.py` 是会删除指定 PI 的高风险脚本；`docs/` 存放开发文档。
+- **测试**：`tests/` 使用 Python `unittest`，Task Foundation 测试会通过 `scripts/init_test_db.py --method migrations` 在系统临时目录创建隔离数据库，不连接真实业务库。
 
 ## 本地启动与验证
 
-- 当前应用入口在 `app.py`：在已安装项目依赖且已确认本地数据库安全的前提下，可用 `python app.py` 启动开发服务器。该入口启用 `debug=True`，并会调用 `db.create_all()`；不要把它当作数据库迁移或生产运行方案。
+- 当前应用入口在 `app.py`：在已安装项目依赖且已确认本地数据库安全的前提下，可用 `python app.py` 启动开发服务器。该入口启用 `debug=True`，但不再自动调用 `db.create_all()` 或执行 migration；schema 变化必须显式通过 Alembic 管理。
+- 空测试数据库必须使用显式隔离路径初始化。可用 `scripts/init_test_db.py` 在仓库外新建 model schema 测试库，或用其 `--method migrations` 演练完整 migration；该工具拒绝覆盖已有文件、拒绝真实数据库路径，并拒绝在 Git workspace 内创建数据库。
+- 对现有数据库副本执行 migration rehearsal 必须使用 `scripts/rehearse_migration.py` 和绝对路径；脚本会打印并核对 ORM 实际连接目标，默认拒绝项目 `instance/` 目录。不要用依赖隐式环境变量覆盖的裸 `flask db upgrade/downgrade` 命令进行演练。
+- 历史订单 AUTO Reminder 的批量 dry-run 应使用 `scripts/dry_run_reminders.py` 指向真实库的已验证文件副本；脚本默认拒绝 `instance/` 目录，并在读取前核对 ORM 实际连接路径。未经明确批准不得对真实库执行 reconcile apply。
 - 每次代码修改后，至少执行并如实报告实际执行过的验证：
   1. Python 语法检查（例如 `python -m py_compile app.py`）；
   2. 涉及路由时，检查 route、端点名、`url_for` 与模板引用；
   3. 涉及模板时，检查 Jinja2 继承、变量、条件分支和循环的上下文；
   4. 尽可能运行与改动直接相关的测试或受控的手工验证。
-- 当前仓库未发现独立的自动化测试目录或 pytest 配置；`templates/test_update_pi.html` 是模板文件，并不等同于自动化测试。若无法安全地运行应用或测试，必须明确说明未验证的范围和原因，绝不伪造测试结果。
+- Reminder 自动化测试统一使用隔离 migration 数据库，可用 `venv/bin/python -m unittest discover -v` 运行；`templates/test_update_pi.html` 仍只是模板文件。若无法安全地运行其他功能测试，必须明确说明未验证的范围和原因，绝不伪造测试结果。
 
 ## 当前架构注意事项
 
-- `app.py` 在请求前与启动入口均会调用 `db.create_all()`，而项目同时维护 Alembic migration；做 schema 相关工作前必须谨慎核对 migration、模型和已有数据库，避免由自动建表掩盖迁移缺失或造成结构漂移。
-- 历史 migration 中存在 `order_type` / `pi_type` 的变更，而当前 `PI` model 未定义这两个字段；数据库结构调整前必须先检查真实数据库与迁移链，不能假设三者一致。
+- 正常请求与应用启动路径已禁止自动调用 `db.create_all()`；只有显式测试数据库 helper 可以对全新、仓库外的隔离数据库使用 `create_all()`。后续不得把自动建表重新加入 request/startup lifecycle。
+- 历史 migration 将 `order_type` 替换为可空的 `pi_type VARCHAR(50)`；当前 `PI` model 已按真实 schema 声明 `pi_type`。后续数据库结构调整仍必须同时核对 model、完整 migration 链与真实数据库，不能只依据其中一项。
 - 多个删除 route 使用 GET 请求，且 `delete_pi.py` 可直接删除 PI；修改访问控制、删除行为或相关模板时，应把数据安全与兼容性作为独立评估项。
 - 当前 `app.py` 包含硬编码的 `secret_key` 和初始账号创建/凭据逻辑。这是应优先提出的安全风险；除非当前任务明确要求，先报告和给出迁移方案，不要在无关改动中直接替换认证或凭据机制。

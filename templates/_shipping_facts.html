@@ -1,0 +1,28 @@
+{# Phase 2B shipping facts. container_loading_at is the primary value for new orders. #}
+<div class="col-12 mt-2">
+  <div class="alert alert-light border py-2 mb-3 small">
+    新订单请优先填写精确装柜日期和时间；保存后系统会同步上方旧“装柜日期”，保持现有单据和提醒兼容。
+  </div>
+</div>
+<div class="col-md-6 mb-3">
+  <label class="form-label">精确装柜日期和时间</label>
+  <input
+    type="datetime-local"
+    class="form-control"
+    name="container_loading_at"
+    value="{{ pi.container_loading_at.strftime('%Y-%m-%dT%H:%M') if pi.container_loading_at else '' }}"
+    {% if readonly|default(false) %}readonly disabled{% endif %}
+  >
+</div>
+<div class="col-md-6 mb-3">
+  <label class="form-label">司机姓名</label>
+  <input type="text" class="form-control" name="driver_name" value="{{ pi.driver_name or '' }}" {% if readonly|default(false) %}readonly disabled{% endif %}>
+</div>
+<div class="col-md-6 mb-3">
+  <label class="form-label">司机电话</label>
+  <input type="text" class="form-control" name="driver_phone" value="{{ pi.driver_phone or '' }}" {% if readonly|default(false) %}readonly disabled{% endif %}>
+</div>
+<div class="col-md-6 mb-3">
+  <label class="form-label">车牌号</label>
+  <input type="text" class="form-control" name="vehicle_number" value="{{ pi.vehicle_number or '' }}" {% if readonly|default(false) %}readonly disabled{% endif %}>
+</div>

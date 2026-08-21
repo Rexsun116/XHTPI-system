@@ -1,0 +1,27 @@
+{# Phase 2A: Required Fact is independent from Task completion. Legacy fields remain above. #}
+{% set document_required_fields = [
+  ('coc_required', 'COC'),
+  ('coa_required', 'COA 质检单'),
+  ('original_bl_required', '提单原件'),
+  ('obd_electronic_required', 'OBD 提单电子版'),
+  ('insurance_original_required', '保单原件'),
+  ('insurance_electronic_required', '保单电子版'),
+  ('original_documents_mail_required', '文件原件邮寄'),
+  ('telex_release_required', '提单电放件')
+] %}
+<div class="col-12 mt-2 mb-2">
+  <div class="alert alert-light border py-2 mb-2 small">
+    新版 Required Fact：这里只确认是否需要；完成状态由 Task 单独记录。上方旧字段中的“已完成”仅用于历史兼容。
+  </div>
+</div>
+{% for field_name, field_label in document_required_fields %}
+  {% set current_value = pi|attr(field_name) %}
+  <div class="col-md-6 mb-3">
+    <label class="form-label">{{ field_label }}（Required）</label>
+    <select class="form-select" name="{{ field_name }}" {% if readonly|default(false) %}disabled{% endif %}>
+      <option value="" {% if current_value is none %}selected{% endif %}>未确认</option>
+      <option value="true" {% if current_value is sameas true %}selected{% endif %}>需要</option>
+      <option value="false" {% if current_value is sameas false %}selected{% endif %}>不需要</option>
+    </select>
+  </div>
+{% endfor %}

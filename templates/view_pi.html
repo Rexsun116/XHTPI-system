@@ -28,7 +28,7 @@
           <div class="col-md-6 mb-3"><strong class="text-navy">厂家：</strong> {{ pi.commission_factory.name if pi.commission_factory else '-' }}</div>
           <div class="col-md-6 mb-3"><strong class="text-navy">客户：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
         {% else %}
-          <div class="col-md-6 mb-3"><strong class="text-navy">出口商：</strong> {{ pi.exporter_name_snapshot or pi.exporter.name }}</div>
+          <div class="col-md-6 mb-3"><strong class="text-navy">出口商：</strong> {{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '-') }}</div>
           <div class="col-md-6 mb-3"><strong class="text-navy">客户（进口商）：</strong> {{ pi.customer_name_snapshot or pi.customer.name }}</div>
         {% endif %}
       </div>
@@ -125,7 +125,11 @@
       <div class="row">
         <div class="col-md-6 mb-3"><strong class="text-navy">货代公司：</strong> {{ pi.freight_forwarder.name if pi.freight_forwarder else '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">海运费：</strong> {{ pi.ocean_freight or '-' }}</div>
-        <div class="col-md-6 mb-3"><strong class="text-navy">装柜时间：</strong> {{ pi.container_date or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">装柜日期（兼容）：</strong> {{ pi.container_date or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">精确装柜时间：</strong> {{ pi.container_loading_at.strftime('%Y-%m-%d %H:%M') if pi.container_loading_at else '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">司机：</strong> {{ pi.driver_name or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">司机电话：</strong> {{ pi.driver_phone or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">车牌号：</strong> {{ pi.vehicle_number or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">装柜地址：</strong> {{ pi.container_location or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">ETD：</strong> {{ pi.etd or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">ETA：</strong> {{ pi.eta or '-' }}</div>
@@ -195,6 +199,11 @@
         <div class="col-md-6 mb-3"><strong class="text-navy">原件邮寄状态：</strong> {{ pi.document_shipping_status or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">邮件单号：</strong> {{ pi.tracking_number or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">货款收齐状态：</strong> {{ pi.payment_received or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">付款币种：</strong> {{ pi.currency or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">预付款计划：</strong> {{ pi.advance_payment_percent if pi.advance_payment_percent is not none else '-' }}% / {{ pi.advance_payment_amount if pi.advance_payment_amount is not none else '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">预付款已收：</strong> {{ pi.advance_received_amount if pi.advance_received_amount is not none else '-' }}{% if pi.advance_received_at %} · {{ pi.advance_received_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">尾款计划：</strong> {{ pi.balance_payment_amount if pi.balance_payment_amount is not none else '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">尾款已收：</strong> {{ pi.balance_received_amount if pi.balance_received_amount is not none else '-' }}{% if pi.balance_received_at %} · {{ pi.balance_received_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">结汇文件需求：</strong> {{ pi.settlement_documents_required or '-' }}</div>
       </div>
     </div>
@@ -216,6 +225,9 @@
         <div class="col-md-6 mb-3"><strong class="text-navy">货代账单金额：</strong> {{ pi.freight_invoice_amount or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">货代账单确认状态：</strong> {{ pi.freight_invoice_confirmed or '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">货代发票开具状态：</strong> {{ pi.freight_invoice_issued or '-' }}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">USD 海运费账单：</strong> {% if pi.freight_usd_bill_required is sameas true %}USD {{ pi.freight_usd_amount if pi.freight_usd_amount is not none else '待录入' }} · {{ '已确认' if pi.freight_usd_confirmed is sameas true else '未确认' }}{% elif pi.freight_usd_bill_required is sameas false %}不需要{% else %}未确认是否需要{% endif %}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">CNY 本地费用账单：</strong> {% if pi.freight_cny_bill_required is sameas true %}CNY {{ pi.freight_cny_amount if pi.freight_cny_amount is not none else '待录入' }} · {{ '已确认' if pi.freight_cny_confirmed is sameas true else '未确认' }}{% elif pi.freight_cny_bill_required is sameas false %}不需要{% else %}未确认是否需要{% endif %}</div>
+        <div class="col-md-6 mb-3"><strong class="text-navy">货代付款时间：</strong> {{ pi.freight_paid_at.strftime('%Y-%m-%d %H:%M') if pi.freight_paid_at else '-' }}</div>
         <div class="col-md-6 mb-3"><strong class="text-navy">电放状态：</strong> {{ pi.telex_release or '-' }}</div>
       </div>
     </div>

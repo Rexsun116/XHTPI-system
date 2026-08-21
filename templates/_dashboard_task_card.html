@@ -1,0 +1,85 @@
+<article class="occ-task-card task-{{ task.status|lower }}{% if task.health == 'EXCEPTION' %} task-exception{% elif task.health == 'OVERDUE' %} task-overdue{% endif %}" data-task-id="{{ task.id }}">
+  <div class="d-flex justify-content-between gap-3 align-items-start">
+    <div class="min-width-0">
+      <div class="task-order-line">
+        <a href="{{ task.order_url }}" class="task-order">{{ task.pi_no }}</a>
+        <span>{{ task.customer_name }}</span>
+      </div>
+      <h3 class="task-title">{{ task.title }}</h3>
+    </div>
+    <span class="task-badge badge-{{ task.badge|lower }}">{{ task.badge }}</span>
+  </div>
+
+  {% if task.description %}<p class="task-description">{{ task.description }}</p>{% endif %}
+  {% if task.health_message %}<div class="task-alert"><i class="fas fa-triangle-exclamation"></i>{{ task.health_message }}</div>{% endif %}
+  {% for warning in task.warnings %}<div class="task-warning"><i class="fas fa-circle-exclamation"></i>{{ warning }}</div>{% endfor %}
+
+  {% if task.amount_lines or task.date_lines %}
+  <div class="task-facts">
+    {% for label, value in task.amount_lines %}<div><span>{{ label }}</span><strong>{{ value }}</strong></div>{% endfor %}
+    {% for label, value in task.date_lines %}<div><span>{{ label }}</span><strong>{{ value }}</strong></div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if task.status == 'WAITING' or task.waiting_on %}
+  <div class="waiting-panel">
+    <div><span>等待</span><strong>{{ task.waiting_on or '未指定' }}</strong></div>
+    {% if task.waiting_since %}<div><span>自</span><strong>{{ task.waiting_since }}</strong></div>{% endif %}
+    {% if task.next_follow_up_at %}<div><span>下次跟进</span><strong>{{ task.next_follow_up_at }}{% if task.next_follow_up_relative %} · {{ task.next_follow_up_relative }}{% endif %}</strong></div>{% endif %}
+    {% if task.recent_follow_up %}<p class="recent-follow-up"><i class="fas fa-comment-dots"></i>{{ task.recent_follow_up.note }} <small>{{ task.recent_follow_up.at }}</small></p>{% endif %}
+  </div>
+  {% endif %}
+
+  {% if task.status == 'DONE' %}
+  <div class="done-summary">
+    <i class="fas fa-check-circle"></i>
+    <div>
+      <strong>{{ task.completion_label }}</strong>
+      <span>{{ task.completed_at or '完成时间未知' }}</span>
+      {% for label, value in task.completion_payload_lines %}<span>{{ label }}：{{ value }}</span>{% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="task-actions">
+    {% if task.primary_action %}
+      {% if task.primary_action.kind == 'navigate' %}
+        <a class="btn btn-sm btn-primary task-primary" href="{{ task.primary_action.url }}">{{ task.primary_action.label }}</a>
+      {% else %}
+        <button type="button" class="btn btn-sm btn-primary task-primary js-task-action"
+                data-action="{{ task.primary_action.kind }}" data-task-id="{{ task.id }}"
+                data-task-title="{{ task.title }}"
+                data-completion-schema="{{ task.completion_schema|tojson|forceescape }}">{{ task.primary_action.label }}</button>
+      {% endif %}
+    {% endif %}
+    {% if task.can_move_waiting %}
+      <button type="button" class="btn btn-sm btn-outline-secondary js-task-action" data-action="waiting" data-task-id="{{ task.id }}" data-task-title="{{ task.title }}">转为等待</button>
+    {% endif %}
+    {% if task.can_reopen %}
+      <button type="button" class="btn btn-sm btn-outline-secondary js-task-action" data-action="reopen" data-task-id="{{ task.id }}" data-task-title="{{ task.title }}">Reopen</button>
+    {% endif %}
+    <button type="button" class="btn btn-sm btn-link task-history-button" data-bs-toggle="collapse" data-bs-target="#task-history-{{ task.id }}" aria-expanded="false">History</button>
+    {% if task.can_cancel %}
+      <button type="button" class="btn btn-sm btn-link text-danger js-task-action" data-action="cancel" data-task-id="{{ task.id }}" data-task-title="{{ task.title }}">取消</button>
+    {% endif %}
+  </div>
+
+  <div class="collapse task-history" id="task-history-{{ task.id }}">
+    <div class="history-heading">Activity History · {{ task.source_label }}</div>
+    {% for activity in task.activities %}
+      <div class="history-item">
+        <div class="history-dot"></div>
+        <div>
+          <strong>{{ activity.event }}</strong>
+          <span>{{ activity.created_at }} · {{ activity.actor }}</span>
+          {% if activity.note %}<p>{{ activity.note }}</p>{% endif %}
+          {% if activity.waiting_on %}<p>等待：{{ activity.waiting_on }}</p>{% endif %}
+          {% if activity.next_follow_up_at %}<p>下次跟进：{{ activity.next_follow_up_at }}</p>{% endif %}
+          {% for label, value in activity.payload_lines %}<p>{{ label }}：{{ value }}</p>{% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <div class="text-muted small">暂无活动记录。</div>
+    {% endfor %}
+  </div>
+</article>

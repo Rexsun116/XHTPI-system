@@ -55,9 +55,9 @@
 </head>
 <body>
   <!-- 公司信息 -->
-  <div class="company-title">{{ pi.exporter.name }}</div>
+  <div class="company-title">{{ pi.exporter.name if pi.exporter else pi.exporter_name_snapshot or '' }}</div>
   <div class="company-address">
-    {{ pi.exporter.address }}
+    {{ pi.exporter.address if pi.exporter else pi.exporter_address_snapshot or '' }}
   </div>
 
   <!-- 标题 -->
@@ -118,7 +118,7 @@
   </div>
 
   <div class="footer-company">
-    {{ pi.exporter.name }}
+    {{ pi.exporter.name if pi.exporter else pi.exporter_name_snapshot or '' }}
   </div>
 </body>
-</html> 
+</html>

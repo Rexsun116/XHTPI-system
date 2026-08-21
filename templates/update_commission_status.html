@@ -66,6 +66,7 @@
                   <label class="form-label">装柜地址</label>
                   <input type="text" class="form-control" name="container_location" value="{{ pi.container_location or '' }}">
                 </div>
+                {% include '_shipping_facts.html' %}
                 <div class="col-md-6 mb-3">
                   <label class="form-label">ETD</label>
                   <input type="date" class="form-control" name="etd" value="{{ pi.etd or '' }}">
@@ -114,6 +115,7 @@
                   <label class="form-label">其他文件</label>
                   <input type="text" class="form-control" name="other_documents" value="{{ pi.other_documents or '' }}">
                 </div>
+                {% include '_document_required_facts.html' %}
               </div>
             </div>
           </div>
@@ -413,6 +415,9 @@
           </div>
         </div>
 
+        {% include '_payment_facts.html' %}
+        {% include '_freight_facts.html' %}
+
         <!-- 操作按钮 -->
         <div class="d-grid gap-2 d-md-flex justify-content-md-end mb-4">
           <a href="{{ url_for('commission_pi_list') }}" class="btn btn-secondary me-md-2">取消</a>
@@ -504,4 +509,4 @@
     updateFormDisplay(); // 初始化一次
   });
 </script>
-{% endblock %} 
+{% endblock %}

@@ -1,0 +1,44 @@
+{# Phase 2C structured payment facts. payment_terms remains separate free text. #}
+{% set payment_pi = pi if pi is defined and pi else none %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-light">
+    <h5 class="mb-0"><i class="fas fa-money-check-alt me-2"></i>Payment Facts / 付款事实</h5>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small mb-3">留空表示尚未确认；系统不会从付款条款文本自动推算正式事实。</p>
+    <div class="row">
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Currency / 币种</label>
+        <input class="form-control" name="currency" maxlength="10" value="{{ payment_pi.currency if payment_pi and payment_pi.currency else '' }}" placeholder="USD" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Advance % / 预付款比例</label>
+        <input type="number" min="0" max="100" step="0.01" class="form-control" name="advance_payment_percent" value="{{ payment_pi.advance_payment_percent if payment_pi and payment_pi.advance_payment_percent is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Advance Expected / 预付款应收</label>
+        <input type="number" min="0" step="0.01" class="form-control" name="advance_payment_amount" value="{{ payment_pi.advance_payment_amount if payment_pi and payment_pi.advance_payment_amount is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Advance Received / 预付款已收</label>
+        <input type="number" min="0" step="0.01" class="form-control" name="advance_received_amount" value="{{ payment_pi.advance_received_amount if payment_pi and payment_pi.advance_received_amount is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Advance Received At / 到账时间</label>
+        <input type="datetime-local" class="form-control" name="advance_received_at" value="{{ payment_pi.advance_received_at.strftime('%Y-%m-%dT%H:%M') if payment_pi and payment_pi.advance_received_at else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Balance Expected / 尾款应收</label>
+        <input type="number" min="0" step="0.01" class="form-control" name="balance_payment_amount" value="{{ payment_pi.balance_payment_amount if payment_pi and payment_pi.balance_payment_amount is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Balance Received / 尾款已收</label>
+        <input type="number" min="0" step="0.01" class="form-control" name="balance_received_amount" value="{{ payment_pi.balance_received_amount if payment_pi and payment_pi.balance_received_amount is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-3 mb-3">
+        <label class="form-label">Balance Received At / 到账时间</label>
+        <input type="datetime-local" class="form-control" name="balance_received_at" value="{{ payment_pi.balance_received_at.strftime('%Y-%m-%dT%H:%M') if payment_pi and payment_pi.balance_received_at else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,50 @@
+{# Phase 2D dual-currency freight settlement facts. Confirmation is task-controlled. #}
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-light">
+    <h5 class="mb-0"><i class="fas fa-file-invoice-dollar me-2"></i>Freight Settlement / 货代结算</h5>
+  </div>
+  <div class="card-body">
+    <p class="text-muted small">USD 海运费和 CNY 本地费用分别维护，不能跨币种相加。确认状态由 Reminder Task 完成操作维护。</p>
+    <div class="row">
+      {% for currency, label, required_field, amount_field, confirmed_field in [
+        ('USD', '美元海运费账单', 'freight_usd_bill_required', 'freight_usd_amount', 'freight_usd_confirmed'),
+        ('CNY', '人民币本地费用账单', 'freight_cny_bill_required', 'freight_cny_amount', 'freight_cny_confirmed')
+      ] %}
+      <div class="col-md-4 mb-3">
+        <label class="form-label">{{ label }}：是否需要</label>
+        {% set required_value = pi|attr(required_field) %}
+        <select class="form-select" name="{{ required_field }}" {% if readonly|default(false) %}disabled{% endif %}>
+          <option value="" {% if required_value is none %}selected{% endif %}>未确认</option>
+          <option value="true" {% if required_value is sameas true %}selected{% endif %}>需要</option>
+          <option value="false" {% if required_value is sameas false %}selected{% endif %}>不需要</option>
+        </select>
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">{{ currency }} Amount / 金额</label>
+        {% set amount_value = pi|attr(amount_field) %}
+        <input type="number" min="0" step="0.01" class="form-control" name="{{ amount_field }}" value="{{ amount_value if amount_value is not none else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Confirmed / 已确认</label>
+        {% set confirmed_value = pi|attr(confirmed_field) %}
+        <input class="form-control" value="{% if confirmed_value is sameas true %}已确认{% elif confirmed_value is sameas false %}未确认{% else %}未进入新流程{% endif %}" disabled>
+      </div>
+      {% endfor %}
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Freight Invoice / 货代发票</label>
+        <input class="form-control" value="{{ pi.freight_invoice_issued or '未确认' }}" disabled>
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Freight Payment / 货代付款</label>
+        <input class="form-control" value="{{ pi.freight_payment_status or '未确认' }}" disabled>
+      </div>
+      <div class="col-md-4 mb-3">
+        <label class="form-label">Freight Paid At / 付款时间</label>
+        <input type="datetime-local" class="form-control" name="freight_paid_at" value="{{ pi.freight_paid_at.strftime('%Y-%m-%dT%H:%M') if pi.freight_paid_at else '' }}" {% if readonly|default(false) %}disabled{% endif %}>
+      </div>
+      <div class="col-12">
+        <div class="small text-muted">Legacy amount（币种未知）：{{ pi.freight_invoice_amount if pi.freight_invoice_amount is not none else '-' }}</div>
+      </div>
+    </div>
+  </div>
+</div>

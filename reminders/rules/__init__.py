@@ -1,0 +1,1 @@
+"""AUTO reminder rule collections."""

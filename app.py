@@ -6,7 +6,8 @@ from flask_login import LoginManager, UserMixin, login_user, logout_user, login_
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import os
-from sqlalchemy import func, extract
+from sqlalchemy import event, func, extract
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.attributes import flag_modified
 from docx import Document
@@ -16,7 +17,18 @@ import requests
 # 初始化app、db、login_manager
 app = Flask(__name__)
 app.secret_key = 'xhtpi-2024-secret-key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+# 正常运行仍使用 instance/database.db；测试/迁移演练可在启动前显式覆盖到隔离数据库。
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('XHTPI_DATABASE_URI', 'sqlite:///database.db')
+
+# 仅供隔离测试/迁移演练显式启用；真实业务库目前仍保留现状，等待孤立 FK 人工处理。
+if os.environ.get('XHTPI_ENABLE_SQLITE_FOREIGN_KEYS') == '1':
+    @event.listens_for(Engine, 'connect')
+    def enable_test_sqlite_foreign_keys(connection, _record):
+        if connection.__class__.__module__.startswith('sqlite3'):
+            cursor = connection.cursor()
+            cursor.execute('PRAGMA foreign_keys=ON')
+            cursor.close()
+
 db = SQLAlchemy(app)
 Migrate = Migrate(app, db)
 login_manager = LoginManager()
@@ -67,7 +79,6 @@ def unauthorized_callback():
 @app.before_request
 def create_admin_users():
     if not hasattr(app, '_admin_created'):
-        db.create_all()
         users = [
             ('Rs10', 'Rs10!)xht'),
             ('Bw18', 'Bw18!*xht'),
@@ -260,7 +271,8 @@ class PI(db.Model):
     pi_no = db.Column(db.String(50), unique=True, nullable=False)
     pi_date = db.Column(db.Date, nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
-    exporter_id = db.Column(db.Integer, db.ForeignKey('exporter.id'), nullable=False)
+    # Commission / 工厂直发订单允许没有普通销售出口商；与现有 migration/SQLite schema 保持一致。
+    exporter_id = db.Column(db.Integer, db.ForeignKey('exporter.id'), nullable=True)
     payment_terms = db.Column(db.String(100))
     loading_port = db.Column(db.String(100))
     destination_port = db.Column(db.String(100))
@@ -268,6 +280,8 @@ class PI(db.Model):
     shipment_date = db.Column(db.Date)
     note = db.Column(db.String(200))
     status = db.Column(db.String(20), default='新建')
+    # 历史 migration 06df15a0fb70 已存在的兼容字段；本阶段不解释或回填其业务值。
+    pi_type = db.Column(db.String(50), nullable=True)
 
     # 快照字段 - 保存创建时的基础信息
     customer_name_snapshot = db.Column(db.String(100))  # 客户名称快照
@@ -294,13 +308,27 @@ class PI(db.Model):
     freight_forwarder = db.relationship('FreightForwarder')
     ocean_freight = db.Column(db.Float)
     container_date = db.Column(db.Date)
+    # Phase 2B: naive local business datetime; legacy container_date remains compatible.
+    container_loading_at = db.Column(db.DateTime, nullable=True)
     container_location = db.Column(db.String(100))
+    driver_name = db.Column(db.String(100), nullable=True)
+    driver_phone = db.Column(db.String(50), nullable=True)
+    vehicle_number = db.Column(db.String(50), nullable=True)
     etd = db.Column(db.Date)
     eta = db.Column(db.Date)
     coo_required = db.Column(db.String(10))   # '需要' / '不需要'
     apta_required = db.Column(db.String(10))
     export_license_required = db.Column(db.String(10))
     customs_docs_required = db.Column(db.String(10))
+    # Phase 2A 正式 Required Facts：三态 Boolean（True / False / 未确认 NULL）。
+    coc_required = db.Column(db.Boolean, nullable=True)
+    coa_required = db.Column(db.Boolean, nullable=True)
+    original_bl_required = db.Column(db.Boolean, nullable=True)
+    obd_electronic_required = db.Column(db.Boolean, nullable=True)
+    insurance_original_required = db.Column(db.Boolean, nullable=True)
+    insurance_electronic_required = db.Column(db.Boolean, nullable=True)
+    original_documents_mail_required = db.Column(db.Boolean, nullable=True)
+    telex_release_required = db.Column(db.Boolean, nullable=True)
     #7.2日新加
     other_documents = db.Column(db.String(200))
     # PI状态选择已发运时需填写的表单字段
@@ -341,9 +369,26 @@ class PI(db.Model):
     #PI状态选择已到港时需要填写的字段
     actual_arrival_date = db.Column(db.Date)  # 实际到港日期
     payment_received = db.Column(db.String(10))  # 货款收齐：'已收齐' / '未收齐'
+    # Phase 2C structured payment facts. Legacy payment_terms/payment_received remain compatible.
+    currency = db.Column(db.String(10), nullable=True)
+    advance_payment_percent = db.Column(db.Numeric(5, 2), nullable=True)
+    advance_payment_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    advance_received_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    advance_received_at = db.Column(db.DateTime, nullable=True)
+    balance_payment_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    balance_received_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    balance_received_at = db.Column(db.DateTime, nullable=True)
     freight_invoice_amount = db.Column(db.Float)  # 货代账单金额
     freight_invoice_confirmed = db.Column(db.String(10))  # 货代账单确认状态 '已确认' / '未确认'
     freight_invoice_issued = db.Column(db.String(10))  # 货代发票开具状态 '已开具' / '未开具'
+    # Phase 2D dual-currency freight settlement facts. Legacy generic fields remain unchanged.
+    freight_usd_bill_required = db.Column(db.Boolean, nullable=True)
+    freight_usd_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    freight_usd_confirmed = db.Column(db.Boolean, nullable=True)
+    freight_cny_bill_required = db.Column(db.Boolean, nullable=True)
+    freight_cny_amount = db.Column(db.Numeric(18, 2), nullable=True)
+    freight_cny_confirmed = db.Column(db.Boolean, nullable=True)
+    freight_paid_at = db.Column(db.DateTime, nullable=True)
     telex_release = db.Column(db.String(10))  # PI电放状态 '已电放' / '未电放'
     settlement_documents_required = db.Column(db.String(10))  # 结汇文件 '需要' / '不需要'
     
@@ -364,9 +409,14 @@ class PI(db.Model):
                  customer_phone_snapshot=None, customer_email_snapshot=None, exporter_name_snapshot=None,
                  exporter_address_snapshot=None, exporter_tax_code_snapshot=None, exporter_country_snapshot=None,
                  exporter_contact_snapshot=None, exporter_phone_snapshot=None, exporter_email_snapshot=None,
-                 freight_forwarder_id=None, ocean_freight=None, container_date=None, container_location=None,
+                 freight_forwarder_id=None, ocean_freight=None, container_date=None,
+                 container_loading_at=None, container_location=None, driver_name=None,
+                 driver_phone=None, vehicle_number=None,
                  etd=None, eta=None, coo_required=None, apta_required=None, export_license_required=None,
-                 customs_docs_required=None, other_documents=None, bill_of_lading=None, shipping_company=None,
+                 customs_docs_required=None, coc_required=None, coa_required=None, original_bl_required=None,
+                 obd_electronic_required=None, insurance_original_required=None,
+                 insurance_electronic_required=None, original_documents_mail_required=None,
+                 telex_release_required=None, other_documents=None, bill_of_lading=None, shipping_company=None,
                  coa_status=None, insurance_status=None, document_shipping_status=None, tracking_number=None,
                  batch_no=None, actual_departure_date=None, vessel_info=None, booking_number=None,
                  container_type_quantity=None, shipping_mark=None, freight_term=None, contract_number=None,
@@ -376,6 +426,12 @@ class PI(db.Model):
                  total_volume=None, total_volume_unit=None, total_vgm=None, actual_arrival_date=None,
                  payment_received=None, freight_invoice_amount=None, freight_invoice_confirmed=None,
                  freight_invoice_issued=None, telex_release=None, settlement_documents_required=None,
+                 freight_usd_bill_required=None, freight_usd_amount=None, freight_usd_confirmed=None,
+                 freight_cny_bill_required=None, freight_cny_amount=None, freight_cny_confirmed=None,
+                 freight_paid_at=None,
+                 currency=None, advance_payment_percent=None, advance_payment_amount=None,
+                 advance_received_amount=None, advance_received_at=None,
+                 balance_payment_amount=None, balance_received_amount=None, balance_received_at=None,
                  freight_payment_status=None,
                  commission_factory_id=None, commission_exporter_id=None, commission_amount=None, commission_rate=None, commission_status=None, factory_sale_amount=None):
         self.pi_no = pi_no
@@ -406,13 +462,25 @@ class PI(db.Model):
         self.freight_forwarder_id = freight_forwarder_id
         self.ocean_freight = ocean_freight
         self.container_date = container_date
+        self.container_loading_at = container_loading_at
         self.container_location = container_location
+        self.driver_name = driver_name
+        self.driver_phone = driver_phone
+        self.vehicle_number = vehicle_number
         self.etd = etd
         self.eta = eta
         self.coo_required = coo_required
         self.apta_required = apta_required
         self.export_license_required = export_license_required
         self.customs_docs_required = customs_docs_required
+        self.coc_required = coc_required
+        self.coa_required = coa_required
+        self.original_bl_required = original_bl_required
+        self.obd_electronic_required = obd_electronic_required
+        self.insurance_original_required = insurance_original_required
+        self.insurance_electronic_required = insurance_electronic_required
+        self.original_documents_mail_required = original_documents_mail_required
+        self.telex_release_required = telex_release_required
         self.other_documents = other_documents
         self.bill_of_lading = bill_of_lading
         self.shipping_company = shipping_company
@@ -446,9 +514,24 @@ class PI(db.Model):
         self.total_vgm = total_vgm
         self.actual_arrival_date = actual_arrival_date
         self.payment_received = payment_received
+        self.currency = currency
+        self.advance_payment_percent = advance_payment_percent
+        self.advance_payment_amount = advance_payment_amount
+        self.advance_received_amount = advance_received_amount
+        self.advance_received_at = advance_received_at
+        self.balance_payment_amount = balance_payment_amount
+        self.balance_received_amount = balance_received_amount
+        self.balance_received_at = balance_received_at
         self.freight_invoice_amount = freight_invoice_amount
         self.freight_invoice_confirmed = freight_invoice_confirmed
         self.freight_invoice_issued = freight_invoice_issued
+        self.freight_usd_bill_required = freight_usd_bill_required
+        self.freight_usd_amount = freight_usd_amount
+        self.freight_usd_confirmed = freight_usd_confirmed
+        self.freight_cny_bill_required = freight_cny_bill_required
+        self.freight_cny_amount = freight_cny_amount
+        self.freight_cny_confirmed = freight_cny_confirmed
+        self.freight_paid_at = freight_paid_at
         self.telex_release = telex_release
         self.settlement_documents_required = settlement_documents_required
         self.freight_payment_status = freight_payment_status
@@ -533,6 +616,129 @@ class Product(db.Model):
         self.model = model
         self.packaging = packaging
 
+
+# Phase 1 Task Foundation：显式加载模型供 Flask-Migrate metadata 使用，并注册最小操作接口。
+from task_models import OrderTask, TaskActivity
+from reminders.routes import reminders_bp
+from reminders.cli import reminders_cli
+from reminders.engine import reconcile_order_tasks_for_pi
+
+app.register_blueprint(reminders_bp)
+app.cli.add_command(reminders_cli)
+
+
+class TargetedReconcileError(RuntimeError):
+    """Safe boundary error for an atomic PI mutation/reconcile transaction."""
+
+
+def commit_pi_with_targeted_reconcile(pi):
+    """Flush PI facts, reconcile only this PI, then commit atomically."""
+    try:
+        db.session.flush()
+        actions = reconcile_order_tasks_for_pi(pi)
+        db.session.commit()
+        return actions
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception("Targeted reminder reconcile failed for PI id=%s", pi.id)
+        raise TargetedReconcileError(
+            "订单保存失败，Reminder 同步未完成；本次修改已回滚。"
+        ) from exc
+
+
+DOCUMENT_REQUIRED_FACT_FIELDS = (
+    'coc_required',
+    'coa_required',
+    'original_bl_required',
+    'obd_electronic_required',
+    'insurance_original_required',
+    'insurance_electronic_required',
+    'original_documents_mail_required',
+    'telex_release_required',
+)
+
+
+def update_document_required_facts(pi, form):
+    """Update only explicitly submitted Phase 2A tri-state Required Facts."""
+    mapping = {'': None, 'true': True, 'false': False}
+    for field in DOCUMENT_REQUIRED_FACT_FIELDS:
+        if field not in form:
+            continue
+        value = form.get(field, '')
+        if value not in mapping:
+            raise ValueError(f'Invalid required fact value for {field}.')
+        setattr(pi, field, mapping[value])
+
+
+def update_shipping_facts(pi, form):
+    """Update explicitly submitted Phase 2B facts and keep legacy date consumers aligned."""
+    if 'container_loading_at' in form:
+        raw_loading_at = (form.get('container_loading_at') or '').strip()
+        pi.container_loading_at = (
+            datetime.strptime(raw_loading_at, '%Y-%m-%dT%H:%M')
+            if raw_loading_at
+            else None
+        )
+        if pi.container_loading_at is not None:
+            pi.container_date = pi.container_loading_at.date()
+    for field in ('driver_name', 'driver_phone', 'vehicle_number'):
+        if field in form:
+            setattr(pi, field, (form.get(field) or '').strip() or None)
+
+
+PAYMENT_MONEY_FIELDS = (
+    'advance_payment_percent',
+    'advance_payment_amount',
+    'advance_received_amount',
+    'balance_payment_amount',
+    'balance_received_amount',
+)
+
+
+def update_payment_facts(pi, form):
+    """Update only explicitly submitted Phase 2C facts; blank means unknown."""
+    from decimal import Decimal, InvalidOperation
+
+    if 'currency' in form:
+        currency = (form.get('currency') or '').strip().upper() or None
+        if currency is not None and len(currency) > 10:
+            raise ValueError('currency cannot exceed 10 characters.')
+        pi.currency = currency
+    for field in PAYMENT_MONEY_FIELDS:
+        if field not in form:
+            continue
+        raw_value = (form.get(field) or '').strip()
+        if not raw_value:
+            setattr(pi, field, None)
+            continue
+        try:
+            value = Decimal(raw_value)
+        except InvalidOperation as exc:
+            raise ValueError(f'Invalid decimal value for {field}.') from exc
+        if not value.is_finite():
+            raise ValueError(f'{field} must be a finite decimal value.')
+        if value < 0:
+            raise ValueError(f'{field} cannot be negative.')
+        if field == 'advance_payment_percent' and value > 100:
+            raise ValueError('advance_payment_percent cannot exceed 100.')
+        setattr(pi, field, value)
+    for field in ('advance_received_at', 'balance_received_at'):
+        if field not in form:
+            continue
+        raw_value = (form.get(field) or '').strip()
+        setattr(
+            pi,
+            field,
+            datetime.strptime(raw_value, '%Y-%m-%dT%H:%M') if raw_value else None,
+        )
+
+
+def update_freight_facts(pi, form):
+    """Delegate Phase 2D freight fact parsing and confirmation invalidation."""
+    from reminders.freight import update_freight_facts_from_form
+
+    return update_freight_facts_from_form(pi, form)
+
 # -----------------------------
 # 工具函数：生成唯一客户编码 C001、C002...
 # -----------------------------
@@ -601,6 +807,9 @@ from sqlalchemy import func
 @app.route('/')
 @login_required
 def index():
+    from reminders.dashboard import get_dashboard_tasks
+    from reminders.routes import ensure_task_csrf_token
+
     # 获取全部 PI
     status_order = ['新建', '待发运', '已发运', '已到港', '已完成']
     pis = PI.query.order_by(PI.pi_date.desc()).all()
@@ -618,91 +827,11 @@ def index():
         cny_rate = data['rates']['CNY']
     except Exception:
         cny_rate = None
-    # ========== 智能提醒逻辑 ========== #
-    reminders_by_pi = {}
+    # Dashboard consumes persisted Task data only. Full business-rule reconcile
+    # remains an explicit CLI/service operation and is never run by this GET.
+    task_dashboard = get_dashboard_tasks()
+    task_csrf_token = ensure_task_csrf_token()
     today = datetime.today().date()
-    for pi in pis:
-        if pi.status == '已完成':
-            continue
-        pi_reminders = []
-        # 提前发运提醒 (发运日期 <= 今天 + 7天，仅在新建状态时显示)
-        if pi.status == '新建' and pi.shipment_date and pi.shipment_date <= today + timedelta(days=7):
-            pi_reminders.append(f'📦 计划于 {pi.shipment_date.strftime("%Y-%m-%d")} 发运，请提前安排')
-        # 装柜提醒（装柜日期 <= 2 天内，仅在待发运状态时显示）
-        if pi.status == '待发运' and pi.container_date:
-            delta = (pi.container_date - today).days
-            if 0 <= delta <= 2:
-                freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
-                pi_reminders.append(f'🚛 计划 {pi.container_date.strftime("%Y-%m-%d")} 装柜，地址为 {pi.container_location or "（未填写）"}，请联系 {freight_forwarder_name} 并通知厂家')
-        # COO
-        if (pi.coo_required or '').strip() == '需要':
-            pi_reminders.append('📄 客户文件需要产地证（COO），请及时处理')
-        elif (pi.coo_required or '').strip() == '已完成':
-            pi_reminders.append('📄 客户文件需要产地证（COO），请及时处理 <span class="badge bg-success ms-2">已完成</span>')
-        # APTA
-        if (pi.apta_required or '').strip() == '需要':
-            pi_reminders.append('📄 客户文件需要产地证（APTA），请及时处理')
-        elif (pi.apta_required or '').strip() == '已完成':
-            pi_reminders.append('📄 客户文件需要产地证（APTA），请及时处理 <span class="badge bg-success ms-2">已完成</span>')
-        # COA质检单
-        if (pi.coa_status or '').strip() == '需要':
-            pi_reminders.append('📄 客户文件需要COA质检单，请及时处理')
-        elif (pi.coa_status or '').strip() == '已完成':
-            pi_reminders.append('📄 客户文件需要COA质检单，请及时处理 <span class="badge bg-success ms-2">已完成</span>')
-        # 保险单
-        if (pi.insurance_status or '').strip() == '需要':
-            pi_reminders.append('📄 客户文件需要保险单，请及时处理')
-        elif (pi.insurance_status or '').strip() == '已完成':
-            pi_reminders.append('📄 客户文件需要保险单，请及时处理 <span class="badge bg-success ms-2">已完成</span>')
-        # 原件邮寄状态（字段名修正为document_shipping_status）
-        if (pi.document_shipping_status or '').strip() == '未邮寄':
-            pi_reminders.append('📄 客户需要邮寄纸质文件，请及时寄出')
-        elif (pi.document_shipping_status or '').strip() == '已邮寄' and pi.tracking_number:
-            pi_reminders.append(f'📄 纸质文件已经通过 {pi.tracking_number} 寄出 <span class="badge bg-success ms-2">已完成</span>')
-        # 出口许可证
-        if (pi.export_license_required or '').strip() == '需要':
-            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
-            pi_reminders.append(f'📑 需要出口许可证，请尽快处理并发送给 {freight_forwarder_name} 联系人')
-        elif (pi.export_license_required or '').strip() == '已完成':
-            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
-            pi_reminders.append(f'📑 需要出口许可证，请尽快处理并发送给 {freight_forwarder_name} 联系人 <span class="badge bg-success ms-2">已完成</span>')
-        # 报关文件
-        if (pi.customs_docs_required or '').strip() == '需要':
-            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
-            pi_reminders.append(f'🧾 需要报关文件，请尽快准备并发送给 {freight_forwarder_name} 联系人')
-        elif (pi.customs_docs_required or '').strip() == '已完成':
-            freight_forwarder_name = pi.freight_forwarder.name if pi.freight_forwarder else "（未填写）"
-            pi_reminders.append(f'🧾 需要报关文件，请尽快准备并发送给 {freight_forwarder_name} 联系人 <span class="badge bg-success ms-2">已完成</span>')
-        
-        # 已发运确认提醒（仅在已发运状态且相关字段已填写时显示）
-        if (pi.status == '已发运' and 
-            pi.bill_of_lading and 
-            pi.shipping_company and 
-            pi.actual_departure_date and 
-            pi.eta):
-            pi_reminders.append(f'🚢 {pi.pi_no} 已由 {pi.shipping_company} 于 {pi.actual_departure_date.strftime("%Y-%m-%d")} 发运，提单号：{pi.bill_of_lading}，ETA：{pi.eta.strftime("%Y-%m-%d")}')
-        
-        # 货款收齐提醒（仅在已发运和已到港状态时显示）
-        if (pi.status in ['已发运', '已到港'] and 
-            (pi.payment_received or '').strip() == '未收齐'):
-            pi_reminders.append(f'💰 {pi.pi_no} 的付款方式为 {pi.payment_terms}，货款还未收齐，请及时联系客户付款')
-        
-        # 结汇文件需求提醒（仅在已发运和已到港状态时显示）
-        if (pi.status in ['已发运', '已到港'] and 
-            (pi.settlement_documents_required or '').strip() == '需要'):
-            pi_reminders.append(f'📄 {pi.pi_no} 有结汇需求，请及时准备结汇文件')
-        
-        if pi_reminders:
-            reminders_by_pi[pi.pi_no] = pi_reminders
-    reminders = []
-    total_reminders = 0
-    for pi_no, pi_reminders in reminders_by_pi.items():
-        reminders.append({
-            'pi_no': pi_no,
-            'items': pi_reminders
-        })
-        total_reminders += len(pi_reminders)
-    # ========== 智能提醒逻辑 END ========== #
 
     # 统计本月订单数量，确保pi_date不为None再用extract
     month_order_count = PI.query.filter(
@@ -716,8 +845,8 @@ def index():
         pis=pis,
         unfinished_count=unfinished_count,
         shipment_total=shipment_total,
-        reminders=reminders,
-        total_reminders=total_reminders,
+        task_dashboard=task_dashboard,
+        task_csrf_token=task_csrf_token,
         cny_rate=cny_rate,  # 新增
         month_order_count=month_order_count  # 新增
     )
@@ -1250,6 +1379,10 @@ def create_pi():
             exporter_email_snapshot=exporter.email
         )
         db.session.add(pi)
+        update_document_required_facts(pi, request.form)
+        update_shipping_facts(pi, request.form)
+        update_payment_facts(pi, request.form)
+        update_freight_facts(pi, request.form)
         db.session.flush()  # 获取 pi.id
 
         # 创建产品明细行
@@ -1294,7 +1427,11 @@ def create_pi():
             db.session.add(item)
             index += 1
 
-        db.session.commit()
+        try:
+            commit_pi_with_targeted_reconcile(pi)
+        except TargetedReconcileError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('create_pi'))
         return redirect(url_for('index'))  # 成功后返回首页或可改为 pi_list 页面
 
     return render_template(
@@ -1448,12 +1585,16 @@ def edit_pi(pi_id):
             pi.coo_required = request.form.get('coo_required', pi.coo_required)
             pi.apta_required = request.form.get('apta_required', pi.apta_required)
             pi.export_license_required = request.form.get('export_license_required', pi.export_license_required)
+            update_document_required_facts(pi, request.form)
+            update_payment_facts(pi, request.form)
+            update_freight_facts(pi, request.form)
             pi.other_documents = request.form.get('other_documents', pi.other_documents)
             freight_forwarder_id_str = request.form.get('freight_forwarder_id')
             pi.freight_forwarder_id = int(freight_forwarder_id_str) if freight_forwarder_id_str else pi.freight_forwarder_id
             pi.ocean_freight = float(request.form.get('ocean_freight', pi.ocean_freight) or 0) if request.form.get('ocean_freight') is not None else pi.ocean_freight
             container_date_str = request.form.get('container_date')
             pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else pi.container_date
+            update_shipping_facts(pi, request.form)
             pi.container_location = request.form.get('container_location', pi.container_location)
             etd_str = request.form.get('etd')
             pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
@@ -1600,9 +1741,8 @@ def edit_pi(pi_id):
             print(f"   pi.exporter_id: {pi.exporter_id} (类型: {type(pi.exporter_id)})")
             print(f"   pi 对象是否被标记为已修改: {pi in db.session.dirty}")
             
-            # 强制刷新会话并提交
-            db.session.flush()
-            db.session.commit()
+            # PI 事实与该订单的 Reminder/Activity 在同一事务提交。
+            commit_pi_with_targeted_reconcile(pi)
             
             # 添加调试信息 - 提交后重新查询
             pi_after_commit = PI.query.get(pi.id)
@@ -1647,15 +1787,20 @@ def update_pi_status(pi_id):
 
         if new_status and new_status in next_status_options:
             pi.status = new_status
+            update_document_required_facts(pi, request.form)
+            update_payment_facts(pi, request.form)
+            update_freight_facts(pi, request.form)
 
             # 根据新状态处理对应字段
             date_fmt = "%Y-%m-%d"
             if new_status == '待发运':
                 # 发运准备信息
-                pi.freight_forwarder_id = request.form.get('freight_forwarder_id')
+                freight_forwarder_id = request.form.get('freight_forwarder_id')
+                pi.freight_forwarder_id = int(freight_forwarder_id) if freight_forwarder_id else None
                 pi.ocean_freight = request.form.get('ocean_freight') or None
                 container_date_str = request.form.get('container_date')
                 pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else None
+                update_shipping_facts(pi, request.form)
                 pi.container_location = request.form.get('container_location')
                 etd_str = request.form.get('etd')
                 pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
@@ -1747,7 +1892,11 @@ def update_pi_status(pi_id):
             if pi.payment_received != '已收齐' or pi.freight_payment_status != '已付款':
                 return "无法完成状态更新：需确认货款收齐且货代运费已付款", 400
         
-        db.session.commit()
+        try:
+            commit_pi_with_targeted_reconcile(pi)
+        except TargetedReconcileError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('update_pi_status', pi_id=pi.id))
         return redirect(url_for('show_pi_list'))
     
 
@@ -1788,9 +1937,9 @@ def generate_booking(pi_id):
         "{{vessel_info}}": pi.vessel_info or "",
         "{{booking_number}}": pi.booking_number or "",
 
-        "{{exporter_name}}": exporter.name or "",
-        "{{exporter_address}}": (exporter.address or "").replace(";", "\n"),
-        "{{exporter_tax_code}}": (exporter.tax_code or "").replace(";", "\n"),
+        "{{exporter_name}}": (exporter.name if exporter else pi.exporter_name_snapshot) or "",
+        "{{exporter_address}}": ((exporter.address if exporter else pi.exporter_address_snapshot) or "").replace(";", "\n"),
+        "{{exporter_tax_code}}": ((exporter.tax_code if exporter else pi.exporter_tax_code_snapshot) or "").replace(";", "\n"),
 
         "{{customer_name}}": customer.name or "",
         "{{customer_address}}": (customer.address or "").replace(";", "\n"),
@@ -1981,6 +2130,10 @@ def create_pi_commission():
             exporter_email_snapshot=exporter.email
         )
         db.session.add(pi)
+        update_document_required_facts(pi, request.form)
+        update_shipping_facts(pi, request.form)
+        update_payment_facts(pi, request.form)
+        update_freight_facts(pi, request.form)
         db.session.flush()  # 获取 pi.id
 
         # 创建产品明细行（如有产品明细表单，可参考销售订单逻辑）
@@ -2021,7 +2174,11 @@ def create_pi_commission():
             db.session.add(item)
             index += 1
 
-        db.session.commit()
+        try:
+            commit_pi_with_targeted_reconcile(pi)
+        except TargetedReconcileError as exc:
+            flash(str(exc), 'danger')
+            return redirect(url_for('create_pi_commission'))
         return redirect(url_for('index'))
 
     return render_template('create_pi_commission.html', customers=customers, exporters=exporters, factories=factories, products=products, banks=banks)
@@ -2141,6 +2298,9 @@ def update_commission_pi_status(pi_id):
         commission_status = request.form.get('commission_status', pi.commission_status)
         if new_status and new_status in next_status_options:
             pi.status = new_status
+            update_document_required_facts(pi, request.form)
+            update_payment_facts(pi, request.form)
+            update_freight_facts(pi, request.form)
             
             # 根据新状态处理对应字段
             date_fmt = "%Y-%m-%d"
@@ -2148,10 +2308,12 @@ def update_commission_pi_status(pi_id):
             # 待发运状态字段处理
             if new_status == '待发运':
                 # 发运准备信息
-                pi.freight_forwarder_id = request.form.get('freight_forwarder_id')
+                freight_forwarder_id = request.form.get('freight_forwarder_id')
+                pi.freight_forwarder_id = int(freight_forwarder_id) if freight_forwarder_id else None
                 pi.ocean_freight = request.form.get('ocean_freight') or None
                 container_date_str = request.form.get('container_date')
                 pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else None
+                update_shipping_facts(pi, request.form)
                 pi.container_location = request.form.get('container_location')
                 etd_str = request.form.get('etd')
                 pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
@@ -2226,7 +2388,11 @@ def update_commission_pi_status(pi_id):
                 if pi.payment_received != '已收齐' or pi.freight_payment_status != '已付款' or pi.commission_status != '已结算':
                     return "无法完成状态更新：需确认货款收齐、货代运费已付款且佣金已结算", 400
             
-            db.session.commit()
+            try:
+                commit_pi_with_targeted_reconcile(pi)
+            except TargetedReconcileError as exc:
+                flash(str(exc), 'danger')
+                return redirect(url_for('update_commission_pi_status', pi_id=pi.id))
             return redirect(url_for('commission_pi_list'))
     freight_forwarders = FreightForwarder.query.all()
     return render_template('update_commission_status.html', pi=pi, current_status=pi.status, next_status_options=next_status_options, freight_forwarders=freight_forwarders)
@@ -2267,10 +2433,13 @@ def edit_commission_pi(pi_id):
             pi.factory_sale_amount = float(request.form.get('factory_sale_amount') or 0)
             
             # 发运准备信息字段
-            pi.freight_forwarder_id = request.form.get('freight_forwarder_id', pi.freight_forwarder_id)
+            if 'freight_forwarder_id' in request.form:
+                freight_forwarder_id = request.form.get('freight_forwarder_id')
+                pi.freight_forwarder_id = int(freight_forwarder_id) if freight_forwarder_id else None
             pi.ocean_freight = float(request.form.get('ocean_freight', pi.ocean_freight) or 0) if request.form.get('ocean_freight') is not None else pi.ocean_freight
             container_date_str = request.form.get('container_date')
             pi.container_date = datetime.strptime(container_date_str, date_fmt).date() if container_date_str else pi.container_date
+            update_shipping_facts(pi, request.form)
             pi.container_location = request.form.get('container_location', pi.container_location)
             etd_str = request.form.get('etd')
             pi.etd = datetime.strptime(etd_str, date_fmt).date() if etd_str else pi.etd
@@ -2280,6 +2449,9 @@ def edit_commission_pi(pi_id):
             pi.apta_required = request.form.get('apta_required', pi.apta_required)
             pi.export_license_required = request.form.get('export_license_required', pi.export_license_required)
             pi.customs_docs_required = request.form.get('customs_docs_required', pi.customs_docs_required)
+            update_document_required_facts(pi, request.form)
+            update_payment_facts(pi, request.form)
+            update_freight_facts(pi, request.form)
             pi.other_documents = request.form.get('other_documents', pi.other_documents)
             
             # 托书信息字段
@@ -2410,12 +2582,12 @@ def edit_commission_pi(pi_id):
             while len(pi.products) > index:
                 db.session.delete(pi.products[-1])
             
-            db.session.commit()
+            commit_pi_with_targeted_reconcile(pi)
             return redirect(url_for('commission_pi_list'))
         except Exception as e:
             db.session.rollback()
             flash('保存失败：请检查输入内容或稍后重试。', 'danger')
-            return f"保存失败: {e}", 400
+            return redirect(url_for('edit_commission_pi', pi_id=pi.id))
     return render_template('edit_commission_pi.html', pi=pi, customers=customers, exporters=exporters, factories=factories, products=products, freight_forwarders=freight_forwarders, banks=banks)
 
 # -----------------------------
@@ -2423,8 +2595,4 @@ def edit_commission_pi(pi_id):
 # -----------------------------
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     app.run(debug=True)
-
-

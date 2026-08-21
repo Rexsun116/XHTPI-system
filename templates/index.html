@@ -1,587 +1,240 @@
 {% extends "base.html" %}
 
-{% block title %}首页 - 西合钛贸易管理系统{% endblock %}
+{% block title %}Order Control Center - 西合钛贸易管理系统{% endblock %}
 
 {% block content %}
-<!-- 引入 Google Fonts 模拟图中的现代字体 (Inter) -->
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-
-<div class="dashboard-container">
-  
-  <!-- 1. 顶部标题栏 (模仿图中的 Header) -->
-  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-5 fade-in">
+<div class="occ-dashboard" data-task-csrf="{{ task_csrf_token }}">
+  <header class="occ-header">
     <div>
-      <h1 class="page-title mb-1">西合钛贸易概览</h1>
-      <p class="text-muted mb-0 fs-6">
-        <span class="status-dot"></span> 系统运行正常 | {{ pis|length }} 个活跃订单管理中
-      </p>
+      <p class="eyebrow">ORDER CONTROL CENTER</p>
+      <h1>外贸订单执行工作台</h1>
+      <p class="header-copy">先处理异常与当前行动，再查看等待事项和未来节点。</p>
     </div>
-    
-    <div class="d-flex align-items-center gap-3 mt-3 mt-md-0">
-      <!-- 模拟图中的搜索框 -->
-      <div class="search-wrapper d-none d-md-block">
-        <i class="fas fa-search text-muted"></i>
-        <input type="text" placeholder="搜索订单号、客户..." class="custom-search-input">
-      </div>
-      <!-- 模拟图中的主按钮 -->
-      <a href="{{ url_for('edit_pi', pi_id=0) }}" class="btn btn-primary-custom">
-        <i class="fas fa-plus me-2"></i> 新建订单
-      </a>
+    <div class="header-actions">
+      <label class="occ-search">
+        <i class="fas fa-search"></i>
+        <input id="dashboardSearch" type="search" placeholder="搜索 PI、客户、任务…" aria-label="搜索 Dashboard">
+      </label>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#manualTaskModal">
+        <i class="fas fa-list-check me-2"></i>新增手工任务
+      </button>
+      <a href="{{ url_for('edit_pi', pi_id=0) }}" class="btn btn-primary"><i class="fas fa-plus me-2"></i>新建订单</a>
     </div>
-  </div>
+  </header>
 
-  <!-- 2. 统计卡片区域 (模仿图中的横向卡片布局) -->
-  <div class="row g-4 mb-5">
-    <!-- 未完成订单 -->
-    <div class="col-md-6 col-lg-3 fade-in" style="animation-delay: 0.1s">
-      <div class="stat-card">
-        <div class="stat-icon-box bg-indigo-light text-indigo">
-          <i class="fas fa-clipboard-list"></i>
-        </div>
-        <div class="stat-content">
-          <p class="stat-label">未完成订单</p>
-          <h3 class="stat-value">{{ unfinished_count }} <span class="unit">个</span></h3>
-        </div>
-      </div>
-    </div>
+  <section class="control-summary" aria-label="任务摘要">
+    <a href="#exceptionSection" class="summary-item summary-exception">
+      <span>Exception</span><strong>{{ task_dashboard.counts.exception }}</strong><small>需要优先判断</small>
+    </a>
+    <a href="#actionSection" class="summary-item summary-action">
+      <span>Action</span><strong>{{ task_dashboard.counts.action }}</strong><small>现在轮到我处理</small>
+    </a>
+    <a href="#waitingSection" class="summary-item summary-waiting">
+      <span>Waiting</span><strong>{{ task_dashboard.counts.waiting }}</strong><small>正在等待外部反馈</small>
+    </a>
+    <a href="#upcomingSection" class="summary-item summary-upcoming">
+      <span>Upcoming</span><strong>{{ task_dashboard.counts.upcoming }}</strong><small>未来 7 天</small>
+    </a>
+  </section>
 
-    <!-- 待发运数量 -->
-    <div class="col-md-6 col-lg-3 fade-in" style="animation-delay: 0.2s">
-      <div class="stat-card">
-        <div class="stat-icon-box bg-orange-light text-orange">
-          <i class="fas fa-ship"></i>
-        </div>
-        <div class="stat-content">
-          <p class="stat-label">待发运数量</p>
-          <h3 class="stat-value">{{ shipment_total }} <span class="unit">MT</span></h3>
-        </div>
-      </div>
+  {% if task_dashboard.exception %}
+  <section id="exceptionSection" class="occ-section exception-section task-search-scope">
+    <div class="section-heading">
+      <div><p>PRIORITY</p><h2><i class="fas fa-triangle-exclamation"></i>异常事项</h2></div>
+      <span>{{ task_dashboard.exception|length }} 项需要关注</span>
     </div>
+    <div class="exception-grid">
+      {% for task in task_dashboard.exception %}{% include '_dashboard_task_card.html' %}{% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
-    <!-- 本月订单 -->
-    <div class="col-md-6 col-lg-3 fade-in" style="animation-delay: 0.3s">
-      <div class="stat-card">
-        <div class="stat-icon-box bg-green-light text-green">
-          <i class="fas fa-chart-line"></i>
-        </div>
-        <div class="stat-content">
-          <p class="stat-label">本月新增</p>
-          <h3 class="stat-value">{{ month_order_count }} <span class="unit">个</span></h3>
-        </div>
+  <section class="task-workspace">
+    <div id="actionSection" class="task-column task-search-scope">
+      <div class="column-heading"><div><span class="column-dot dot-action"></span><h2>Action</h2></div><strong>{{ task_dashboard.action|length }}</strong></div>
+      <p class="column-description">当前需要主动处理</p>
+      <div class="task-stack">
+        {% for task in task_dashboard.action %}{% include '_dashboard_task_card.html' %}
+        {% else %}<div class="empty-state"><i class="fas fa-check"></i><strong>No Action Required</strong><span>当前没有需要立即处理的事项。</span></div>{% endfor %}
       </div>
     </div>
 
-    <!-- 汇率 -->
-    <div class="col-md-6 col-lg-3 fade-in" style="animation-delay: 0.4s">
-      <div class="stat-card">
-        <div class="stat-icon-box bg-blue-light text-blue">
-          <i class="fas fa-exchange-alt"></i>
-        </div>
-        <div class="stat-content">
-          <p class="stat-label">USD/CNY 汇率</p>
-          <h3 class="stat-value">
-            {% if cny_rate %}
-              {{ (cny_rate|string).split('.')|length > 1 and ((cny_rate|string).split('.')[0] ~ '.' ~ ((cny_rate|string).split('.')[1][:3])) or cny_rate }}
-            {% else %}
-              --
-            {% endif %}
-          </h3>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="row g-4">
-    <!-- 3. PI 列表 (模仿图中的白色 Active Assets 区域) -->
-    <div class="col-lg-8 fade-in" style="animation-delay: 0.5s">
-      <div class="content-card h-100">
-        <div class="card-header-custom d-flex justify-content-between align-items-center mb-4">
-          <h5 class="section-title mb-0">活跃订单列表</h5>
-          <!-- 模拟图中的 Tab 切换 -->
-          <div class="d-none d-sm-flex gap-2">
-            <span class="badge-tab active">全部</span>
-            <span class="badge-tab">工厂直发</span>
-            <span class="badge-tab">销售订单</span>
-          </div>
-        </div>
-        
-        <div class="table-responsive">
-          <table id="piTable" class="table custom-table align-middle">
-            <thead>
-              <tr>
-                <th onclick="sortTable(0)" class="ps-4">PI 编号</th>
-                <th onclick="sortTable(1)">类型</th>
-                <th onclick="sortTable(2)">日期</th>
-                <th>客户/出口商</th>
-                <th onclick="sortTable(5)">状态</th>
-                <th class="text-end pe-4">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for pi in pis %}
-              <tr>
-                <td class="ps-4 fw-bold text-dark">{{ pi.pi_no }}</td>
-                <td>
-                  {% if pi.commission_factory_id or pi.commission_exporter_id %}
-                    <span class="badge-type type-factory">直发</span>
-                  {% else %}
-                    <span class="badge-type type-sales">销售</span>
-                  {% endif %}
-                </td>
-                <td class="text-muted">{{ pi.pi_date.strftime('%Y-%m-%d') }}</td>
-                <td>
-                  <div class="d-flex flex-column">
-                    <span class="fw-medium text-dark" style="font-size: 0.9em;">{{ pi.customer_name_snapshot or pi.customer.name }}</span>
-                    <span class="text-muted small">{{ pi.exporter_name_snapshot or pi.exporter.name }}</span>
-                  </div>
-                </td>
-                <td>
-                  {% if pi.status == '已完成' %}
-                    <span class="status-pill status-success">{{ pi.status }}</span>
-                  {% elif pi.status == '新建' %}
-                    <span class="status-pill status-new">{{ pi.status }}</span>
-                  {% else %}
-                    <span class="status-pill status-process">{{ pi.status }}</span>
-                  {% endif %}
-                </td>
-                <td class="text-end pe-4">
-                  {% set edit_url = url_for('edit_commission_pi', pi_id=pi.id) if (pi.commission_factory_id or pi.commission_exporter_id) else url_for('edit_pi', pi_id=pi.id) %}
-                  <a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="btn-icon" title="查看"><i class="fas fa-eye"></i></a>
-                  <a href="{{ edit_url }}" class="btn-icon ms-2" title="编辑"><i class="fas fa-pen"></i></a>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
+    <div id="waitingSection" class="task-column task-search-scope">
+      <div class="column-heading"><div><span class="column-dot dot-waiting"></span><h2>Waiting</h2></div><strong>{{ task_dashboard.waiting|length }}</strong></div>
+      <p class="column-description">已完成当前动作，等待其他人</p>
+      <div class="task-stack">
+        {% for task in task_dashboard.waiting %}{% include '_dashboard_task_card.html' %}
+        {% else %}<div class="empty-state"><i class="fas fa-hourglass-half"></i><strong>Waiting empty</strong><span>当前没有等待中的任务。</span></div>{% endfor %}
       </div>
     </div>
 
-    <!-- 4. 待办事项 (模仿图中的黑色 Insights 卡片) -->
-    <div class="col-lg-4 fade-in" style="animation-delay: 0.6s">
-      {% if reminders %}
-      <div class="dark-card h-100">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-          <div class="d-flex align-items-center gap-3">
-            <div class="icon-glow">
-               <i class="fas fa-bell"></i>
-            </div>
-            <div>
-              <h5 class="text-white mb-0 fw-bold">待办提醒</h5>
-              <small class="text-white-50">Powered by System</small>
-            </div>
-          </div>
-          <i class="fas fa-sync-alt text-white-50 cursor-pointer"></i>
-        </div>
-
-        <div class="dark-card-body custom-scrollbar">
-          <p class="text-white-50 mb-4" style="font-size: 0.9rem;">
-            当前共有 <strong class="text-white">{{ total_reminders }}</strong> 条事项需要您的关注。请及时处理以下订单节点。
-          </p>
-
-          <div class="reminder-list">
-            {% for reminder in reminders %}
-            <div class="reminder-item-dark mb-3">
-              <div class="d-flex justify-content-between mb-2">
-                <span class="badge bg-indigo-dark text-indigo-light border border-indigo">PI {{ reminder.pi_no }}</span>
-                <span class="text-white-50 small">{{ reminder['items']|length }} 项</span>
-              </div>
-              <ul class="list-unstyled mb-0 ps-2 border-start border-secondary">
-                {% for item in reminder['items'] %}
-                <li class="text-gray-300 small py-1 ms-2">
-                   {{ item|safe }}
-                </li>
-                {% endfor %}
-              </ul>
-            </div>
-            {% endfor %}
-          </div>
-        </div>
-        
-        <div class="mt-4 pt-3 border-top border-secondary">
-          <small class="text-white-50">### Priority Level: High</small>
-        </div>
+    <div id="upcomingSection" class="task-column upcoming-column task-search-scope">
+      <div class="column-heading"><div><span class="column-dot dot-upcoming"></span><h2>Upcoming</h2></div><strong>{{ task_dashboard.counts.upcoming }}</strong></div>
+      <p class="column-description">未来 7 天内可能影响安排</p>
+      <div class="task-stack">
+        {% for task in task_dashboard.upcoming %}{% include '_dashboard_task_card.html' %}
+        {% else %}<div class="empty-state"><i class="far fa-calendar"></i><strong>Upcoming empty</strong><span>未来 7 天没有已记录任务。</span></div>{% endfor %}
       </div>
-      {% else %}
-      <!-- 无提醒时的占位状态 -->
-      <div class="content-card h-100 d-flex flex-column justify-content-center align-items-center text-center p-5">
-         <div class="mb-3 text-muted" style="font-size: 3rem; opacity: 0.2;"><i class="fas fa-check-circle"></i></div>
-         <h5 class="text-dark">暂无待办事项</h5>
-         <p class="text-muted">所有工作已处理完毕，您可以休息一下。</p>
-      </div>
-      {% endif %}
+      {% if task_dashboard.upcoming_hidden_count %}<div class="more-upcoming">还有 {{ task_dashboard.upcoming_hidden_count }} 个后续任务未展开</div>{% endif %}
     </div>
-  </div>
+  </section>
+
+  <section class="done-section task-search-scope">
+    <details>
+      <summary>
+        <span><i class="fas fa-circle-check"></i><strong>Done History</strong><small>保留近期完成和历史导入记录</small></span>
+        <span class="done-count">{{ task_dashboard.done|length }} 条 <i class="fas fa-chevron-down"></i></span>
+      </summary>
+      <div class="done-grid">
+        {% for task in task_dashboard.done %}{% include '_dashboard_task_card.html' %}
+        {% else %}<div class="empty-state"><strong>暂无完成记录</strong><span>任务完成后会保留在这里。</span></div>{% endfor %}
+      </div>
+    </details>
+  </section>
+
+  <section class="orders-section">
+    <div class="section-heading neutral-heading">
+      <div><p>ACTIVE ORDERS</p><h2>订单 Control Board</h2></div>
+      <a href="{{ url_for('show_pi_list') }}">查看销售订单</a>
+    </div>
+    <div class="table-responsive">
+      <table class="table order-table align-middle" id="controlBoardTable">
+        <thead><tr><th>PI / Type</th><th>Customer</th><th>Status</th><th>Key Dates</th><th>Next Action</th><th></th></tr></thead>
+        <tbody>
+          {% for pi in pis if pi.status != '已完成' %}
+          {% set next_task = task_dashboard.next_actions.get(pi.id) %}
+          <tr class="order-search-row">
+            <td><a href="{{ url_for('view_pi', pi_id=pi.id) }}" class="order-number">{{ pi.pi_no }}</a><span class="order-type">{{ '工厂直发' if (pi.commission_factory_id or pi.commission_exporter_id) else '销售订单' }}</span></td>
+            <td><strong>{{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '客户未填写') }}</strong><span>{{ pi.exporter_name_snapshot or (pi.exporter.name if pi.exporter else '出口商未填写') }}</span></td>
+            <td><span class="order-status">{{ pi.status or '未填写' }}</span></td>
+            <td><span>ETD {{ pi.etd or '-' }}</span><span>ETA {{ pi.eta or '-' }}</span></td>
+            <td>{% if next_task %}<strong class="next-action-title">{{ next_task.title }}</strong><span>{{ next_task.badge }}</span>{% else %}<span class="text-muted">No active task</span>{% endif %}</td>
+            <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('view_pi', pi_id=pi.id) }}">Open</a></td>
+          </tr>
+          {% else %}<tr><td colspan="6" class="text-center text-muted py-4">当前没有活跃订单。</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="business-overview">
+    <div class="overview-card"><span>未完成订单</span><strong>{{ unfinished_count }}</strong></div>
+    <div class="overview-card"><span>待发运数量</span><strong>{{ shipment_total|format_number }} <small>MT</small></strong></div>
+    <div class="overview-card"><span>本月新增</span><strong>{{ month_order_count }}</strong></div>
+    <div class="overview-card"><span>USD/CNY</span><strong>{{ '%.3f'|format(cny_rate) if cny_rate else '--' }}</strong></div>
+  </section>
+</div>
+
+<div class="modal fade" id="taskActionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><div><p class="modal-eyebrow" id="taskActionType">TASK ACTION</p><h5 class="modal-title" id="taskActionTitle">处理任务</h5></div><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="taskActionForm">
+      <div class="modal-body">
+        <div id="taskActionFields"></div>
+        <div class="alert alert-danger d-none" id="taskActionError"></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button><button type="submit" class="btn btn-primary" id="taskActionSubmit">确认</button></div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="manualTaskModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><div><p class="modal-eyebrow">MANUAL TASK</p><h5 class="modal-title">新增手工任务</h5></div><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form id="manualTaskForm"><div class="modal-body">
+      <div class="mb-3"><label class="form-label">订单 *</label><select class="form-select" name="pi_id" required>{% for pi in pis %}<option value="{{ pi.id }}">{{ pi.pi_no }} · {{ pi.customer_name_snapshot or (pi.customer.name if pi.customer else '客户未填写') }}</option>{% endfor %}</select></div>
+      <div class="mb-3"><label class="form-label">Task *</label><input class="form-control" name="title" required></div>
+      <div class="mb-3"><label class="form-label">Description</label><textarea class="form-control" name="description" rows="2"></textarea></div>
+      <div class="row"><div class="col-6"><label class="form-label">Priority</label><input class="form-control" name="priority" type="number" value="100"></div><div class="col-6"><label class="form-label">Due</label><input class="form-control" name="due_at" type="datetime-local"></div></div>
+      <div class="alert alert-danger d-none mt-3" id="manualTaskError"></div>
+    </div><div class="modal-footer"><button type="button" class="btn btn-light" data-bs-dismiss="modal">取消</button><button class="btn btn-primary" type="submit">Create</button></div></form>
+  </div></div>
 </div>
 
 <style>
-  /* === 全局样式重置与变量 === */
-  :root {
-    --bg-body: #F3F4F6;        /* 模仿图中的淡灰背景 */
-    --text-main: #111827;      /* 深黑色字体 */
-    --text-muted: #6B7280;     /* 灰色字体 */
-    --primary: #4F46E5;        /* 图中的靛蓝/紫色 */
-    --primary-hover: #4338ca;
-    --card-bg: #FFFFFF;
-    --border-color: #E5E7EB;
-    
-    /* 统计卡片颜色 */
-    --indigo-light: #EEF2FF; --indigo-text: #4F46E5;
-    --orange-light: #FFF7ED; --orange-text: #EA580C;
-    --green-light: #ECFDF5;  --green-text: #059669;
-    --blue-light:  #EFF6FF;  --blue-text:  #2563EB;
-  }
-
-  body {
-    background-color: var(--bg-body);
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    color: var(--text-main);
-  }
-  
-  /* 隐藏原有的container padding，让布局更像仪表盘 */
-  .container.mt-4 {
-    max-width: 1400px;
-    padding: 0 1.5rem;
-  }
-
-  /* === 1. 顶部 Header 样式 === */
-  .page-title {
-    font-weight: 700;
-    color: var(--text-main);
-    font-size: 1.75rem;
-  }
-  .status-dot {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    background-color: #10B981;
-    border-radius: 50%;
-    margin-right: 6px;
-  }
-  
-  .search-wrapper {
-    position: relative;
-    width: 300px;
-  }
-  .search-wrapper i {
-    position: absolute;
-    left: 1rem;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.9rem;
-  }
-  .custom-search-input {
-    width: 100%;
-    padding: 0.6rem 1rem 0.6rem 2.5rem;
-    border: 1px solid transparent;
-    background-color: #fff;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-  }
-  .custom-search-input:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
-  }
-
-  .btn-primary-custom {
-    background-color: var(--primary);
-    border: none;
-    border-radius: 8px;
-    padding: 0.6rem 1.2rem;
-    font-weight: 500;
-    color: white;
-    box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2);
-    transition: all 0.2s;
-  }
-  .btn-primary-custom:hover {
-    background-color: var(--primary-hover);
-    transform: translateY(-1px);
-    color: white;
-  }
-
-  /* === 2. 统计卡片样式 (Icon Box) === */
-  .stat-card {
-    background: var(--card-bg);
-    border-radius: 16px;
-    padding: 1.5rem;
-    border: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
-  }
-  .stat-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-  }
-  
-  .stat-icon-box {
-    width: 56px;
-    height: 56px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.5rem;
-    margin-right: 1.25rem;
-    flex-shrink: 0;
-  }
-  
-  /* 颜色变体 */
-  .bg-indigo-light { background-color: var(--indigo-light); color: var(--indigo-text); }
-  .bg-orange-light { background-color: var(--orange-light); color: var(--orange-text); }
-  .bg-green-light { background-color: var(--green-light); color: var(--green-text); }
-  .bg-blue-light { background-color: var(--blue-light); color: var(--blue-text); }
-
-  .stat-content {
-    flex-grow: 1;
-  }
-  .stat-label {
-    color: var(--text-muted);
-    font-size: 0.875rem;
-    margin-bottom: 0.25rem;
-    font-weight: 500;
-  }
-  .stat-value {
-    color: var(--text-main);
-    font-weight: 700;
-    margin-bottom: 0;
-    font-size: 1.5rem;
-    line-height: 1;
-  }
-  .stat-value .unit {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    font-weight: 400;
-    margin-left: 2px;
-  }
-
-  /* === 3. 白色内容卡片 & 表格 === */
-  .content-card {
-    background: var(--card-bg);
-    border-radius: 16px;
-    border: 1px solid var(--border-color);
-    padding: 1.5rem;
-  }
-  .section-title {
-    font-weight: 700;
-    color: var(--text-main);
-  }
-  
-  /* 模拟 Tabs */
-  .badge-tab {
-    padding: 6px 16px;
-    border-radius: 20px;
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--text-muted);
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  .badge-tab.active {
-    background-color: var(--text-main);
-    color: white;
-  }
-  .badge-tab:hover:not(.active) {
-    background-color: #F3F4F6;
-  }
-
-  /* 表格样式优化 */
-  .custom-table thead th {
-    background-color: transparent;
-    border-bottom: 1px solid var(--border-color);
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 0.8rem;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    padding-bottom: 1rem;
-    cursor: pointer;
-  }
-  .custom-table tbody tr {
-    transition: background-color 0.2s;
-    border-bottom: 1px solid #f9fafb;
-  }
-  .custom-table tbody tr:hover {
-    background-color: #F9FAFB;
-  }
-  .custom-table td {
-    padding: 1rem 0.5rem;
-    font-size: 0.9rem;
-    border-bottom: none;
-  }
-
-  /* 状态标签胶囊 */
-  .status-pill {
-    padding: 4px 12px;
-    border-radius: 9999px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    display: inline-block;
-  }
-  .status-success { background-color: #ECFDF5; color: #059669; }
-  .status-new { background-color: #EFF6FF; color: #2563EB; }
-  .status-process { background-color: #FFF7ED; color: #EA580C; }
-
-  /* 类型标签 */
-  .badge-type {
-    font-size: 0.75rem;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: 500;
-  }
-  .type-factory { background-color: #F3E8FF; color: #7E22CE; }
-  .type-sales { background-color: #E0F2FE; color: #0369A1; }
-
-  /* 操作按钮 */
-  .btn-icon {
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 8px;
-    color: var(--text-muted);
-    background-color: transparent;
-    transition: all 0.2s;
-    text-decoration: none;
-  }
-  .btn-icon:hover {
-    background-color: #F3F4F6;
-    color: var(--primary);
-  }
-
-  /* === 4. 黑色深色卡片 (Insights) === */
-  .dark-card {
-    background-color: #111827; /* 接近图中的黑色/深蓝 */
-    border-radius: 16px;
-    padding: 2rem;
-    color: white;
-    position: relative;
-    overflow: hidden;
-  }
-  /* 增加一点背景装饰，模仿图中的深邃感 */
-  .dark-card::after {
-    content: '';
-    position: absolute;
-    top: -50px;
-    right: -50px;
-    width: 200px;
-    height: 200px;
-    background: radial-gradient(circle, rgba(79,70,229,0.15) 0%, rgba(0,0,0,0) 70%);
-    z-index: 0;
-  }
-  .dark-card > * {
-    position: relative;
-    z-index: 1;
-  }
-  
-  .icon-glow {
-    width: 40px;
-    height: 40px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: #818CF8;
-    box-shadow: 0 0 15px rgba(129, 140, 248, 0.2);
-  }
-
-  .text-gray-300 { color: #D1D5DB; }
-  
-  /* 自定义滚动条，用于黑色卡片内部 */
-  .custom-scrollbar {
-    max-height: 400px;
-    overflow-y: auto;
-    padding-right: 5px;
-  }
-  .custom-scrollbar::-webkit-scrollbar {
-    width: 4px;
-  }
-  .custom-scrollbar::-webkit-scrollbar-track {
-    background: rgba(255,255,255,0.05);
-  }
-  .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: rgba(255,255,255,0.2);
-    border-radius: 4px;
-  }
-
-  .bg-indigo-dark { background-color: rgba(79, 70, 229, 0.2); }
-  .text-indigo-light { color: #C7D2FE; }
-  .border-indigo { border-color: rgba(99, 102, 241, 0.3) !important; }
-
-  /* === 动画 === */
-  .fade-in {
-    opacity: 0;
-    animation: fadeIn 0.6s ease-out forwards;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-
-  /* 响应式调整 */
-  @media (max-width: 768px) {
-    .stat-card { padding: 1rem; }
-    .stat-icon-box { width: 48px; height: 48px; font-size: 1.2rem; margin-right: 1rem; }
-    .page-title { font-size: 1.4rem; }
-  }
+  .occ-dashboard{--ink:#172033;--muted:#697386;--line:#e4e8ef;--panel:#fff;--action:#e67e22;--waiting:#3975c6;--upcoming:#7668c9;--danger:#c43f4b;max-width:1500px;margin:0 auto;color:var(--ink)}
+  .occ-header{display:flex;justify-content:space-between;gap:2rem;align-items:flex-end;margin-bottom:1.6rem}.eyebrow,.section-heading p,.modal-eyebrow{font-size:.72rem;font-weight:700;letter-spacing:.12em;color:#667085;margin:0 0 .35rem}.occ-header h1{font-size:2rem;font-weight:750;letter-spacing:-.035em;margin:0}.header-copy{margin:.45rem 0 0;color:var(--muted);font-size:.95rem}.header-actions{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap}.occ-search{position:relative}.occ-search i{position:absolute;left:.9rem;top:.75rem;color:#98a2b3}.occ-search input{width:260px;border:1px solid var(--line);border-radius:9px;padding:.62rem .8rem .62rem 2.3rem;background:#fff;font-size:.88rem}
+  .control-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem;margin-bottom:1.5rem}.summary-item{display:grid;grid-template-columns:1fr auto;text-decoration:none;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:1rem 1.1rem}.summary-item span{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;font-weight:700}.summary-item strong{font-size:1.65rem;line-height:1}.summary-item small{grid-column:1/3;color:var(--muted);font-size:.76rem;margin-top:.4rem}.summary-exception{border-left:4px solid var(--danger)}.summary-action{border-left:4px solid var(--action)}.summary-waiting{border-left:4px solid var(--waiting)}.summary-upcoming{border-left:4px solid var(--upcoming)}
+  .occ-section,.orders-section,.done-section{background:#fff;border:1px solid var(--line);border-radius:15px;padding:1.25rem;margin-bottom:1.3rem}.exception-section{border-color:#edc9cd;background:#fffafa}.section-heading{display:flex;justify-content:space-between;align-items:end;margin-bottom:1rem}.section-heading h2{font-size:1.1rem;font-weight:700;margin:0}.section-heading h2 i{color:var(--danger);margin-right:.5rem}.section-heading>span,.section-heading>a{font-size:.82rem;color:var(--muted)}.exception-grid,.done-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.9rem}
+  .task-workspace{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1rem;margin-bottom:1.3rem}.task-column{background:#f8f9fb;border:1px solid var(--line);border-radius:15px;padding:1rem}.upcoming-column{background:#faf9fd}.column-heading{display:flex;justify-content:space-between;align-items:center}.column-heading>div{display:flex;align-items:center;gap:.55rem}.column-heading h2{font-size:1.05rem;margin:0;font-weight:700}.column-heading>strong{font-size:.85rem;background:#fff;border:1px solid var(--line);border-radius:999px;padding:.15rem .55rem}.column-dot{width:9px;height:9px;border-radius:50%}.dot-action{background:var(--action)}.dot-waiting{background:var(--waiting)}.dot-upcoming{background:var(--upcoming)}.column-description{color:var(--muted);font-size:.8rem;margin:.35rem 0 .9rem}.task-stack{display:flex;flex-direction:column;gap:.8rem}
+  .occ-task-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:1rem;box-shadow:0 1px 2px rgba(16,24,40,.03)}.occ-task-card.task-exception{border-left:4px solid var(--danger)}.occ-task-card.task-overdue{border-left:4px solid #d96a45}.task-order-line{display:flex;gap:.5rem;align-items:center;color:var(--muted);font-size:.75rem;margin-bottom:.35rem}.task-order{font-weight:750;color:#3949ab;text-decoration:none}.task-title{font-size:.91rem;line-height:1.4;font-weight:700;margin:0}.task-description{font-size:.78rem;color:var(--muted);margin:.5rem 0 0}.task-badge{font-size:.66rem;font-weight:700;border-radius:999px;padding:.25rem .5rem;white-space:nowrap}.badge-exception{background:#fdebed;color:#a72f3b}.badge-action{background:#fff0df;color:#a9570d}.badge-waiting{background:#eaf2ff;color:#285d9e}.badge-upcoming{background:#f0edff;color:#5f51a8}.badge-done{background:#e8f7ee;color:#257446}.task-alert,.task-warning{display:flex;gap:.4rem;align-items:flex-start;font-size:.76rem;line-height:1.45;border-radius:8px;padding:.55rem .65rem;margin-top:.65rem}.task-alert{background:#fff0f1;color:#9e303a}.task-warning{background:#fff8e5;color:#865b00}.task-facts{display:grid;gap:.3rem;border-top:1px solid #eef0f4;margin-top:.7rem;padding-top:.65rem}.task-facts div,.waiting-panel>div{display:flex;justify-content:space-between;gap:1rem;font-size:.75rem}.task-facts span,.waiting-panel span{color:var(--muted)}.task-facts strong,.waiting-panel strong{text-align:right}.waiting-panel{background:#f5f8fd;border-radius:8px;margin-top:.7rem;padding:.65rem;display:grid;gap:.3rem}.recent-follow-up{font-size:.75rem;margin:.45rem 0 0;padding-top:.45rem;border-top:1px solid #e1e7f0}.recent-follow-up i{margin-right:.35rem;color:var(--waiting)}.recent-follow-up small{display:block;color:var(--muted);margin-left:1.1rem}.done-summary{display:flex;gap:.55rem;background:#f1faf4;border-radius:8px;padding:.65rem;margin-top:.65rem;color:#257446}.done-summary>div{display:flex;flex-direction:column;font-size:.75rem}.done-summary i{margin-top:.15rem}.done-summary span{color:#567362}.task-actions{display:flex;gap:.35rem;align-items:center;flex-wrap:wrap;margin-top:.8rem}.task-actions .btn{font-size:.75rem;padding:.35rem .6rem}.task-history-button{color:var(--muted);text-decoration:none}.task-history{border-top:1px solid var(--line);margin-top:.75rem;padding-top:.75rem}.history-heading{font-size:.7rem;color:var(--muted);font-weight:700;margin-bottom:.6rem}.history-item{display:grid;grid-template-columns:10px 1fr;gap:.45rem;margin-bottom:.65rem}.history-dot{width:7px;height:7px;border-radius:50%;background:#9aa4b2;margin-top:.35rem}.history-item strong{display:block;font-size:.75rem}.history-item span,.history-item p{display:block;font-size:.7rem;color:var(--muted);margin:0;line-height:1.45}.empty-state{display:flex;min-height:135px;flex-direction:column;align-items:center;justify-content:center;text-align:center;border:1px dashed #d8dde6;border-radius:10px;color:var(--muted);padding:1rem}.empty-state i{font-size:1.15rem;margin-bottom:.5rem}.empty-state strong{font-size:.83rem;color:#4c5565}.empty-state span{font-size:.75rem;margin-top:.25rem}.more-upcoming{font-size:.75rem;color:var(--muted);text-align:center;margin-top:.75rem}
+  .done-section details>summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;list-style:none}.done-section summary::-webkit-details-marker{display:none}.done-section summary>span:first-child{display:flex;align-items:center;gap:.6rem}.done-section summary i{color:#2f8a54}.done-section summary strong{font-size:.95rem}.done-section summary small{font-size:.75rem;color:var(--muted)}.done-count{font-size:.75rem;color:var(--muted)}.done-count i{margin-left:.4rem;color:var(--muted);transition:transform .2s}.done-section details[open] .done-count i{transform:rotate(180deg)}.done-grid{margin-top:1rem}
+  .orders-section{margin-top:1.5rem}.neutral-heading h2{font-size:1.15rem}.order-table{margin:0}.order-table th{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#7a8494;border-bottom-color:var(--line)}.order-table td{font-size:.78rem;border-bottom-color:#eef0f4}.order-table td>span{display:block;color:var(--muted);font-size:.7rem}.order-number{font-size:.82rem;font-weight:750;color:#3949ab;text-decoration:none}.order-type{margin-top:.15rem}.order-status{display:inline-block!important;background:#f1f3f7;border-radius:999px;padding:.2rem .5rem;color:#4b5565!important}.next-action-title{display:block;font-size:.78rem}.business-overview{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.8rem;margin-top:1rem}.overview-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:1rem;display:flex;justify-content:space-between;align-items:center}.overview-card span{font-size:.75rem;color:var(--muted)}.overview-card strong{font-size:1.15rem}.overview-card small{font-size:.7rem;color:var(--muted)}.modal-eyebrow{margin:0}.min-width-0{min-width:0}
+  @media(max-width:1200px){.task-workspace{grid-template-columns:1fr 1fr}.upcoming-column{grid-column:1/3}.control-summary{grid-template-columns:1fr 1fr}}
+  @media(max-width:1050px){.occ-header{align-items:flex-start;flex-direction:column}.exception-grid,.done-grid,.task-workspace{grid-template-columns:1fr}.upcoming-column{grid-column:auto}.header-actions{width:100%}}
+  @media(max-width:768px){.occ-header{align-items:flex-start;flex-direction:column}.header-actions,.occ-search,.occ-search input{width:100%}.header-actions .btn{flex:1}.task-workspace,.exception-grid,.done-grid,.business-overview{grid-template-columns:1fr}.upcoming-column{grid-column:auto}.control-summary{grid-template-columns:1fr 1fr}.done-section summary small{display:none}.content-padding{padding:1rem}}
 </style>
 
 <script>
-  // 保持原有的排序逻辑
-  function sortTable(n) {
-    const table = document.getElementById("piTable");
-    let switching = true, dir = "asc", switchcount = 0;
-    const statusOrder = ["新建", "待发运", "已发运", "已到港", "已完成"];
-    
-    // 获取tbody中的所有行（排除表头）
-    const tbody = table.getElementsByTagName("tbody")[0];
-    
-    while (switching) {
-      switching = false;
-      const rows = tbody.rows;
-      for (let i = 0; i < rows.length - 1; i++) {
-        let shouldSwitch = false;
-        let x = rows[i].getElementsByTagName("TD")[n];
-        let y = rows[i + 1].getElementsByTagName("TD")[n];
-        let xContent = x.innerText.toLowerCase();
-        let yContent = y.innerText.toLowerCase();
+document.addEventListener('DOMContentLoaded', () => {
+  const dashboard = document.querySelector('.occ-dashboard');
+  const csrf = dashboard.dataset.taskCsrf;
+  const actionModalEl = document.getElementById('taskActionModal');
+  const actionModal = bootstrap.Modal.getOrCreateInstance(actionModalEl);
+  const actionForm = document.getElementById('taskActionForm');
+  const fields = document.getElementById('taskActionFields');
+  const errorBox = document.getElementById('taskActionError');
+  let actionState = null;
 
-        // 尝试解析日期
-        if (!isNaN(Date.parse(xContent)) && !isNaN(Date.parse(yContent)) && xContent.includes('-')) {
-          xContent = new Date(xContent);
-          yContent = new Date(yContent);
-        }
+  const input = (label, name, type='text', required=false) => `<div class="mb-3"><label class="form-label">${label}${required?' *':''}</label><input class="form-control" name="${name}" type="${type}" ${required?'required':''}></div>`;
+  const noteField = (required=false) => `<div class="mb-3"><label class="form-label">Note${required?' *':''}</label><textarea class="form-control" name="note" rows="3" ${required?'required':''}></textarea></div>`;
+  const waitingSelect = `<div class="mb-3"><label class="form-label">Waiting On *</label><select class="form-select" name="waiting_on" required><option value="CUSTOMER">Customer</option><option value="FACTORY">Factory</option><option value="FREIGHT_FORWARDER">Freight Forwarder</option><option value="BANK">Bank</option><option value="INTERNAL">Internal</option><option value="OTHER">Other</option></select></div>`;
 
-        // 状态列自定义顺序 (索引5)
-        if (n === 5) {
-          xContent = statusOrder.indexOf(rows[i].getElementsByTagName("TD")[n].innerText.trim());
-          yContent = statusOrder.indexOf(rows[i + 1].getElementsByTagName("TD")[n].innerText.trim());
-        }
-        
-        // 比较逻辑
-        if (dir == "asc") {
-          if (xContent > yContent) shouldSwitch = true;
-        } else if (dir == "desc") {
-          if (xContent < yContent) shouldSwitch = true;
-        }
-
-        if (shouldSwitch) {
-          rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
-          switching = true;
-          switchcount++;
-          break; // 退出当前for循环，重新开始while循环
-        }
-      }
-      if (switchcount == 0 && dir == "asc") {
-        dir = "desc";
-        switching = true;
-      }
+  document.querySelectorAll('.js-task-action').forEach(button => button.addEventListener('click', () => {
+    actionState = {kind: button.dataset.action, taskId: button.dataset.taskId};
+    document.getElementById('taskActionTitle').textContent = button.dataset.taskTitle;
+    document.getElementById('taskActionType').textContent = button.dataset.action.replace('_',' ').toUpperCase();
+    errorBox.classList.add('d-none');
+    if (actionState.kind === 'done') fields.innerHTML = noteField(false);
+    if (actionState.kind === 'required_done') {
+      const schema = JSON.parse(button.dataset.completionSchema || '{"fields":[]}');
+      fields.innerHTML = schema.fields.map(field => input(field.label || field.key, `payload_${field.key}`, field.type === 'date' ? 'date' : 'text', field.required)).join('') + noteField(false);
     }
+    if (actionState.kind === 'waiting') fields.innerHTML = waitingSelect + input('Next Follow-up','next_follow_up_at','datetime-local') + noteField(false);
+    if (actionState.kind === 'follow_up') fields.innerHTML = waitingSelect + input('Next Follow-up','next_follow_up_at','datetime-local') + noteField(true);
+    if (actionState.kind === 'reopen') fields.innerHTML = noteField(true);
+    if (actionState.kind === 'cancel') fields.innerHTML = noteField(true);
+    actionModal.show();
+  }));
+
+  async function mutate(url, payload) {
+    const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':csrf}, body:JSON.stringify(payload)});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || '操作失败');
+    return data;
   }
+
+  actionForm.addEventListener('submit', async event => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(actionForm).entries());
+    let url = `/tasks/${actionState.taskId}`;
+    let payload = {note: values.note || null};
+    if (actionState.kind === 'done' || actionState.kind === 'required_done') {
+      url += '/done';
+      if (actionState.kind === 'required_done') payload.completion_payload = Object.fromEntries(Object.entries(values).filter(([key])=>key.startsWith('payload_')).map(([key,value])=>[key.slice(8),value]));
+    } else if (actionState.kind === 'waiting') {
+      url += '/waiting'; payload = {...payload, waiting_on:values.waiting_on, next_follow_up_at:values.next_follow_up_at||null};
+    } else if (actionState.kind === 'follow_up') {
+      url += '/follow-up'; payload = {...payload, waiting_on:values.waiting_on, next_follow_up_at:values.next_follow_up_at||null, continue_waiting:true};
+    } else if (actionState.kind === 'reopen') {
+      url += '/reopen'; payload = {reason:values.note};
+    } else if (actionState.kind === 'cancel') {
+      url += '/cancel'; payload = {reason:values.note};
+    }
+    try { await mutate(url,payload); window.location.reload(); }
+    catch (error) { errorBox.textContent=error.message; errorBox.classList.remove('d-none'); }
+  });
+
+  document.getElementById('manualTaskForm').addEventListener('submit', async event => {
+    event.preventDefault(); const values=Object.fromEntries(new FormData(event.currentTarget).entries()); const box=document.getElementById('manualTaskError');
+    try { await mutate('/tasks',{...values,pi_id:Number(values.pi_id),priority:Number(values.priority||100),due_at:values.due_at||null}); window.location.reload(); }
+    catch(error){box.textContent=error.message;box.classList.remove('d-none');}
+  });
+
+  document.getElementById('dashboardSearch').addEventListener('input', event => {
+    const query=event.target.value.trim().toLowerCase();
+    document.querySelectorAll('.occ-task-card,.order-search-row').forEach(item=>item.hidden=query && !item.textContent.toLowerCase().includes(query));
+  });
+});
 </script>
 {% endblock %}
