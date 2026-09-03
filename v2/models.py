@@ -65,6 +65,7 @@ class Product(TimestampMixin, db.Model):
     brand = db.Column(db.String(100))
     model = db.Column(db.String(100), nullable=False)
     packaging = db.Column(db.String(200))
+    hs_code = db.Column(db.String(32))
     active = db.Column(db.Boolean, nullable=False, default=True)
 
 
@@ -155,6 +156,10 @@ class PI(TimestampMixin, db.Model):
 
     freight_forwarder_id = db.Column(db.Integer, db.ForeignKey("freight_forwarder.id"))
     container_loading_at = db.Column(db.DateTime)
+    # Clean V2 facts: date + coarse period.  Legacy datetime remains read-only
+    # compatibility for existing local-trial rows only.
+    container_loading_date = db.Column(db.Date)
+    container_loading_period = db.Column(db.String(12))
     container_location = db.Column(db.String(200))
     driver_name = db.Column(db.String(100))
     driver_phone = db.Column(db.String(50))
@@ -163,6 +168,10 @@ class PI(TimestampMixin, db.Model):
     eta = db.Column(db.Date)
     actual_departure_date = db.Column(db.Date)
     actual_arrival_date = db.Column(db.Date)
+    notify_party_same_as_consignee = db.Column(db.Boolean, default=True)
+    notify_party_name_snapshot = db.Column(db.String(150))
+    notify_party_address_snapshot = db.Column(db.Text)
+    notify_party_tax_code_snapshot = db.Column(db.String(100))
 
     coo_required = db.Column(db.Boolean)
     apta_required = db.Column(db.Boolean)
@@ -195,8 +204,10 @@ class PI(TimestampMixin, db.Model):
     package_count = db.Column(db.Integer)
     package_unit = db.Column(db.String(20))
     gross_weight_kg = db.Column(db.Numeric(18, 3))
+    gross_weight_display_unit = db.Column(db.String(10), default="KGS")
     volume_cbm = db.Column(db.Numeric(18, 3))
     vgm_kg = db.Column(db.Numeric(18, 3))
+    vgm_display_unit = db.Column(db.String(10), default="KGS")
 
     commission_rate = db.Column(db.Numeric(7, 4))
     commission_amount = db.Column(db.Numeric(18, 2))
@@ -245,6 +256,7 @@ class PIItem(TimestampMixin, db.Model):
     product_brand_snapshot = db.Column(db.String(100))
     product_model_snapshot = db.Column(db.String(100))
     product_packaging_snapshot = db.Column(db.String(200))
+    product_hs_code_snapshot = db.Column(db.String(32))
     factory_name_snapshot = db.Column(db.String(150))
     factory_address_snapshot = db.Column(db.Text)
     factory_tax_code_snapshot = db.Column(db.String(100))
@@ -325,6 +337,7 @@ class OrderTask(TimestampMixin, db.Model):
     resolution_code = db.Column(db.String(50))
     dedupe_key = db.Column(db.String(255))
     pi = db.relationship("PI")
+    activities = db.relationship("TaskActivity", back_populates="task", order_by="TaskActivity.created_at")
 
 
 class TaskActivity(db.Model):
@@ -339,7 +352,7 @@ class TaskActivity(db.Model):
     note = db.Column(db.Text)
     payload = db.Column(db.JSON)
     created_at = db.Column(db.DateTime, nullable=False, default=utcnow, index=True)
-    task = db.relationship("OrderTask")
+    task = db.relationship("OrderTask", back_populates="activities")
 
 
 class OrderCorrectionSession(db.Model):

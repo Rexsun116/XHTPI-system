@@ -92,7 +92,7 @@ MODULE_FIELDS = {
         "pi_no", "pi_date", "customer", "customer_id", "exporter", "exporter_id",
         "payment_terms", "loading_port", "destination_port", "bank", "note",
         "commission_factory_id", "commission_amount", "commission_rate",
-        "factory_sale_amount",
+        "commission_currency", "commission_amount_mode", "commission_override_reason",
     },
     OrderModule.PI_ITEMS: {"product_", "factory_", "trade_term_", "unit_price_", "quantity_"},
     OrderModule.PAYMENT_PLAN: {
@@ -102,33 +102,37 @@ MODULE_FIELDS = {
         "advance_received_amount", "advance_received_at", "balance_received_amount",
         "balance_received_at", "payment_received",
     },
-    OrderModule.INITIAL_SHIPMENT_PLAN: {"shipment_date"},
+    OrderModule.INITIAL_SHIPMENT_PLAN: {"planned_shipment_date", "loading_port", "destination_port"},
     OrderModule.DOCUMENT_REQUIREMENTS: {
         "coo_required", "apta_required", "export_license_required", "customs_docs_required",
         "coc_required", "coa_required", "original_bl_required", "obd_electronic_required",
         "insurance_original_required", "insurance_electronic_required",
-        "original_documents_mail_required", "telex_release_required", "other_documents",
+        "original_documents_mail_required", "telex_release_required", "other_document_notes",
         "settlement_documents_required",
     },
     OrderModule.SHIPPING_PREPARATION: {
-        "freight_forwarder_id", "ocean_freight", "container_date", "container_loading_at",
+        "freight_forwarder_id", "container_loading_at", "container_loading_date", "container_loading_period",
         "container_location", "etd", "eta", "vessel_info", "booking_number",
-        "container_type_quantity", "shipping_mark", "freight_term", "contract_number",
-        "freight_clause", "waybill_option", "container_number", "seal_number", "container_type",
-        "quantity_units", "gross_weight", "volume", "vgm", "total_quantity",
-        "total_quantity_unit", "total_weight", "total_weight_unit", "total_volume",
-        "total_volume_unit", "total_vgm",
+        "shipping_mark", "freight_term", "contract_number",
+        "freight_clause", "waybill_option", "container_type", "container_count",
+        "package_count", "package_unit", "gross_weight", "gross_weight_display_unit", "volume",
+        "product_hs_code_snapshot_",
+        "notify_party_same_as_consignee", "notify_party_name_snapshot", "notify_party_address_snapshot",
+        "notify_party_tax_code_snapshot",
     },
     OrderModule.DRIVER_INFO: {"driver_name", "driver_phone", "vehicle_number"},
-    OrderModule.FREIGHT_REQUIREMENTS: {"freight_usd_bill_required", "freight_cny_bill_required"},
+    OrderModule.FREIGHT_REQUIREMENTS: {"usd_bill_required", "cny_bill_required", "quote_id",
+                                       "agreement_amount", "agreement_currency", "agreement_note"},
     OrderModule.POST_SHIPMENT: {
-        "bill_of_lading", "shipping_company", "coa_status", "insurance_status",
-        "document_shipping_status", "tracking_number", "batch_no", "telex_release",
+        "bill_of_lading_number", "shipping_company", "booking_number", "shipping_mark",
+        "container_number", "seal_number", "vgm", "vgm_display_unit",
     },
     OrderModule.FREIGHT_SETTLEMENT: {
+        "usd_bill_amount", "usd_bill_confirmed", "cny_bill_amount",
+        "cny_bill_confirmed", "invoice_issued", "payment_status", "paid_at",
+        # V1 form aliases remain guarded while V1 pages are still importable.
         "freight_usd_amount", "freight_usd_confirmed", "freight_cny_amount",
-        "freight_cny_confirmed", "freight_invoice_amount", "freight_invoice_confirmed",
-        "freight_invoice_issued", "freight_payment_status", "freight_paid_at",
+        "freight_cny_confirmed", "freight_invoice_issued", "freight_payment_status", "freight_paid_at",
     },
     OrderModule.ACTUAL_DEPARTURE: {"actual_departure_date"},
     OrderModule.ACTUAL_ARRIVAL: {"actual_arrival_date"},
@@ -206,6 +210,11 @@ def validate_lifecycle_submission(order_or_status, form, *, operation="edit"):
         if stage_index == OrderStage.VALUES.index(OrderStage.COMPLETED):
             transition_allowed.add(OrderModule.FINAL_SETTLEMENT)
 
+    allowed_tokens = set()
+    for module, fields in MODULE_FIELDS.items():
+        if context.can_edit(module) or module in transition_allowed:
+            allowed_tokens.update(fields)
+
     violations = []
     for module, fields in MODULE_FIELDS.items():
         allowed = context.can_edit(module) or module in transition_allowed
@@ -213,6 +222,16 @@ def validate_lifecycle_submission(order_or_status, form, *, operation="edit"):
             continue
         for field in fields:
             if not _field_is_present(form, field):
+                continue
+            # Some facts legitimately participate in more than one module
+            # across the lifecycle (e.g. shipping_mark and booking_number).
+            # A current-stage editable module authorizes the field; a later
+            # module must not veto that valid submission.
+            if any(
+                _field_is_present(form, token)
+                and (token == field or token.endswith("_") and field.startswith(token))
+                for token in allowed_tokens
+            ):
                 continue
             if field.endswith("_") or str(form.get(field, "")).strip():
                 violations.append(field)

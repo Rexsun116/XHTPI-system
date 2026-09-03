@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
+from io import BytesIO
 import os
 from pathlib import Path
 import sqlite3
@@ -11,6 +12,7 @@ import tempfile
 from unittest import TestCase
 
 from werkzeug.security import generate_password_hash
+from docx import Document
 
 from order_lifecycle import LifecyclePolicyError, OrderModule, lifecycle_context
 from v2.app import create_app
@@ -68,7 +70,7 @@ class V2CleanBaselineTest(TestCase):
 
     def login_client(self):
         client = self.app.test_client()
-        self.assertEqual(client.post("/login", data={"username": "v2", "password": "password"}).status_code, 200)
+        self.assertEqual(client.post("/login", data={"username": "v2", "password": "password"}).status_code, 302)
         return client
 
     def sales_payload(self, pi_no="V2-SALES"):
@@ -76,7 +78,7 @@ class V2CleanBaselineTest(TestCase):
             "pi_no": pi_no, "pi_date": "2026-08-21", "order_type": "SALES",
             "customer_id": self.customer.id, "exporter_id": self.exporter.id,
             "bank_account_id": self.bank.id, "currency": "USD",
-            "payment_terms": "20% advance", "advance_payment_percent": "20",
+            "payment_terms": "20% advance", "advance_payment_percent": "20", "planned_shipment_date": "2026-09-20",
             "items": [{"product_id": self.product.id, "unit_price": "10.00", "quantity": "100"}],
         }
 
@@ -85,7 +87,7 @@ class V2CleanBaselineTest(TestCase):
             conn.execute("PRAGMA foreign_keys=ON")
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
-            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0001")
+            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0003")
             columns = {row[1] for row in conn.execute("PRAGMA table_info(pi)")}
         self.assertNotIn("commission_exporter_id", columns)
         self.assertNotIn("payment_received", columns)
@@ -173,7 +175,7 @@ class V2CleanBaselineTest(TestCase):
         client = self.login_client(); client.post("/orders", json=self.sales_payload("DASH"))
         before = (db.session.scalar(db.select(db.func.count()).select_from(OrderTask)),
                   db.session.scalar(db.select(db.func.count()).select_from(TaskActivity)))
-        self.assertEqual(client.get("/").status_code, 200)
+        self.assertEqual(client.get("/v2/").status_code, 200)
         after = (db.session.scalar(db.select(db.func.count()).select_from(OrderTask)),
                  db.session.scalar(db.select(db.func.count()).select_from(TaskActivity)))
         self.assertEqual(before, after)
@@ -228,3 +230,96 @@ class V2CleanBaselineTest(TestCase):
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 22, 18, 0)); db.session.commit()
         pi.status = "COMPLETED"; db.session.commit()
         self.assertFalse(lifecycle_context(pi).can_edit(OrderModule.COMMERCIAL_CORE))
+
+    def test_11_user_facing_master_and_multi_item_order_ui(self):
+        client=self.login_client()
+        response=client.post("/v2/master/customers",data={"code":"C2","name":"Second Customer"})
+        self.assertEqual(response.status_code,302)
+        form={"pi_no":"UI-ORDER","pi_date":"2026-08-21","order_type":"SALES",
+            "customer_id":str(self.customer.id),"exporter_id":str(self.exporter.id),
+            "bank_account_id":str(self.bank.id),"currency":"USD","advance_payment_percent":"20",
+            "payment_terms":"20% advance","planned_shipment_date":"2026-09-20",
+            "product_0":str(self.product.id),"factory_0":str(self.factory.id),"unit_price_0":"10","quantity_0":"10","quantity_unit_0":"MT",
+            "product_1":str(self.product.id),"factory_1":str(self.factory.id),"unit_price_1":"20","quantity_1":"5","quantity_unit_1":"MT"}
+        response=client.post("/v2/orders/new",data=form)
+        self.assertEqual(response.status_code,302)
+        pi=db.session.scalar(db.select(PI).where(PI.pi_no=="UI-ORDER"))
+        self.assertEqual((len(pi.items),pi.contract_total),(2,Decimal("200.00")))
+        self.assertIn("Order Control Center",client.get("/v2/").get_data(as_text=True))
+
+    def test_12_documents_generate_in_v2_directory(self):
+        client=self.login_client(); client.post("/orders",json=self.sales_payload("DOCS"))
+        pi=db.session.scalar(db.select(PI).where(PI.pi_no=="DOCS"))
+        pi.vessel_info="TEST VESSEL"; pi.container_type="20GP"; pi.container_count=1
+        pi.shipping_mark="TEST MARK"; pi.freight_term="FOB"; pi.waybill_option="ORIGINAL"; db.session.commit()
+        for kind,magic in (("pi",b"%PDF"),("invoice",b"%PDF"),("packing",b"%PDF"),("booking",b"PK")):
+            response=client.get(f"/v2/orders/{pi.id}/documents/{kind}")
+            self.assertEqual(response.status_code,200); self.assertTrue(response.data.startswith(magic))
+
+    def test_13_v2_path_guard_and_csrf(self):
+        root=Path(__file__).resolve().parents[1]
+        with self.assertRaises(RuntimeError): create_app(f"sqlite:///{root/'instance'/'database.db'}",testing=True)
+        secure=create_app(f"sqlite:///{self.path}",testing=False,secret_key="a-secure-test-secret")
+        self.assertEqual(secure.test_client().post("/login",data={"username":"v2","password":"password"}).status_code,400)
+
+    def test_14_product_hs_snapshot_and_booking_never_uses_fixed_code(self):
+        self.product.hs_code = "390761"; db.session.commit()
+        client = self.login_client(); client.post("/orders", json=self.sales_payload("HS-SNAP"))
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "HS-SNAP"))
+        self.assertEqual(pi.items[0].product_hs_code_snapshot, "390761")
+        self.product.hs_code = "999999"; db.session.commit()
+        pi.vessel_info = "Vessel 1"; pi.container_type = "20GP"; pi.container_count = 1
+        pi.shipping_mark = "MARK"; pi.freight_term = "FOB"; pi.waybill_option = "ORIGINAL"
+        db.session.commit()
+        response = client.get(f"/v2/orders/{pi.id}/documents/booking")
+        self.assertEqual(response.status_code, 200)
+        doc = Document(BytesIO(response.data))
+        text = "\n".join(p.text for table in doc.tables for row in table.rows for cell in row.cells for p in cell.paragraphs)
+        self.assertIn("390761", text)
+        self.assertNotIn("320611", text)
+
+    def test_15_booking_uses_consignee_or_custom_notify_snapshot(self):
+        client = self.login_client(); client.post("/orders", json=self.sales_payload("NOTIFY"))
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "NOTIFY"))
+        pi.customer_name_snapshot = "Consignee"; pi.customer_address_snapshot = "Consignee Address"
+        pi.vessel_info = "Vessel 1"; pi.container_type = "20GP"; pi.container_count = 1
+        pi.shipping_mark = "MARK"; pi.freight_term = "FOB"; pi.waybill_option = "ORIGINAL"
+        db.session.commit()
+        response = client.get(f"/v2/orders/{pi.id}/documents/booking")
+        doc = Document(BytesIO(response.data)); text = "\n".join(p.text for table in doc.tables for row in table.rows for cell in row.cells for p in cell.paragraphs)
+        self.assertIn("Consignee", text)
+        pi.notify_party_same_as_consignee = False; pi.notify_party_name_snapshot = "Custom Notify"
+        pi.notify_party_address_snapshot = "Custom Address"; db.session.commit()
+        response = client.get(f"/v2/orders/{pi.id}/documents/booking")
+        doc = Document(BytesIO(response.data)); text = "\n".join(p.text for table in doc.tables for row in table.rows for cell in row.cells for p in cell.paragraphs)
+        self.assertIn("Custom Notify", text)
+
+    def test_16_v1_booking_template_is_isolated_from_v2_template(self):
+        root = Path(__file__).resolve().parents[1]
+        def text_for(path):
+            doc = Document(path)
+            return "\n".join(p.text for table in doc.tables for row in table.rows for cell in row.cells for p in cell.paragraphs)
+        self.assertIn("HS CODE: 320611", text_for(root / "templates" / "word" / "BN-Sample.docx"))
+        self.assertIn("{{product_hs_codes}}", text_for(root / "v2" / "templates" / "word" / "BN-Sample.docx"))
+
+    def test_17_pre_shipment_document_and_item_hs_editors_are_controlled(self):
+        client = self.login_client(); client.post("/orders", json=self.sales_payload("PRE-EDIT"))
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "PRE-EDIT")); pi.status = "PRE_SHIPMENT"
+        db.session.commit()
+        response = client.post(f"/v2/orders/{pi.id}/document-requirements", data={"coc_required": "true"})
+        self.assertEqual(response.status_code, 302); self.assertTrue(pi.coc_required)
+        response = client.post(f"/v2/orders/{pi.id}/booking-hs-codes", data={f"product_hs_code_snapshot_{pi.items[0].id}": "281700"})
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(pi.items[0].product_hs_code_snapshot, "281700")
+        self.assertIsNone(self.product.hs_code)
+
+    def test_18_legacy_loading_datetime_is_read_fallback_only(self):
+        client = self.login_client(); client.post("/orders", json=self.sales_payload("LOAD-FALLBACK"))
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "LOAD-FALLBACK"))
+        pi.status = "PRE_SHIPMENT"; pi.container_loading_at = datetime(2026, 9, 20, 14, 0)
+        pi.advance_received_amount = pi.advance_payment_amount
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 20, 10)); db.session.commit()
+        task = db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == pi.id, OrderTask.task_code == "SHIPPING_CONTAINER_LOADING"))
+        self.assertIsNone(task)
+        self.assertIsNone(pi.container_loading_date)
+        self.assertIsNone(pi.container_loading_period)

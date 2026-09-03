@@ -4,6 +4,10 @@
 
 # SQLite databases
 instance/*.db
+instance_v2/*.db
+instance_v2/*.db-*
+instance_v2/*.db.*
+static_v2/generated/
 instance/*.db-*
 
 # Python cache

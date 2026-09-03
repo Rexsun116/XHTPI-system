@@ -1,6 +1,6 @@
 """V2 order mutations and targeted reconcile; no V1 adapters."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import select
@@ -21,6 +21,7 @@ from .models import (
     db,
     utcnow,
 )
+from .rules import DOCUMENT_RULES
 
 
 CORRECTION_TO_POLICY_MODULE = {
@@ -44,6 +45,15 @@ def apply_bank_snapshot(pi, bank_account):
     pi.bank_swift_snapshot = bank_account.swift_code
     pi.bank_currency_snapshot = bank_account.currency
     pi.bank_remittance_snapshot = bank_account.remittance_information
+
+
+def apply_product_snapshot(item, product):
+    """Copy all document-facing product facts to an immutable PIItem snapshot."""
+    item.product_category_snapshot = product.category
+    item.product_brand_snapshot = product.brand
+    item.product_model_snapshot = product.model
+    item.product_packaging_snapshot = product.packaging
+    item.product_hs_code_snapshot = product.hs_code
 
 
 def create_freight_agreement(pi, quote, *, agreed_at=None, note=None):
@@ -75,30 +85,47 @@ def freight_agreement_difference(agreement, settlement):
     )
 
 
-def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="RULE_DATA", context=None):
+def _activity(task, event, *, old=None, status=None, context=None, reason=None):
+    db.session.add(TaskActivity(
+        task_id=task.id, event_type=event, from_status=old, to_status=status or task.status,
+        actor_type="SYSTEM", note=reason, payload=context or None,
+    ))
+
+
+def _find_task(pi, code):
+    key = f"v2:order:{pi.id}:{code.lower()}"
+    return db.session.scalar(select(OrderTask).where(OrderTask.dedupe_key == key))
+
+
+def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="RULE_DATA", context=None,
+                 activation_at=None, due_at=None, priority=100, force_reactivate=False):
     key = f"v2:order:{pi.id}:{code.lower()}"
     task = db.session.scalar(select(OrderTask).where(OrderTask.dedupe_key == key))
     if task is None:
         task = OrderTask(
             pi_id=pi.id, task_code=code, title=title, source="AUTO", status=status,
-            health=health, completion_mode=completion_mode, context_payload=context or {},
-            dedupe_key=key,
+            health=health, completion_mode=completion_mode, context_payload=context or {}, priority=priority,
+            activation_at=activation_at, due_at=due_at, dedupe_key=key,
         )
         db.session.add(task)
         db.session.flush()
-        db.session.add(TaskActivity(
-            task_id=task.id, event_type="CREATED", to_status=status, actor_type="SYSTEM",
-            payload=context or {},
-        ))
+        _activity(task, "CREATED", status=status, context=context)
         return task
-    changed = task.status != status or task.health != health or task.context_payload != (context or {})
+    if task.status == "DONE" and task.completion_mode != "RULE_DATA" and not force_reactivate:
+        return task
+    old_status = task.status
+    changed = (task.status != status or task.health != health or task.context_payload != (context or {})
+               or task.activation_at != activation_at or task.due_at != due_at)
     if changed:
-        old = task.status
+        event = ("REACTIVATED" if old_status == "CANCELLED"
+                 else "RULE_REACTIVATED" if old_status == "DONE" and status in {"ACTION", "UPCOMING"}
+                 else "RULE_DEFERRED" if old_status == "ACTION" and status == "UPCOMING"
+                 else "STATUS_CHANGED")
         task.status, task.health, task.context_payload = status, health, context or {}
-        db.session.add(TaskActivity(
-            task_id=task.id, event_type="STATUS_CHANGED", from_status=old,
-            to_status=status, actor_type="SYSTEM", payload=context or {},
-        ))
+        task.activation_at, task.due_at, task.priority = activation_at, due_at, priority
+        if status != "DONE":
+            task.completed_at = task.completed_by_id = task.resolution_code = None
+        _activity(task, event, old=old_status, status=status, context=context)
     return task
 
 
@@ -109,10 +136,48 @@ def _resolve_task(pi, code):
         old = task.status
         task.status, task.health = "DONE", "NORMAL"
         task.completed_at, task.resolution_code = utcnow(), "AUTO_RESOLVED"
-        db.session.add(TaskActivity(
-            task_id=task.id, event_type="AUTO_RESOLVED", from_status=old,
-            to_status="DONE", actor_type="SYSTEM",
-        ))
+        task.waiting_on = task.waiting_since = task.next_follow_up_at = None
+        _activity(task, "AUTO_RESOLVED", old=old, status="DONE")
+    return task
+
+
+def _cancel_task(pi, code, reason="REQUIREMENT_REMOVED"):
+    task = _find_task(pi, code)
+    if task and task.status not in {"DONE", "CANCELLED"}:
+        old = task.status
+        task.status, task.health, task.resolution_code = "CANCELLED", "NORMAL", reason
+        _activity(task, "CANCELLED", old=old, status="CANCELLED", reason=reason)
+    return task
+
+
+def _task_done(pi, code):
+    task = _find_task(pi, code)
+    return task if task and task.status == "DONE" else None
+
+
+def _confirmed_snapshot(pi, code):
+    task = _find_task(pi, code)
+    if not task:
+        return None
+    activities = db.session.scalars(select(TaskActivity).where(
+        TaskActivity.task_id == task.id, TaskActivity.event_type == "COMPLETED"
+    ).order_by(TaskActivity.created_at.desc(), TaskActivity.id.desc())).all()
+    return next((row.payload for row in activities if row.payload and row.payload.get("confirmed_amount")), None)
+
+
+def _set_rule_data(pi, code, title, active, *, future=False, health="NORMAL", context=None,
+                   activation_at=None, due_at=None, priority=100):
+    if active:
+        return _upsert_task(pi, code, title, status="ACTION", health=health, context=context,
+                            activation_at=activation_at, due_at=due_at, priority=priority)
+    task = _find_task(pi, code)
+    if task is not None and task.status in {"ACTION", "WAITING", "UPCOMING"}:
+        if future:
+            return _upsert_task(pi, code, title, status="UPCOMING", context=context,
+                                activation_at=activation_at, due_at=due_at, priority=priority)
+        return _resolve_task(pi, code)
+    if task is not None and task.status == "DONE" and future:
+        return task
     return task
 
 
@@ -121,51 +186,255 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     now = now or utcnow()
     settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
     agreement = db.session.scalar(select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
-    if pi.advance_payment_amount and (pi.advance_received_amount or Decimal("0")) < pi.advance_payment_amount:
-        outstanding = pi.advance_payment_amount - (pi.advance_received_amount or Decimal("0"))
-        _upsert_task(
-            pi, "PAYMENT_ADVANCE_WAITING", "等待客户支付预付款", status="WAITING",
-            context={"currency": pi.currency, "outstanding_amount": str(outstanding)},
-        )
+    loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
+    # A new sales order has one advance-payment business item, not separate
+    # "wait" and "chase" tasks.  User follow-ups keep the same task in WAITING
+    # until their requested follow-up time; the rule never creates a duplicate.
+    planned_date = pi.planned_shipment_date or pi.etd
+    advance_expected = pi.advance_payment_amount or Decimal("0")
+    advance_received = pi.advance_received_amount or Decimal("0")
+    advance_unpaid = pi.order_type == "SALES" and advance_expected > 0 and advance_received < advance_expected
+    advance_task = _find_task(pi, "PAYMENT_ADVANCE_WAITING")
+    if advance_unpaid:
+        outstanding = advance_expected - advance_received
+        days_remaining = (planned_date - now.date()).days if planned_date else None
+        overdue = bool(planned_date and now.date() > planned_date)
+        chase_due = bool(planned_date and now.date() >= planned_date - timedelta(days=10))
+        context = {
+            "currency": pi.currency,
+            "customer_name": pi.customer_name_snapshot,
+            "expected_amount": f"{advance_expected:.2f}",
+            "received_amount": f"{advance_received:.2f}",
+            "outstanding_amount": f"{outstanding:.2f}",
+            "planned_shipment_date": planned_date.isoformat() if planned_date else None,
+            "days_remaining": days_remaining,
+            "action_target": "UPDATE_ADVANCE_RECEIPT",
+            "shipping_preparation_blocked": True,
+            "message": ("预付款未到账，计划发运日期已过" if overdue
+                        else "发运准备暂未启动：等待预付款到账"),
+        }
+        if advance_task and advance_task.status == "WAITING" and advance_task.next_follow_up_at and advance_task.next_follow_up_at > now and not overdue:
+            # Preserve an explicit customer-follow-up commitment.
+            advance_task.context_payload = context
+        else:
+            _upsert_task(
+                pi, "PAYMENT_ADVANCE_WAITING",
+                "预付款未到账，计划发运日期已过" if overdue else ("催客户支付预付款" if chase_due else "等待客户支付预付款"),
+                status="ACTION" if overdue or chase_due else "WAITING",
+                health="EXCEPTION" if overdue else "NORMAL",
+                context=context,
+                activation_at=datetime.combine(planned_date - timedelta(days=10), datetime.min.time()) if planned_date else None,
+                due_at=datetime.combine(planned_date, datetime.min.time()) if planned_date else None,
+                priority=10,
+            )
+            task = _find_task(pi, "PAYMENT_ADVANCE_WAITING")
+            if task and task.status == "WAITING" and not task.waiting_on:
+                task.waiting_on, task.waiting_since = "CUSTOMER", now
     else:
         _resolve_task(pi, "PAYMENT_ADVANCE_WAITING")
 
-    if pi.container_loading_at and pi.status in {OrderStage.PRE_SHIPMENT, OrderStage.SHIPPED}:
-        complete = all((pi.driver_name, pi.driver_phone, pi.vehicle_number))
-        if not complete:
-            reached = now >= pi.container_loading_at
+    # NEW sales orders receive a gate, never PRE_SHIPMENT operational tasks.
+    # The user explicitly confirms the lifecycle transition through the gate.
+    prep_allowed = pi.order_type == "SALES" and not advance_unpaid
+    prep_reached = bool(planned_date and now.date() >= planned_date - timedelta(days=15))
+    if pi.status == OrderStage.NEW:
+        # Correct any work created by an older runtime without deleting its
+        # append-only history.  NEW can expose only a stage gate.
+        _cancel_task(pi, "SHIPPING_CONTAINER_LOADING", "ORDER_NOT_IN_PRE_SHIPMENT")
+        _cancel_task(pi, "SHIPPING_FREIGHT_AGREEMENT", "ORDER_NOT_IN_PRE_SHIPMENT")
+    if pi.status == OrderStage.NEW and prep_allowed and prep_reached:
+        _upsert_task(
+            pi, "STAGE_GATE_PRE_SHIPMENT", "开始发运准备",
+            status="ACTION", health="NORMAL", completion_mode="RULE_DATA", priority=20,
+            context={"planned_shipment_date": planned_date.isoformat(),
+                     "days_remaining": (planned_date - now.date()).days,
+                     "message": "发运准备条件已具备，可以开始联系工厂和货代",
+                     "action_target": "ENTER_PRE_SHIPMENT"},
+        )
+    elif pi.status == OrderStage.PRE_SHIPMENT and prep_allowed and prep_reached:
+        _resolve_task(pi, "STAGE_GATE_PRE_SHIPMENT")
+        _set_rule_data(
+            pi, "SHIPPING_CONTAINER_LOADING", "确认工厂装柜日期",
+            not bool(pi.container_loading_date or pi.container_loading_at),
+            context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_LOADING_INFO"},
+            activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
+        )
+        _set_rule_data(
+            pi, "SHIPPING_FREIGHT_AGREEMENT", "向货代询价并确认船期",
+            agreement is None,
+            context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_FREIGHT_AGREEMENT"},
+            activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
+        )
+    elif advance_unpaid:
+        # Do not present premature shipment-preparation work while the
+        # commercial prerequisite is unmet.
+        _cancel_task(pi, "SHIPPING_CONTAINER_LOADING", "ADVANCE_PAYMENT_PENDING")
+        _cancel_task(pi, "SHIPPING_FREIGHT_AGREEMENT", "ADVANCE_PAYMENT_PENDING")
+        _cancel_task(pi, "STAGE_GATE_PRE_SHIPMENT", "ADVANCE_PAYMENT_PENDING")
+    elif pi.status != OrderStage.NEW:
+        _resolve_task(pi, "STAGE_GATE_PRE_SHIPMENT")
+
+    # PRE_SHIPMENT -> SHIPPED is also user-confirmed.  The two preparation
+    # rules remain the stable workflow truth, but their source facts are
+    # checked as well so an out-of-date DONE task cannot unlock the stage.
+    if pi.status == OrderStage.PRE_SHIPMENT:
+        loading_task = _find_task(pi, "SHIPPING_CONTAINER_LOADING")
+        agreement_task = _find_task(pi, "SHIPPING_FREIGHT_AGREEMENT")
+        loading_ready = bool(loading_task and loading_task.status == "DONE" and loading_date)
+        agreement_ready = bool(agreement_task and agreement_task.status == "DONE" and agreement)
+        missing = []
+        if not loading_ready:
+            missing.append("工厂装柜日期尚未确认")
+        if not agreement_ready:
+            missing.append("货代船期/最终报价尚未确认")
+        if planned_date and now.date() >= planned_date:
+            days_late = (now.date() - planned_date).days
+            if missing:
+                _upsert_task(
+                    pi, "STAGE_GATE_SHIPPED", "计划发运日期已到，发运准备尚未完成",
+                    status="ACTION", health="EXCEPTION", completion_mode="RULE_DATA", priority=6,
+                    context={"planned_shipment_date": planned_date.isoformat(), "days_overdue": days_late,
+                             "missing_preparation": missing,
+                             "message": "计划发运日期已到，但发运准备尚未完成。"},
+                )
+            else:
+                _upsert_task(
+                    pi, "STAGE_GATE_SHIPPED", "确认货物是否已发运", status="ACTION",
+                    health="EXCEPTION" if days_late >= 3 else "NORMAL", completion_mode="RULE_DATA", priority=15,
+                    context={"planned_shipment_date": planned_date.isoformat(),
+                             "container_loading_date": loading_date.isoformat() if loading_date else None,
+                             "freight_forwarder": agreement.freight_forwarder_name_snapshot,
+                             "days_overdue": days_late if days_late >= 3 else None,
+                             "message": "计划发运日期已超过 3 天，订单仍处于待发运状态。请确认货物是否已经实际发运，或修改计划发运日期。" if days_late >= 3 else "确认货物是否已经实际发运"},
+                )
+        elif not missing and planned_date:
             _upsert_task(
-                pi, "SHIPPING_DRIVER_INFO", "确认司机信息", status="ACTION",
-                health="EXCEPTION" if reached else "NORMAL",
-                context={"container_loading_at": pi.container_loading_at.isoformat()},
+                pi, "STAGE_GATE_SHIPPED", "发运准备已完成", status="UPCOMING",
+                completion_mode="RULE_DATA", priority=15,
+                activation_at=datetime.combine(planned_date, datetime.min.time()),
+                context={"planned_shipment_date": planned_date.isoformat(),
+                         "container_loading_date": loading_date.isoformat() if loading_date else None,
+                         "freight_forwarder": agreement.freight_forwarder_name_snapshot,
+                         "message": "发运准备已完成，等待计划发运日期。"},
             )
         else:
-            _resolve_task(pi, "SHIPPING_DRIVER_INFO")
+            _cancel_task(pi, "STAGE_GATE_SHIPPED", "PREPARATION_NOT_READY")
+    elif pi.status == OrderStage.SHIPPED:
+        _resolve_task(pi, "STAGE_GATE_SHIPPED")
+    else:
+        _cancel_task(pi, "STAGE_GATE_SHIPPED", "ORDER_NOT_IN_PRE_SHIPMENT")
 
-    if pi.etd and pi.etd <= now.date() and not pi.actual_departure_date:
+    # A generic overdue planned-shipment exception is useful outside the
+    # advance-payment case.  The advance task itself carries the richer,
+    # non-duplicated exception when payment is still outstanding.
+    shipment_overdue = bool(planned_date and now.date() > planned_date and not pi.actual_departure_date)
+    if shipment_overdue and pi.status != OrderStage.PRE_SHIPMENT and not (pi.status == "NEW" and advance_unpaid):
         _upsert_task(
-            pi, "SHIPPING_ACTUAL_DEPARTURE", "确认船舶实际开航情况",
-            status="ACTION", health="EXCEPTION", context={"etd": pi.etd.isoformat()},
+            pi, "SHIPPING_PLANNED_DATE_OVERDUE", "计划发运日期已过期",
+            status="ACTION", health="EXCEPTION", priority=5,
+            context={"planned_shipment_date": planned_date.isoformat(),
+                     "days_overdue": (now.date() - planned_date).days,
+                     "message": "计划发运日期已过期，请确认订单是否延期或补充实际发运信息",
+                     "action_target": "UPDATE_SHIPPING_INFO"},
         )
+    else:
+        _resolve_task(pi, "SHIPPING_PLANNED_DATE_OVERDUE")
+
+    if loading_date and pi.status in {OrderStage.PRE_SHIPMENT, OrderStage.SHIPPED}:
+        complete = all((pi.driver_name, pi.driver_phone, pi.vehicle_number))
+        activation = datetime.combine(loading_date - timedelta(days=1), datetime.min.time())
+        _set_rule_data(pi, "SHIPPING_DRIVER_INFO", "确认司机信息",
+                       not complete and now >= activation, future=not complete and now < activation,
+                       health="EXCEPTION" if now.date() >= loading_date and not complete else "NORMAL",
+                       context={"container_loading_date": loading_date.isoformat(), "container_loading_period": pi.container_loading_period,
+                                "message": "装柜日期已到，但司机信息尚未完整填写" if now.date() >= loading_date and not complete else None},
+                       activation_at=activation)
+
+    if pi.etd:
+        active = pi.etd <= now.date() and not pi.actual_departure_date
+        days = max((now.date() - pi.etd).days, 0)
+        _set_rule_data(pi, "SHIPPING_ACTUAL_DEPARTURE", "确认船舶实际开航情况", active,
+                       future=not pi.actual_departure_date and pi.etd > now.date(), health="EXCEPTION",
+                       context={"etd": pi.etd.isoformat(), "message": f"ETD 已过 {days} 天，尚未记录实际发运日期"},
+                       activation_at=datetime.combine(pi.etd, datetime.min.time()))
     elif pi.actual_departure_date:
         _resolve_task(pi, "SHIPPING_ACTUAL_DEPARTURE")
 
-    if pi.eta and pi.eta <= now.date() and not pi.actual_arrival_date:
-        _upsert_task(
-            pi, "SHIPPING_ACTUAL_ARRIVAL", "确认实际到港日期",
-            status="ACTION", health="EXCEPTION", context={"eta": pi.eta.isoformat()},
-        )
+    if pi.eta:
+        active = pi.eta <= now.date() and not pi.actual_arrival_date
+        days = max((now.date() - pi.eta).days, 0)
+        _set_rule_data(pi, "SHIPPING_ACTUAL_ARRIVAL", "确认实际到港日期", active,
+                       future=not pi.actual_arrival_date and pi.eta > now.date(), health="EXCEPTION",
+                       context={"eta": pi.eta.isoformat(), "message": f"ETA 已过 {days} 天，尚未记录实际到港日期"},
+                       activation_at=datetime.combine(pi.eta, datetime.min.time()))
     elif pi.actual_arrival_date:
         _resolve_task(pi, "SHIPPING_ACTUAL_ARRIVAL")
 
-    if pi.coo_required is True and pi.container_loading_at:
-        if now >= pi.container_loading_at:
-            _upsert_task(
-                pi, "DOCUMENT_COO", "办理 COO", status="ACTION",
-                completion_mode="MANUAL",
-            )
+    for code, fact, title, trigger in DOCUMENT_RULES:
+        if getattr(pi, fact) is not True:
+            _cancel_task(pi, code)
+            continue
+        active = (
+            trigger == "PRE_SHIPMENT" and pi.status in {"PRE_SHIPMENT","SHIPPED","ARRIVED","COMPLETED"}
+            or trigger == "SHIPPED" and pi.status in {"SHIPPED","ARRIVED","COMPLETED"}
+            or trigger == "LOADING" and loading_date and now.date() >= loading_date
+            or trigger == "LOADING_MINUS_5" and loading_date and now.date() >= (loading_date - __import__('datetime').timedelta(days=5))
+        )
+        context = {"message": "APTA 日期需在提单开船日期三日内"} if code == "DOCUMENT_APTA" else None
+        _upsert_task(pi, code, title, status="ACTION" if active else "UPCOMING", completion_mode="MANUAL", context=context)
+
+    originals = [code for code, fact in (("DOCUMENT_ORIGINAL_BL", "original_bl_required"),
+                                          ("DOCUMENT_INSURANCE_ORIGINAL", "insurance_original_required"))
+                 if getattr(pi, fact) is True]
+    if pi.original_documents_mail_required is not True or not originals:
+        _cancel_task(pi, "ORIGINAL_DOCUMENTS_MAIL")
+    else:
+        ready = all(_task_done(pi, code) for code in originals)
+        _upsert_task(pi, "ORIGINAL_DOCUMENTS_MAIL", "邮寄文件原件",
+                     status="ACTION" if ready else "UPCOMING", completion_mode="MANUAL_REQUIRED_INPUT",
+                     context={"required_inputs": ["tracking_number"], "prerequisites": originals})
+
+    if pi.status in {"SHIPPED","ARRIVED","COMPLETED"}:
+        _upsert_task(pi,"PAYMENT_EMAIL","EMAIL发送付款文件给客户并请款",status="ACTION",completion_mode="MANUAL")
+    else:
+        _cancel_task(pi, "PAYMENT_EMAIL", "NOT_APPLICABLE")
+
+    fully_paid = bool(pi.contract_total and (pi.advance_received_amount or 0) + (pi.balance_received_amount or 0) >= pi.contract_total)
+    if pi.telex_release_required is True:
+        _upsert_task(pi,"DOCUMENT_TELEX_RELEASE","取得/发送提单电放件",status="ACTION" if fully_paid else "UPCOMING",completion_mode="MANUAL")
+    else:
+        _cancel_task(pi, "DOCUMENT_TELEX_RELEASE")
+    if pi.settlement_documents_required is True:
+        if (pi.advance_received_amount or 0)>0 and pi.advance_received_at:
+            _upsert_task(pi,"SETTLEMENT_DOCUMENT_ADVANCE","准备预付款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.advance_received_amount)})
+        if (pi.balance_received_amount or 0)>0 and pi.balance_received_at:
+            _upsert_task(pi,"SETTLEMENT_DOCUMENT_BALANCE","准备尾款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.balance_received_amount)})
+    else:
+        _cancel_task(pi, "SETTLEMENT_DOCUMENT_ADVANCE")
+        _cancel_task(pi, "SETTLEMENT_DOCUMENT_BALANCE")
+
+    prerequisites = [task for task in (_task_done(pi, "PAYMENT_EMAIL"), _task_done(pi, "ORIGINAL_DOCUMENTS_MAIL")) if task and task.completed_at]
+    followup = _find_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+    if fully_paid:
+        _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+    elif prerequisites and (pi.balance_payment_amount or Decimal("0")) > Decimal("0"):
+        base = min(task.completed_at for task in prerequisites)
+        activation_date = base.date() + timedelta(days=3)
+        activation = datetime.combine(activation_date, datetime.min.time())
+        outstanding = (pi.balance_payment_amount or Decimal("0")) - (pi.balance_received_amount or Decimal("0"))
+        if followup and followup.status == "WAITING" and followup.next_follow_up_at and followup.next_follow_up_at > now:
+            pass
+        else:
+            _upsert_task(pi, "PAYMENT_BALANCE_FOLLOWUP", "催客户付款",
+                         status="ACTION" if now.date() >= activation_date else "UPCOMING",
+                         health="OVERDUE" if now.date() > activation_date else "NORMAL",
+                         context={"currency": pi.currency, "outstanding_amount": str(max(outstanding, Decimal('0'))),
+                                  "base_completed_at": base.isoformat(), "trigger_date": activation_date.isoformat()},
+                         activation_at=activation)
 
     if settlement and pi.actual_departure_date:
+        trigger_date = pi.actual_departure_date + timedelta(days=7)
+        reached = now.date() >= trigger_date
         components = (
             ("USD", settlement.usd_bill_required, settlement.usd_bill_amount, settlement.usd_bill_confirmed),
             ("CNY", settlement.cny_bill_required, settlement.cny_bill_amount, settlement.cny_bill_confirmed),
@@ -173,21 +442,39 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         required_confirmations = []
         for currency, required, amount, confirmed in components:
             if required is not True:
+                _cancel_task(pi, f"FREIGHT_{currency}_AMOUNT_CAPTURE")
+                _cancel_task(pi, f"FREIGHT_{currency}_AMOUNT_CONFIRM")
                 continue
             capture_code = f"FREIGHT_{currency}_AMOUNT_CAPTURE"
             confirm_code = f"FREIGHT_{currency}_AMOUNT_CONFIRM"
+            amount_changed = False
             if amount is None:
-                _upsert_task(pi, capture_code, f"录入货代 {currency} 账单金额", status="ACTION")
+                _upsert_task(pi, capture_code, f"录入货代 {currency} 账单金额",
+                             status="ACTION" if reached else "UPCOMING", activation_at=datetime.combine(trigger_date, datetime.min.time()),
+                             context={"currency": currency, "trigger_date": trigger_date.isoformat()})
             else:
                 _resolve_task(pi, capture_code)
-                if confirmed is True:
+                snapshot = _confirmed_snapshot(pi, confirm_code)
+                amount_changed = bool(snapshot and Decimal(snapshot["confirmed_amount"]) != Decimal(amount))
+                if confirmed is True and not amount_changed:
                     _resolve_task(pi, confirm_code)
                 else:
                     _upsert_task(
-                        pi, confirm_code, f"确认货代 {currency} 账单金额", status="ACTION",
-                        completion_mode="MANUAL", context={"currency": currency, "amount": f"{Decimal(amount):.2f}"},
+                        pi, confirm_code, f"确认货代 {currency} 账单金额", status="ACTION" if reached else "UPCOMING",
+                        health="EXCEPTION" if amount_changed else "NORMAL", completion_mode="MANUAL",
+                        context={"currency": currency, "amount": f"{Decimal(amount):.2f}",
+                                 "warning": f"{currency} 账单金额在确认后发生变化，请重新确认" if amount_changed else None,
+                                 "previous_confirmed_amount": snapshot.get("confirmed_amount") if snapshot else None},
+                        activation_at=datetime.combine(trigger_date, datetime.min.time()),
+                        force_reactivate=amount_changed,
                     )
-            required_confirmations.append(confirmed is True)
+            required_confirmations.append(confirmed is True and not amount_changed if amount is not None else False)
+            if amount_changed:
+                invoice_task = _find_task(pi, "FREIGHT_INVOICE_ISSUED")
+                if invoice_task:
+                    context = dict(invoice_task.context_payload or {})
+                    context["warning"] = "货代账单金额在发票流程后发生变化，请核实货代发票"
+                    invoice_task.context_payload = context
         if required_confirmations and all(required_confirmations):
             if settlement.invoice_issued is True:
                 _resolve_task(pi, "FREIGHT_INVOICE_ISSUED")
@@ -200,6 +487,9 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                     pi, "FREIGHT_INVOICE_ISSUED", "确认货代发票已开具",
                     status="ACTION", completion_mode="MANUAL",
                 )
+        elif required_confirmations:
+            _cancel_task(pi, "FREIGHT_INVOICE_ISSUED", "PREREQUISITES_NOT_MET")
+            _cancel_task(pi, "FREIGHT_PAYMENT_CONFIRM", "PREREQUISITES_NOT_MET")
 
     if settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)
@@ -236,6 +526,30 @@ def save_order_with_reconcile(pi, *, now=None):
     except Exception:
         db.session.rollback()
         raise
+
+
+def apply_manual_task_business_fact(task):
+    """Synchronize approved manual workflow facts before task completion."""
+    settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == task.pi_id))
+    payload = None
+    if task.task_code in {"FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_CNY_AMOUNT_CONFIRM"}:
+        if settlement is None:
+            raise ValueError("Freight settlement facts are missing.")
+        currency = "USD" if "USD" in task.task_code else "CNY"
+        amount = settlement.usd_bill_amount if currency == "USD" else settlement.cny_bill_amount
+        if amount is None:
+            raise ValueError(f"{currency} freight amount is required before confirmation.")
+        if currency == "USD":
+            settlement.usd_bill_confirmed = True
+        else:
+            settlement.cny_bill_confirmed = True
+        payload = {"currency": currency, "confirmed_amount": f"{Decimal(amount):.2f}"}
+    elif task.task_code == "FREIGHT_INVOICE_ISSUED":
+        if settlement is None:
+            raise ValueError("Freight settlement facts are missing.")
+        settlement.invoice_issued = True
+        settlement.invoice_issued_at = utcnow()
+    return payload
 
 
 def open_correction_session(pi, module, reason, actor_id):

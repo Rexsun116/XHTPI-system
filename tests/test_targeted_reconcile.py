@@ -170,16 +170,17 @@ class TargetedReconcileIntegrationTest(TestCase):
         self.assertEqual(task.status, TaskStatus.ACTION)
 
     def test_05_etd_change_and_actual_departure_fill_remove(self):
-        pi = self.create_pi("ETD", etd=NOW.date())
+        today = datetime.now().date()
+        pi = self.create_pi("ETD", etd=today)
         commit_pi_with_targeted_reconcile(pi)
         task = self.task(pi, "SHIPPING_ACTUAL_DEPARTURE")
         task_id = task.id
         self.assertEqual(task.health, TaskHealth.EXCEPTION)
-        pi.etd = NOW.date() + timedelta(days=2)
+        pi.etd = today + timedelta(days=2)
         commit_pi_with_targeted_reconcile(pi)
         self.assertEqual(task.status, TaskStatus.UPCOMING)
-        pi.etd = NOW.date()
-        pi.actual_departure_date = NOW.date()
+        pi.etd = today
+        pi.actual_departure_date = today
         commit_pi_with_targeted_reconcile(pi)
         self.assertEqual(task.status, TaskStatus.DONE)
         pi.actual_departure_date = None

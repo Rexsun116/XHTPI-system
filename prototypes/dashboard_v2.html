@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>XHTPI · Order Control Center Prototype</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --sidebar-width: 252px;
+      --bg: #f4f5f7;
+      --surface: #fff;
+      --border: #e5e7eb;
+      --text: #111827;
+      --muted: #6b7280;
+      --primary: #4f46e5;
+      --primary-soft: #eef2ff;
+      --danger: #dc2626;
+      --danger-soft: #fef2f2;
+      --action: #ea580c;
+      --action-soft: #fff7ed;
+      --waiting: #2563eb;
+      --waiting-soft: #eff6ff;
+      --upcoming: #7c3aed;
+      --upcoming-soft: #f5f3ff;
+      --done: #059669;
+      --done-soft: #ecfdf5;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background: var(--bg);
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+    }
+    button, input, select { font: inherit; }
+
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 1030;
+      width: var(--sidebar-width);
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+    }
+    .sidebar-brand {
+      height: 72px;
+      padding: 0 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .brand-mark {
+      width: 34px;
+      height: 34px;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      background: linear-gradient(135deg, #4f46e5, #818cf8);
+      box-shadow: 0 7px 15px rgba(79, 70, 229, .22);
+    }
+    .brand-name { font-weight: 700; font-size: 16px; }
+    .brand-caption { color: var(--muted); font-size: 10px; letter-spacing: .08em; }
+    .sidebar-nav { padding: 20px 14px; overflow-y: auto; }
+    .nav-heading {
+      margin: 17px 10px 7px;
+      color: #9ca3af;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .nav-heading:first-child { margin-top: 0; }
+    .side-link {
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 9px;
+      display: flex;
+      gap: 11px;
+      align-items: center;
+      color: var(--muted);
+      background: transparent;
+      text-decoration: none;
+      text-align: left;
+      font-weight: 500;
+    }
+    .side-link i { width: 19px; text-align: center; }
+    .side-link:hover { color: var(--text); background: #f9fafb; }
+    .side-link.active { color: var(--primary); background: var(--primary-soft); }
+    .side-count {
+      margin-left: auto;
+      min-width: 22px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      color: #fff;
+      background: var(--danger);
+      font-size: 10px;
+      text-align: center;
+    }
+    .sidebar-user {
+      margin-top: auto;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: var(--primary);
+      background: #e0e7ff;
+      font-weight: 700;
+    }
+
+    .main { min-height: 100vh; margin-left: var(--sidebar-width); }
+    .page { max-width: 1660px; margin: 0 auto; padding: 28px 30px 48px; }
+    .mobile-menu { display: none; }
+    .eyebrow {
+      color: var(--primary);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    h1 { margin: 5px 0 4px; font-size: 28px; font-weight: 700; letter-spacing: -.025em; }
+    .subtitle { color: var(--muted); }
+    .prototype-note {
+      display: inline-flex;
+      gap: 7px;
+      align-items: center;
+      padding: 6px 10px;
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .top-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+    .search-box { position: relative; min-width: 270px; }
+    .search-box i { position: absolute; top: 50%; left: 13px; color: #9ca3af; transform: translateY(-50%); }
+    .search-box input {
+      width: 100%;
+      padding: 10px 13px 10px 38px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      outline: none;
+    }
+    .search-box input:focus { border-color: #a5b4fc; box-shadow: 0 0 0 3px rgba(79, 70, 229, .1); }
+    .btn-primary-soft { color: var(--primary); background: var(--primary-soft); border: 1px solid #c7d2fe; }
+
+    .summary-grid {
+      margin: 25px 0;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .summary-card {
+      min-height: 102px;
+      padding: 17px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      gap: 13px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      cursor: pointer;
+      transition: .18s ease;
+      text-align: left;
+    }
+    .summary-card:hover, .summary-card.active { transform: translateY(-2px); box-shadow: 0 10px 28px rgba(17, 24, 39, .07); }
+    .summary-card.active { border-color: currentColor; }
+    .summary-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      font-size: 17px;
+    }
+    .summary-number { font-size: 26px; font-weight: 700; line-height: 1; }
+    .summary-label { margin-top: 5px; color: var(--muted); font-size: 12px; font-weight: 600; }
+    .summary-card.all { color: var(--primary); }
+    .summary-card.exception { color: var(--danger); }
+    .summary-card.action { color: var(--action); }
+    .summary-card.waiting { color: var(--waiting); }
+    .summary-card.upcoming { color: var(--upcoming); }
+    .all .summary-icon { background: var(--primary-soft); }
+    .exception .summary-icon { background: var(--danger-soft); }
+    .action .summary-icon { background: var(--action-soft); }
+    .waiting .summary-icon { background: var(--waiting-soft); }
+    .upcoming .summary-icon { background: var(--upcoming-soft); }
+
+    .section-card {
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: var(--surface);
+      box-shadow: 0 1px 2px rgba(17, 24, 39, .02);
+    }
+    .section-header {
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-title { margin: 0; font-size: 15px; font-weight: 700; }
+    .section-hint { margin-top: 3px; color: var(--muted); font-size: 11px; }
+
+    .action-center { display: grid; grid-template-columns: 1.08fr 1fr; }
+    .action-column { padding: 14px; }
+    .action-column + .action-column { border-left: 1px solid var(--border); }
+    .column-title {
+      padding: 1px 4px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .08em;
+    }
+    .priority-item {
+      margin-bottom: 9px;
+      padding: 13px 13px 12px 15px;
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: #fff;
+    }
+    .priority-item:last-child { margin-bottom: 0; }
+    .priority-item::before { content: ''; position: absolute; inset: 9px auto 9px 0; width: 3px; border-radius: 4px; }
+    .priority-item.is-exception::before { background: var(--danger); }
+    .priority-item.is-action::before { background: var(--action); }
+    .item-title { margin-bottom: 4px; font-weight: 650; }
+    .item-meta { color: var(--muted); font-size: 11px; }
+    .item-meta strong { color: var(--text); }
+    .mini-btn {
+      padding: 6px 9px;
+      align-self: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: #374151;
+      background: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .mini-btn:hover { color: var(--primary); border-color: #a5b4fc; background: var(--primary-soft); }
+
+    .board-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+    .filter-chip {
+      padding: 6px 11px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      color: var(--muted);
+      background: #fff;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .filter-chip.active { color: #fff; border-color: var(--text); background: var(--text); }
+    .table-wrap { overflow-x: auto; }
+    .control-table { min-width: 1240px; margin: 0; }
+    .control-table thead th {
+      padding: 12px 11px;
+      color: #6b7280;
+      background: #fafafa;
+      border-bottom: 1px solid var(--border);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .order-row { cursor: pointer; }
+    .order-row td { padding: 14px 11px; vertical-align: middle; border-bottom: 1px solid #f1f3f5; }
+    .order-row:hover td { background: #fafbff; }
+    .order-row.expanded td { background: #f8f9ff; }
+    .pi-number { color: var(--text); font-weight: 700; }
+    .customer-name { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .secondary { color: var(--muted); font-size: 11px; }
+    .type-badge, .status-badge, .reminder-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      font-size: 10px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .type-badge { padding: 4px 8px; }
+    .type-sales { color: #0369a1; background: #e0f2fe; }
+    .type-commission { color: #7e22ce; background: #f3e8ff; }
+    .status-badge { padding: 5px 9px; color: #374151; background: #f3f4f6; }
+    .next-action { max-width: 210px; font-weight: 600; line-height: 1.35; }
+    .date-alert { color: var(--danger); font-weight: 700; }
+    .date-soon { color: var(--upcoming); font-weight: 700; }
+    .reminder-stack { display: flex; flex-wrap: wrap; gap: 4px; }
+    .reminder-badge { padding: 4px 7px; }
+    .r-exception { color: #991b1b; background: var(--danger-soft); }
+    .r-action { color: #9a3412; background: var(--action-soft); }
+    .r-waiting { color: #1d4ed8; background: var(--waiting-soft); }
+    .r-upcoming { color: #6d28d9; background: var(--upcoming-soft); }
+    .follow-up { max-width: 180px; color: #4b5563; font-size: 11px; line-height: 1.4; }
+    .expand-button {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--muted);
+      background: #fff;
+      transition: .2s;
+    }
+    .expanded .expand-button { color: var(--primary); border-color: #c7d2fe; background: var(--primary-soft); transform: rotate(180deg); }
+
+    .order-detail-row { display: none; }
+    .order-detail-row.show { display: table-row; }
+    .order-detail-row > td { padding: 0 !important; background: #f8f9ff; border-bottom: 1px solid var(--border); }
+    .order-detail { padding: 18px 20px 20px; }
+    .detail-top {
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 20px;
+    }
+    .followup-card {
+      flex: 1;
+      padding: 12px 14px;
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #fff;
+    }
+    .followup-title { color: var(--waiting); font-size: 10px; font-weight: 700; letter-spacing: .07em; }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+    .detail-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .reminder-group { padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: #fff; }
+    .group-title { margin-bottom: 10px; display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 800; letter-spacing: .07em; }
+    .group-title.action { color: var(--action); }
+    .group-title.waiting { color: var(--waiting); }
+    .group-title.upcoming { color: var(--upcoming); }
+    .group-title.done { color: var(--done); }
+    .reminder-line { padding: 7px 0; border-bottom: 1px dashed #e5e7eb; font-size: 11px; line-height: 1.4; }
+    .reminder-line:last-child { padding-bottom: 0; border-bottom: 0; }
+    .reminder-time { margin-top: 2px; color: #9ca3af; font-size: 10px; }
+    .empty-reminder { color: #9ca3af; font-size: 11px; }
+
+    .timeline { padding: 18px 20px 20px; }
+    .timeline-track { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+    .timeline-day { min-height: 104px; padding: 11px; border: 1px solid var(--border); border-radius: 10px; background: #fafafa; }
+    .timeline-date { margin-bottom: 8px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .timeline-event { margin-bottom: 5px; padding: 6px 7px; border-radius: 7px; background: #fff; font-size: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+    .timeline-event strong { display: block; margin-bottom: 1px; }
+
+    .empty-state { display: none; padding: 45px 20px; color: var(--muted); text-align: center; }
+    .empty-state i { margin-bottom: 10px; color: #c7d2fe; font-size: 28px; }
+    .toast-prototype {
+      position: fixed;
+      right: 22px;
+      bottom: 22px;
+      z-index: 1100;
+      max-width: 340px;
+      padding: 13px 16px;
+      color: #fff;
+      background: #111827;
+      border-radius: 10px;
+      box-shadow: 0 12px 30px rgba(0,0,0,.18);
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(12px);
+      transition: .2s;
+    }
+    .toast-prototype.show { opacity: 1; transform: translateY(0); }
+
+    @media (max-width: 1199px) {
+      .summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .detail-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .timeline-track { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    @media (max-width: 820px) {
+      .sidebar { transform: translateX(-100%); transition: transform .2s; }
+      .sidebar.show { transform: translateX(0); box-shadow: 8px 0 30px rgba(17, 24, 39, .15); }
+      .main { margin-left: 0; }
+      .page { padding: 22px 15px 38px; }
+      .mobile-menu { display: inline-flex; }
+      .top-actions { margin-top: 15px; justify-content: flex-start; }
+      .search-box { min-width: 100%; }
+      .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .action-center { grid-template-columns: 1fr; }
+      .action-column + .action-column { border-left: 0; border-top: 1px solid var(--border); }
+      .detail-grid, .timeline-track { grid-template-columns: 1fr; }
+      .detail-top { flex-direction: column; }
+      .followup-card { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark"><i class="fa-solid fa-cube"></i></div>
+      <div><div class="brand-name">西合钛贸易</div><div class="brand-caption">ORDER CONTROL</div></div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="nav-heading">工作台</div>
+      <button class="side-link active"><i class="fa-solid fa-table-columns"></i>订单控制中心<span class="side-count">2</span></button>
+      <button class="side-link" data-demo="今日待办"><i class="fa-regular fa-circle-check"></i>我的待办</button>
+      <button class="side-link" data-demo="近期时间线"><i class="fa-regular fa-calendar"></i>近期时间线</button>
+
+      <div class="nav-heading">业务管理</div>
+      <button class="side-link" data-demo="销售订单"><i class="fa-solid fa-file-invoice"></i>销售订单</button>
+      <button class="side-link" data-demo="工厂直发"><i class="fa-solid fa-coins"></i>工厂直发</button>
+
+      <div class="nav-heading">基础资料</div>
+      <button class="side-link" data-demo="产品管理"><i class="fa-solid fa-box"></i>产品管理</button>
+      <button class="side-link" data-demo="运费报价"><i class="fa-solid fa-ship"></i>运费报价</button>
+      <button class="side-link" data-demo="合作伙伴"><i class="fa-solid fa-users"></i>合作伙伴</button>
+    </nav>
+    <div class="sidebar-user">
+      <div class="avatar">R</div>
+      <div class="flex-grow-1"><div class="fw-semibold">RexSun</div><div class="secondary">管理员 · 在线</div></div>
+      <i class="fa-solid fa-arrow-right-from-bracket text-secondary"></i>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="page">
+      <header class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center">
+        <div>
+          <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-light border mobile-menu" id="menuButton"><i class="fa-solid fa-bars"></i></button>
+            <div class="eyebrow">Thursday · 20 August 2026</div>
+          </div>
+          <h1>订单控制中心</h1>
+          <div class="subtitle">先处理异常和明确行动，再检查等待与即将到期事项。</div>
+        </div>
+        <div class="top-actions">
+          <span class="prototype-note"><i class="fa-solid fa-flask"></i>STATIC PROTOTYPE · 虚拟数据</span>
+          <div class="search-box"><i class="fa-solid fa-magnifying-glass"></i><input id="searchInput" type="search" placeholder="搜索 PI、客户、产品、下一步…"></div>
+          <button class="btn btn-primary" data-demo="新建订单选择"><i class="fa-solid fa-plus me-2"></i>新建订单</button>
+        </div>
+      </header>
+
+      <section class="summary-grid" aria-label="工作项摘要筛选">
+        <button class="summary-card all active" data-filter="all"><span class="summary-icon"><i class="fa-solid fa-layer-group"></i></span><span><span class="summary-number">8</span><span class="summary-label d-block">Active Orders</span></span></button>
+        <button class="summary-card exception" data-filter="exception"><span class="summary-icon"><i class="fa-solid fa-triangle-exclamation"></i></span><span><span class="summary-number">2</span><span class="summary-label d-block">Overdue / Exception</span></span></button>
+        <button class="summary-card action" data-filter="action"><span class="summary-icon"><i class="fa-solid fa-bolt"></i></span><span><span class="summary-number">7</span><span class="summary-label d-block">Action Required</span></span></button>
+        <button class="summary-card waiting" data-filter="waiting"><span class="summary-icon"><i class="fa-regular fa-hourglass-half"></i></span><span><span class="summary-number">5</span><span class="summary-label d-block">Waiting</span></span></button>
+        <button class="summary-card upcoming" data-filter="upcoming"><span class="summary-icon"><i class="fa-regular fa-clock"></i></span><span><span class="summary-number">5</span><span class="summary-label d-block">Upcoming · 7 days</span></span></button>
+      </section>
+
+      <section class="section-card">
+        <div class="section-header">
+          <div><h2 class="section-title">Action Center</h2><div class="section-hint">只放需要立即判断或执行的高优先级事项</div></div>
+          <button class="mini-btn" data-set-filter="action">查看全部行动 <i class="fa-solid fa-arrow-right ms-1"></i></button>
+        </div>
+        <div class="action-center">
+          <div class="action-column">
+            <div class="column-title text-danger"><span><i class="fa-solid fa-triangle-exclamation me-2"></i>EXCEPTION</span><span>2</span></div>
+            <article class="priority-item is-exception">
+              <div><div class="item-title">ETD 已过 2 天，仍无实际发运记录</div><div class="item-meta"><strong>WU260818</strong> · NordChem GmbH · 原 ETD 2026-08-18</div></div>
+              <button class="mini-btn" data-open-order="WU260818">检查订单</button>
+            </article>
+            <article class="priority-item is-exception">
+              <div><div class="item-title">明日装柜，但司机信息尚未确认</div><div class="item-meta"><strong>WU260814</strong> · Atlas Coatings · 装柜 08-21 09:00</div></div>
+              <button class="mini-btn" data-open-order="WU260814">立即处理</button>
+            </article>
+          </div>
+          <div class="action-column">
+            <div class="column-title" style="color:var(--action)"><span><i class="fa-solid fa-bolt me-2"></i>ACTION REQUIRED</span><span>7</span></div>
+            <article class="priority-item is-action">
+              <div><div class="item-title">确认 BL Draft，并反馈货代</div><div class="item-meta"><strong>WU260811</strong> · BlueWave Trading · Next follow-up 08-22</div></div>
+              <button class="mini-btn" data-open-order="WU260811">处理</button>
+            </article>
+            <article class="priority-item is-action">
+              <div><div class="item-title">货款已收齐，发送电放提单</div><div class="item-meta"><strong>WU260816</strong> · Nova Build Ltd. · 已发运</div></div>
+              <button class="mini-btn" data-open-order="WU260816">处理</button>
+            </article>
+            <article class="priority-item is-action">
+              <div><div class="item-title">催收客户尾款，同时跟进 COA / 保单</div><div class="item-meta"><strong>WU260815</strong> · Sunrise Paints · 等待 3 个外部事项</div></div>
+              <button class="mini-btn" data-open-order="WU260815">处理</button>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section-card" id="controlBoard">
+        <div class="section-header">
+          <div><h2 class="section-title">Active Orders Control Board</h2><div class="section-hint"><span id="visibleCount">8</span> 张订单 · 点击任意订单查看 ACTION / WAITING / UPCOMING / DONE</div></div>
+          <div class="board-toolbar" aria-label="订单类型筛选">
+            <button class="filter-chip active" data-type="all">全部</button>
+            <button class="filter-chip" data-type="sales">销售订单</button>
+            <button class="filter-chip" data-type="commission">工厂直发</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="table control-table">
+            <thead><tr><th>PI / 类型</th><th>客户</th><th>产品 / 数量</th><th>状态</th><th>关键船期</th><th>Next Action</th><th>Reminder</th><th>Last Follow-up</th><th></th></tr></thead>
+            <tbody id="orderBody">
+              <tr class="order-row" data-order="WU260801" data-type="sales" data-tags="waiting upcoming" data-search="WU260801 Rahul Minerals Titanium dioxide 预付款 等待客户付款 新建">
+                <td><div class="pi-number">WU260801</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">Rahul Minerals</div><div class="secondary">India · Nhava Sheva</div></td><td><div>R-996</div><div class="secondary">40 MT</div></td><td><span class="status-badge">新建</span></td><td><div>计划发运 09-05</div><div class="secondary">ETD 待定</div></td><td><div class="next-action">等待客户预付款到账</div><div class="secondary">付款方式：30% Advance</div></td><td><div class="reminder-stack"><span class="reminder-badge r-waiting">WAITING 1</span><span class="reminder-badge r-upcoming">UPCOMING 1</span></div></td><td><div class="follow-up">已发送形式发票和银行信息</div><div class="secondary">08-19 16:20</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260801"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">Rahul 说财务会在周五安排预付款。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">2026-08-22</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进"><i class="fa-solid fa-plus me-1"></i>Add Follow-up</button><button class="mini-btn" data-demo="添加备注">Add Note</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action"><i class="fa-solid fa-bolt"></i>ACTION</div><div class="reminder-line">08-22 未到账时联系客户确认付款水单</div></div><div class="reminder-group"><div class="group-title waiting"><i class="fa-regular fa-hourglass-half"></i>WAITING</div><div class="reminder-line">等待客户支付 30% 预付款<div class="reminder-time">Waiting on: Customer · since 08-19</div></div></div><div class="reminder-group"><div class="group-title upcoming"><i class="fa-regular fa-clock"></i>UPCOMING</div><div class="reminder-line">计划发运日 2026-09-05<div class="reminder-time">还有 16 天</div></div></div><div class="reminder-group"><div class="group-title done"><i class="fa-solid fa-check"></i>DONE</div><div class="reminder-line">Proforma Invoice 已发送<div class="reminder-time">完成于 08-19 15:42</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260807" data-type="sales" data-tags="action upcoming" data-search="WU260807 Pacific Pigments Titanium dioxide 新建 TT after BL copy 工厂装柜 货代船期">
+                <td><div class="pi-number">WU260807</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">Pacific Pigments</div><div class="secondary">Vietnam · Haiphong</div></td><td><div>R-2195</div><div class="secondary">24 MT</div></td><td><span class="status-badge">新建</span></td><td><div>计划发运 08-30</div><div class="secondary">还有 10 天</div></td><td><div class="next-action">确认工厂装柜日期和货代船期</div><div class="secondary">TT after BL copy</div></td><td><div class="reminder-stack"><span class="reminder-badge r-action">ACTION 2</span><span class="reminder-badge r-upcoming">UPCOMING 1</span></div></td><td><div class="follow-up">已询问工厂可装柜日期</div><div class="secondary">今天 09:10</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260807"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">工厂正在确认 8 月 27–28 日是否可装柜。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">2026-08-21</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="移至等待">Move to Waiting</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">确认工厂装柜日期</div><div class="reminder-line">向货代确认可用船期</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="empty-reminder">当前无明确等待项</div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">计划发运 08-30<div class="reminder-time">还有 10 天</div></div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">客户确认付款条款 TT after BL copy<div class="reminder-time">完成于 08-18 11:30</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260811" data-type="commission" data-tags="action waiting upcoming" data-search="WU260811 BlueWave Trading R-5566 工厂直发 待发运 Booking COO BL Draft 司机">
+                <td><div class="pi-number">WU260811</div><span class="type-badge type-commission">直发</span></td><td><div class="customer-name">BlueWave Trading</div><div class="secondary">UAE · Jebel Ali</div></td><td><div>R-5566</div><div class="secondary">52 MT</div></td><td><span class="status-badge">待发运</span></td><td><div>ETD 08-25</div><div class="secondary">装柜 08-23</div></td><td><div class="next-action">确认 BL Draft；办理 COO</div><div class="secondary">Booking 已确认</div></td><td><div class="reminder-stack"><span class="reminder-badge r-action">ACTION 3</span><span class="reminder-badge r-waiting">WAITING 1</span></div></td><td><div class="follow-up">BL Draft 已发客户，等待确认</div><div class="secondary">今天 10:35</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260811"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">BL Draft 已发客户，等待确认。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">2026-08-22</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="标记完成">Mark Done</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">办理 COO</div><div class="reminder-line">确认装柜司机信息</div><div class="reminder-line">客户确认后反馈 BL Draft 给货代</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="reminder-line">等待客户确认 BL Draft<div class="reminder-time">Waiting on: Customer · since 08-20</div></div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">08-23 装柜 · 08-25 ETD</div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">Booking BK-SHA-260811 已确认<div class="reminder-time">完成于 08-19 14:18</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260814" data-type="sales" data-tags="exception action upcoming" data-search="WU260814 Atlas Coatings A-200 明天装柜 提醒工厂 拍照 司机信息">
+                <td><div class="pi-number">WU260814</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">Atlas Coatings</div><div class="secondary">Turkey · Mersin</div></td><td><div>A-200</div><div class="secondary">26 MT</div></td><td><span class="status-badge">待发运</span></td><td><div class="date-soon">装柜 明天 09:00</div><div class="secondary">ETD 08-23</div></td><td><div class="next-action">确认司机信息；提醒工厂装柜拍照</div></td><td><div class="reminder-stack"><span class="reminder-badge r-exception">EXCEPTION 1</span><span class="reminder-badge r-action">ACTION 2</span></div></td><td><div class="follow-up">货代确认车辆，司机信息稍后发</div><div class="secondary">今天 11:05</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260814"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">货代确认车辆已安排，司机信息下午提供。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-danger">2026-08-20 16:00</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="移至等待">Move to Waiting</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">16:00 前确认司机姓名和电话</div><div class="reminder-line">通知工厂装柜并拍照留档</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="reminder-line">等待货代提供司机信息<div class="reminder-time">Waiting on: Freight Forwarder</div></div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">明日 09:00 上海装柜</div><div class="reminder-line">ETD 08-23</div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">Booking 已确认<div class="reminder-time">完成于 08-18 09:45</div></div><div class="reminder-line">装柜地址已通知工厂<div class="reminder-time">完成于 08-19 17:12</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260815" data-type="sales" data-tags="action waiting" data-search="WU260815 Sunrise Paints R-902 已发运 等待 COA 保单 客户尾款">
+                <td><div class="pi-number">WU260815</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">Sunrise Paints</div><div class="secondary">Pakistan · Karachi</div></td><td><div>R-902</div><div class="secondary">54 MT</div></td><td><span class="status-badge">已发运</span></td><td><div>ETD 08-17</div><div class="secondary">ETA 09-04</div></td><td><div class="next-action">催客户尾款；跟进 COA 与保单</div></td><td><div class="reminder-stack"><span class="reminder-badge r-action">ACTION 1</span><span class="reminder-badge r-waiting">WAITING 3</span></div></td><td><div class="follow-up">客户称尾款审批中</div><div class="secondary">昨天 15:40</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260815"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">客户称尾款已提交审批，预计两天内付款。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">2026-08-22</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="添加备注">Add Note</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">08-22 未到账则催客户尾款</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="reminder-line">等待客户支付尾款</div><div class="reminder-line">等待工厂提供 COA</div><div class="reminder-line">等待保险公司出保单</div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">ETA 09-04</div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">货物已于 08-17 发运<div class="reminder-time">提单号 COSU260815</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260816" data-type="commission" data-tags="action" data-search="WU260816 Nova Build R-606 工厂直发 已发运 货款收齐 电放提单">
+                <td><div class="pi-number">WU260816</div><span class="type-badge type-commission">直发</span></td><td><div class="customer-name">Nova Build Ltd.</div><div class="secondary">Bangladesh · Chittagong</div></td><td><div>R-606</div><div class="secondary">25 MT</div></td><td><span class="status-badge">已发运</span></td><td><div>ETD 08-18</div><div class="secondary">ETA 09-01</div></td><td><div class="next-action">发送电放提单给客户</div><div class="secondary">货款已收齐</div></td><td><div class="reminder-stack"><span class="reminder-badge r-action">ACTION 1</span></div></td><td><div class="follow-up">银行已确认全款到账</div><div class="secondary">今天 08:50</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260816"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">银行已确认全款到账，可以安排电放。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">Today</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="标记完成">Mark Done</button><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">发送电放提单给客户</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="empty-reminder">无等待事项</div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">ETA 09-01</div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">货款已收齐<div class="reminder-time">完成于 08-20 08:50</div></div><div class="reminder-line">BL Copy 已确认<div class="reminder-time">完成于 08-19 14:05</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260817" data-type="sales" data-tags="action upcoming waiting" data-search="WU260817 EastBridge Chemicals R-706 在途 ETA 3天 货代账单确认">
+                <td><div class="pi-number">WU260817</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">EastBridge Chemicals</div><div class="secondary">Thailand · Laem Chabang</div></td><td><div>R-706</div><div class="secondary">28 MT</div></td><td><span class="status-badge">在途</span></td><td><div>ETD 08-10</div><div class="date-soon">ETA 08-23 · 3天</div></td><td><div class="next-action">确认货代账单，准备到港跟进</div></td><td><div class="reminder-stack"><span class="reminder-badge r-action">ACTION 1</span><span class="reminder-badge r-upcoming">UPCOMING 1</span></div></td><td><div class="follow-up">货代账单金额待内部确认</div><div class="secondary">昨天 17:20</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260817"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">货代已发账单，附加费项目待内部确认。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-dark">2026-08-21</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="标记完成">Mark Done</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">确认货代账单附加费</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="reminder-line">等待货代解释附加费明细</div></div><div class="reminder-group"><div class="group-title upcoming">UPCOMING</div><div class="reminder-line">ETA 08-23<div class="reminder-time">还有 3 天，准备到港跟进</div></div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">正本文件已邮寄<div class="reminder-time">完成于 08-15 10:30 · Tracking SF260817</div></div></div></div>
+              </div></td></tr>
+
+              <tr class="order-row" data-order="WU260818" data-type="sales" data-tags="exception action" data-search="WU260818 NordChem GmbH R-661 异常 ETD已过 未发运 实际发运">
+                <td><div class="pi-number">WU260818</div><span class="type-badge type-sales">销售</span></td><td><div class="customer-name">NordChem GmbH</div><div class="secondary">Germany · Hamburg</div></td><td><div>R-661</div><div class="secondary">48 MT</div></td><td><span class="status-badge" style="color:#991b1b;background:#fef2f2">异常</span></td><td><div class="date-alert">ETD 08-18 · 已过2天</div><div class="secondary">实际发运：未记录</div></td><td><div class="next-action">立即向货代确认是否开船及新船期</div></td><td><div class="reminder-stack"><span class="reminder-badge r-exception">EXCEPTION 1</span><span class="reminder-badge r-action">ACTION 1</span></div></td><td><div class="follow-up">昨日询问货代，尚未回复</div><div class="secondary">昨天 14:10</div></td><td><button class="expand-button"><i class="fa-solid fa-chevron-down"></i></button></td>
+              </tr>
+              <tr class="order-detail-row" data-detail="WU260818"><td colspan="9"><div class="order-detail">
+                <div class="detail-top"><div class="followup-card"><div class="followup-title">RECENT FOLLOW-UP</div><div class="mt-1 fw-semibold">昨日已询问货代是否延误，目前尚未回复。</div><div class="secondary mt-1">Next Follow-up: <strong class="text-danger">Overdue · Today 10:00</strong></div></div><div class="detail-actions"><button class="mini-btn" data-demo="新增跟进">Add Follow-up</button><button class="mini-btn" data-demo="移至等待">Move to Waiting</button><button class="mini-btn" data-demo="打开订单">Open Order</button></div></div>
+                <div class="detail-grid"><div class="reminder-group" style="border-color:#fecaca"><div class="group-title" style="color:var(--danger)">EXCEPTION</div><div class="reminder-line">ETD 已过 2 天，但实际发运日期为空</div></div><div class="reminder-group"><div class="group-title action">ACTION</div><div class="reminder-line">电话联系货代确认开船情况和新 ETA</div></div><div class="reminder-group"><div class="group-title waiting">WAITING</div><div class="reminder-line">等待货代回复<div class="reminder-time">Waiting on: Freight Forwarder · since 08-19</div></div></div><div class="reminder-group"><div class="group-title done">DONE</div><div class="reminder-line">Booking 已确认<div class="reminder-time">完成于 08-12 13:25</div></div><div class="reminder-line">报关文件已发送<div class="reminder-time">完成于 08-16 16:40</div></div></div></div>
+              </div></td></tr>
+            </tbody>
+          </table>
+          <div class="empty-state" id="emptyState"><i class="fa-regular fa-folder-open d-block"></i>没有符合当前筛选条件的订单。</div>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <div class="section-header"><div><h2 class="section-title">Upcoming Timeline</h2><div class="section-hint">只展示未来 7 天会改变操作安排的节点</div></div><button class="mini-btn" data-demo="查看完整时间线">查看完整时间线</button></div>
+        <div class="timeline"><div class="timeline-track">
+          <div class="timeline-day"><div class="timeline-date">Today · Aug 20</div><div class="timeline-event"><strong>WU260814</strong>16:00 确认司机信息</div><div class="timeline-event"><strong>WU260818</strong>立即确认延误</div></div>
+          <div class="timeline-day"><div class="timeline-date">Tomorrow · Aug 21</div><div class="timeline-event"><strong>WU260814</strong>09:00 工厂装柜 / 拍照</div><div class="timeline-event"><strong>WU260817</strong>确认货代账单</div></div>
+          <div class="timeline-day"><div class="timeline-date">Aug 22</div><div class="timeline-event"><strong>WU260801</strong>客户预付款 Follow-up</div><div class="timeline-event"><strong>WU260811</strong>BL Draft Follow-up</div></div>
+          <div class="timeline-day"><div class="timeline-date">Aug 23</div><div class="timeline-event"><strong>WU260811</strong>装柜</div><div class="timeline-event"><strong>WU260817</strong>ETA / 到港跟进</div></div>
+          <div class="timeline-day"><div class="timeline-date">Aug 25–27</div><div class="timeline-event"><strong>WU260811</strong>ETD 08-25</div><div class="timeline-event"><strong>WU260807</strong>预计装柜窗口</div></div>
+        </div></div>
+      </section>
+    </div>
+  </main>
+
+  <div class="toast-prototype" id="toast"><i class="fa-solid fa-circle-info me-2"></i><span id="toastText"></span></div>
+
+  <script>
+    const state = { reminder: 'all', type: 'all', query: '' };
+    const orderRows = [...document.querySelectorAll('.order-row')];
+    const summaryCards = [...document.querySelectorAll('.summary-card')];
+    const typeChips = [...document.querySelectorAll('.filter-chip')];
+
+    function applyFilters() {
+      let visible = 0;
+      orderRows.forEach(row => {
+        const tags = row.dataset.tags.split(' ');
+        const matchesReminder = state.reminder === 'all' || tags.includes(state.reminder);
+        const matchesType = state.type === 'all' || row.dataset.type === state.type;
+        const matchesQuery = !state.query || row.dataset.search.toLowerCase().includes(state.query);
+        const show = matchesReminder && matchesType && matchesQuery;
+        row.style.display = show ? '' : 'none';
+        const detail = document.querySelector(`[data-detail="${row.dataset.order}"]`);
+        if (!show) { detail.classList.remove('show'); row.classList.remove('expanded'); }
+        visible += show ? 1 : 0;
+      });
+      document.getElementById('visibleCount').textContent = visible;
+      document.getElementById('emptyState').style.display = visible ? 'none' : 'block';
+    }
+
+    summaryCards.forEach(card => card.addEventListener('click', () => {
+      summaryCards.forEach(item => item.classList.remove('active'));
+      card.classList.add('active');
+      state.reminder = card.dataset.filter;
+      applyFilters();
+      document.getElementById('controlBoard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+
+    typeChips.forEach(chip => chip.addEventListener('click', () => {
+      typeChips.forEach(item => item.classList.remove('active'));
+      chip.classList.add('active');
+      state.type = chip.dataset.type;
+      applyFilters();
+    }));
+
+    document.getElementById('searchInput').addEventListener('input', event => {
+      state.query = event.target.value.trim().toLowerCase();
+      applyFilters();
+    });
+
+    orderRows.forEach(row => row.addEventListener('click', event => {
+      if (event.target.closest('button')) return;
+      const detail = document.querySelector(`[data-detail="${row.dataset.order}"]`);
+      const willOpen = !detail.classList.contains('show');
+      document.querySelectorAll('.order-detail-row.show').forEach(item => item.classList.remove('show'));
+      orderRows.forEach(item => item.classList.remove('expanded'));
+      detail.classList.toggle('show', willOpen);
+      row.classList.toggle('expanded', willOpen);
+    }));
+    document.querySelectorAll('.expand-button').forEach(button => button.addEventListener('click', event => {
+      event.stopPropagation();
+      event.currentTarget.closest('.order-row').click();
+    }));
+
+    document.querySelectorAll('[data-open-order]').forEach(button => button.addEventListener('click', () => {
+      state.reminder = 'all'; state.type = 'all'; state.query = '';
+      document.getElementById('searchInput').value = '';
+      summaryCards.forEach(item => item.classList.toggle('active', item.dataset.filter === 'all'));
+      typeChips.forEach(item => item.classList.toggle('active', item.dataset.type === 'all'));
+      applyFilters();
+      const row = document.querySelector(`[data-order="${button.dataset.openOrder}"]`);
+      row.click();
+      row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
+
+    document.querySelectorAll('[data-set-filter]').forEach(button => button.addEventListener('click', () => {
+      document.querySelector(`.summary-card[data-filter="${button.dataset.setFilter}"]`).click();
+    }));
+
+    let toastTimer;
+    function showPrototypeToast(message) {
+      const toast = document.getElementById('toast');
+      document.getElementById('toastText').textContent = `${message}：这是静态交互示意，未保存任何数据。`;
+      toast.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('show'), 2600);
+    }
+    document.querySelectorAll('[data-demo]').forEach(button => button.addEventListener('click', () => showPrototypeToast(button.dataset.demo)));
+    document.getElementById('menuButton').addEventListener('click', () => document.getElementById('sidebar').classList.toggle('show'));
+  </script>
+</body>
+</html>

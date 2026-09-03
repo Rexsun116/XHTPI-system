@@ -1,0 +1,14 @@
+{% extends 'v2/base.html' %}
+{% block content %}
+<h2>修改文件需求 · {{ pi.pi_no }}</h2>
+<p class="text-muted">仅修改“是否需要”；Task 完成状态保持独立。</p>
+<form method="post" class="card p-4">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <div class="row g-3">
+  {% for fact in document_facts %}
+    <div class="col-md-4"><label class="form-label">{{ fact }}</label><select class="form-select" name="{{ fact }}"><option value="" {% if pi|attr(fact) is none %}selected{% endif %}>尚未确认</option><option value="true" {% if pi|attr(fact) is sameas true %}selected{% endif %}>需要</option><option value="false" {% if pi|attr(fact) is sameas false %}selected{% endif %}>不需要</option></select></div>
+  {% endfor %}
+  </div>
+  <button class="btn btn-primary mt-3">保存文件需求</button>
+</form>
+{% endblock %}
