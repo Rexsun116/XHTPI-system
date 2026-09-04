@@ -17,6 +17,11 @@ from .selector import projected, select_next_action, sort_key
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
                            move_to_waiting, parse_datetime, reopen)
 from .documents import normalize_weight_input
+from .order_deletion import (
+    OrderDeletionConfirmationError,
+    OrderDeletionNotAllowed,
+    delete_new_order,
+)
 
 blueprint = Blueprint("v2", __name__, url_prefix="/v2", static_folder="static")
 
@@ -285,6 +290,24 @@ def order_view(pi_id):
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
         agreement=agreement,settlement=settlement,forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS)
+
+
+@blueprint.route("/orders/<int:pi_id>/delete", methods=["GET", "POST"])
+@login_required
+def order_delete(pi_id):
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status != "NEW":
+        abort(409, "Only NEW orders can be permanently deleted.")
+    if request.method == "GET":
+        return render_template("v2/order_delete.html", pi=pi, error=None)
+    try:
+        pi_no = delete_new_order(pi, request.form.get("confirmation", ""))
+    except OrderDeletionConfirmationError as exc:
+        return render_template("v2/order_delete.html", pi=pi, error=str(exc)), 400
+    except OrderDeletionNotAllowed as exc:
+        abort(409, str(exc))
+    flash(f"Order {pi_no} permanently deleted.", "success")
+    return redirect(url_for("v2.dashboard"))
 
 
 @blueprint.get("/tasks/<int:task_id>/history")

@@ -1,0 +1,19 @@
+{% extends 'v2/base.html' %}
+{% block title %}Delete {{ pi.pi_no }} · XHTPI V2{% endblock %}
+{% block content %}
+<div class="card border border-danger p-4 mx-auto" style="max-width: 680px">
+  <h2 class="text-danger">Permanently delete order {{ pi.pi_no }}?</h2>
+  <p>This permanently removes the order and all V2 child records. This action cannot be undone.</p>
+  <p>Type <strong>{{ pi.pi_no }}</strong> to confirm.</p>
+  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+  <form method="post" action="{{ url_for('v2.order_delete', pi_id=pi.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="form-label" for="confirmation">PI Number</label>
+    <input class="form-control" id="confirmation" name="confirmation" autocomplete="off" required>
+    <div class="d-flex gap-2 mt-4">
+      <button class="btn btn-danger">Permanently Delete Order</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
