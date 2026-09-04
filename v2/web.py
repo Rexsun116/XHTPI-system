@@ -22,16 +22,17 @@ from .order_deletion import (
     OrderDeletionNotAllowed,
     delete_new_order,
 )
+from .master_codes import MasterCodeAllocationError, create_master_record
 
 blueprint = Blueprint("v2", __name__, url_prefix="/v2", static_folder="static")
 
 MASTER = {
- "customers": (Customer, ["code","name","address","country","contact_person","phone","email"]),
- "exporters": (Exporter, ["code","name","address","country","contact_person","phone","email"]),
- "factories": (Factory, ["code","name","address","country","contact_person","phone","email"]),
- "forwarders": (FreightForwarder, ["code","name","address","country","contact_person","phone","email"]),
- "products": (Product, ["code","category","brand","model","packaging","hs_code"]),
- "banks": (BankAccount, ["code","name","beneficiary_name","bank_name","bank_address","account_number","swift_code","currency","remittance_information"]),
+ "customers": (Customer, "CUS", ["name","address","country","contact_person","phone","email"]),
+ "exporters": (Exporter, "EXP", ["name","address","country","contact_person","phone","email"]),
+ "factories": (Factory, "FAC", ["name","address","country","contact_person","phone","email"]),
+ "forwarders": (FreightForwarder, "FF", ["name","address","country","contact_person","phone","email"]),
+ "products": (Product, "PRD", ["category","brand","model","packaging","hs_code"]),
+ "banks": (BankAccount, "BNK", ["name","beneficiary_name","bank_name","bank_address","account_number","swift_code","currency","remittance_information"]),
 }
 
 
@@ -59,14 +60,13 @@ def dashboard():
 @login_required
 def master_list(kind):
     if kind not in MASTER: abort(404)
-    model, fields = MASTER[kind]
+    model, prefix, fields = MASTER[kind]
     if request.method == "POST":
-        row = model()
-        for field in fields: setattr(row, field, request.form.get(field) or None)
-        db.session.add(row)
-        try: db.session.commit()
-        except IntegrityError:
-            db.session.rollback(); flash("Code already exists or data is referenced.", "danger")
+        attributes = {field: request.form.get(field) or None for field in fields}
+        try:
+            create_master_record(model, prefix, attributes)
+        except (IntegrityError, MasterCodeAllocationError):
+            db.session.rollback(); flash("Master data could not be created.", "danger")
         return redirect(url_for("v2.master_list", kind=kind))
     rows = list(db.session.scalars(db.select(model).order_by(model.id)))
     return render_template("v2/master.html", kind=kind, rows=rows, fields=fields)
@@ -76,7 +76,7 @@ def master_list(kind):
 @login_required
 def master_toggle(kind, row_id):
     if kind not in MASTER: abort(404)
-    model, _ = MASTER[kind]; row = db.get_or_404(model, row_id)
+    model, _, _ = MASTER[kind]; row = db.get_or_404(model, row_id)
     row.active = not row.active; db.session.commit()
     return redirect(url_for("v2.master_list", kind=kind))
 
@@ -85,7 +85,7 @@ def master_toggle(kind, row_id):
 @login_required
 def master_edit(kind,row_id):
     if kind not in MASTER: abort(404)
-    model,fields=MASTER[kind]; row=db.get_or_404(model,row_id)
+    model,_,fields=MASTER[kind]; row=db.get_or_404(model,row_id)
     if request.method=="POST":
         for field in fields: setattr(row,field,request.form.get(field) or None)
         db.session.commit(); return redirect(url_for("v2.master_list",kind=kind))
