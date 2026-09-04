@@ -2,11 +2,15 @@
 {% block content %}
 <section class="card p-4" style="max-width:560px">
   <h3>更新订单为已发运</h3>
-  <p class="text-muted">{{ pi.pi_no }}：请确认实际发运日期。提交后订单将进入 SHIPPED。</p>
+  <p class="text-muted">{{ pi.pi_no }}：确认实际发运日期、承运人和提单号后，订单将进入 SHIPPED。</p>
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="form-label">Actual Departure Date *</label>
-    <input class="form-control" type="date" name="actual_departure_date" required>
+    <input class="form-control" type="date" name="actual_departure_date" required value="{{ pi.actual_departure_date or '' }}">
+    <label class="form-label mt-3">Shipping Line / Carrier *</label>
+    <input class="form-control" name="shipping_company" required value="{{ pi.shipping_company or '' }}">
+    <label class="form-label mt-3">B/L No. *</label>
+    <input class="form-control" name="bill_of_lading_number" required value="{{ pi.bill_of_lading_number or '' }}">
     <button class="btn btn-primary mt-3">确认已发运</button>
     <a class="btn btn-outline-secondary mt-3" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a>
   </form>

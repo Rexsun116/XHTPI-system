@@ -206,7 +206,7 @@ class V2CleanBaselineTest(TestCase):
         settlement = FreightSettlement(pi_id=pi.id, usd_bill_required=True, cny_bill_required=True)
         db.session.add(settlement); db.session.flush()
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 21, 12, 0)); db.session.commit()
-        self.assertEqual(driver.status, "DONE"); self.assertEqual(departure.status, "DONE")
+        self.assertEqual(driver.status, "CANCELLED"); self.assertEqual(departure.status, "DONE")
         advance = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "PAYMENT_ADVANCE_WAITING"))
         self.assertEqual(advance.status, "DONE")
         self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_USD_AMOUNT_CAPTURE")))

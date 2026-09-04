@@ -1,0 +1,11 @@
+<form id="freight-agreement" method="post" action="{{ url_for('v2.freight_agreement_manual', pi_id=pi.id) }}" class="card p-3 mb-3">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <h5>Shipment Preparation · Freight</h5>
+  <p class="text-muted mb-3">Enter the final accepted freight agreement for this shipment.</p>
+  <div class="row g-2">
+    <div class="col"><input class="form-control" name="amount" type="number" step=".01" required placeholder="Amount"></div>
+    <div class="col"><input class="form-control" name="currency" required placeholder="Currency"></div>
+    <div class="col"><input class="form-control" name="note" placeholder="Note"></div>
+    <div class="col"><button class="btn btn-outline-primary">Accept Snapshot</button></div>
+  </div>
+</form>

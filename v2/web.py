@@ -580,6 +580,10 @@ def order_status(pi_id):
             abort(409, "Pre-shipment stage gate is not available.")
     if pi.status == "PRE_SHIPMENT" and target == "SHIPPED":
         abort(409, "Use the controlled Enter Shipped flow with Actual Departure Date.")
+    if pi.status == "SHIPPED" and target == "ARRIVED":
+        abort(409, "Use the controlled Enter Arrived flow with Actual Arrival Date.")
+    if pi.status == "ARRIVED" and target == "COMPLETED":
+        abort(409, "ARRIVED → COMPLETED is not available in this UAT batch.")
     pi.status=target; save_order_with_reconcile(pi); return redirect(url_for("v2.order_view",pi_id=pi.id))
 
 
@@ -629,11 +633,36 @@ def enter_shipped(pi_id):
     if request.method == "GET":
         return render_template("v2/enter_shipped.html", pi=pi)
     raw = (request.form.get("actual_departure_date") or "").strip()
-    if not raw:
-        abort(400, "Actual Departure Date is required.")
+    carrier = (request.form.get("shipping_company") or "").strip()
+    bill = (request.form.get("bill_of_lading_number") or "").strip()
+    if not raw or not carrier or not bill:
+        abort(400, "Actual Departure Date, Shipping Line / Carrier, and B/L No. are required.")
     try:
         pi.actual_departure_date = date.fromisoformat(raw)
+        pi.shipping_company = carrier
+        pi.bill_of_lading_number = bill
         pi.status = "SHIPPED"
+        save_order_with_reconcile(pi)
+    except (ValueError, ArithmeticError) as exc:
+        db.session.rollback()
+        abort(400, str(exc))
+    return redirect(url_for("v2.order_view", pi_id=pi.id))
+
+
+@blueprint.route("/orders/<int:pi_id>/enter-arrived", methods=["GET", "POST"])
+@login_required
+def enter_arrived(pi_id):
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status != "SHIPPED":
+        abort(409, "Order is not ready to enter ARRIVED.")
+    if request.method == "GET":
+        return render_template("v2/enter_arrived.html", pi=pi)
+    raw = (request.form.get("actual_arrival_date") or "").strip()
+    if not raw:
+        abort(400, "Actual Arrival Date is required.")
+    try:
+        pi.actual_arrival_date = date.fromisoformat(raw)
+        pi.status = "ARRIVED"
         save_order_with_reconcile(pi)
     except (ValueError, ArithmeticError) as exc:
         db.session.rollback()
@@ -668,7 +697,34 @@ def batches(pi_id):
     item.batches.append(ProductBatch(batch_number=request.form["batch_number"].strip(),display_order=len(item.batches)))
     try: save_order_with_reconcile(pi)
     except IntegrityError: db.session.rollback(); flash("Duplicate batch number", "danger")
-    return redirect(url_for("v2.order_view",pi_id=pi.id))
+    return redirect(url_for("v2.order_view",pi_id=pi.id) + f"#batch-item-{item.id}")
+
+
+@blueprint.post("/orders/<int:pi_id>/batches/<int:batch_id>/edit")
+@login_required
+def batch_edit(pi_id, batch_id):
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status not in {"SHIPPED", "ARRIVED"}: abort(403)
+    batch = db.get_or_404(ProductBatch, batch_id)
+    if batch.pi_item.pi_id != pi.id: abort(404)
+    batch.batch_number = (request.form.get("batch_number") or "").strip()
+    if not batch.batch_number: abort(400, "Batch number is required.")
+    try: save_order_with_reconcile(pi)
+    except IntegrityError: db.session.rollback(); flash("Duplicate batch number", "danger")
+    return redirect(url_for("v2.order_view", pi_id=pi.id) + f"#batch-item-{batch.pi_item_id}")
+
+
+@blueprint.post("/orders/<int:pi_id>/batches/<int:batch_id>/delete")
+@login_required
+def batch_delete(pi_id, batch_id):
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status not in {"SHIPPED", "ARRIVED"}: abort(403)
+    batch = db.get_or_404(ProductBatch, batch_id)
+    if batch.pi_item.pi_id != pi.id: abort(404)
+    pi_item_id = batch.pi_item_id
+    db.session.delete(batch)
+    save_order_with_reconcile(pi)
+    return redirect(url_for("v2.order_view", pi_id=pi.id) + f"#batch-item-{pi_item_id}")
 
 
 @blueprint.post("/orders/<int:pi_id>/corrections")
@@ -784,7 +840,7 @@ def task_action(task_id,action):
         db.session.commit()
     except (TaskOperationError, ValueError) as exc:
         db.session.rollback(); abort(400,str(exc))
-    return redirect(url_for("v2.order_view",pi_id=task.pi_id))
+    return redirect(url_for("v2.order_view",pi_id=task.pi_id) + f"#task-{task.id}")
 
 
 @blueprint.get("/orders/<int:pi_id>/documents/<kind>")

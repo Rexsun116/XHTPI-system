@@ -3,6 +3,10 @@
 from decimal import Decimal, InvalidOperation
 
 
+def format_task_datetime(value):
+    return value.strftime("%Y-%m-%d %H:%M") if value else "—"
+
+
 def money(currency, amount):
     if amount in (None, ""):
         return None
@@ -125,4 +129,4 @@ def present_activity(activity):
     if payload.get("next_follow_up_at"):
         details.append(f"Next follow-up: {payload['next_follow_up_at']}")
     return {"label": EVENT_LABELS.get(activity.event_type, activity.event_type.replace("_", " ").title()),
-            "details": details}
+            "details": details, "when": format_task_datetime(activity.created_at)}

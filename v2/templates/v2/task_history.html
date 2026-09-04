@@ -4,7 +4,7 @@
 <section class="card p-4"><h2>{{ task.title }}</h2><p class="text-muted">{{ task.pi.pi_no }} · {{ task.status }}</p>
 <h5>Task Activity History</h5><ul class="list-group">
 {% for activity in activities %}{% set item=present_activity(activity) %}
-<li class="list-group-item"><b>{{ item.label }}</b> · {{ activity.created_at }}{% if activity.actor_id %} · User #{{ activity.actor_id }}{% else %} · System{% endif %}{% if activity.note %}<div>{{ activity.note }}</div>{% endif %}{% for detail in item.details %}<div>{{ detail }}</div>{% endfor %}</li>
+<li class="list-group-item"><b>{{ item.label }}</b> · {{ item.when }}{% if activity.actor_id %} · User #{{ activity.actor_id }}{% else %} · System{% endif %}{% if activity.note %}<div>{{ activity.note }}</div>{% endif %}{% for detail in item.details %}<div>{{ detail }}</div>{% endfor %}</li>
 {% else %}<li class="list-group-item">No activity</li>{% endfor %}
 </ul></section>
 {% endblock %}

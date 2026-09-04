@@ -2,15 +2,18 @@
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+import re
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.models import Customer, Exporter, OrderFreightAgreement, OrderTask, PI, PIItem, TaskActivity, User, db
-from v2.presenter import present_task
+from v2.models import (Customer, Exporter, FreightSettlement, OrderFreightAgreement,
+                       OrderTask, PI, PIItem, ProductBatch, TaskActivity, User, db)
+from v2.presenter import format_task_datetime, present_task
 from v2.services import reconcile_order_tasks_for_pi
 from v2.selector import projected
 from v2.task_service import follow_up
@@ -123,20 +126,221 @@ class NewSalesReminderTest(TestCase):
         self.assertEqual((gate.status, gate.health), ("ACTION", "EXCEPTION"))
         self.assertIn("工厂装柜日期尚未确认", gate.context_payload["missing_preparation"])
 
-    def test_enter_shipped_requires_gate_and_actual_departure(self):
+    def test_enter_shipped_requires_gate_departure_carrier_and_bl(self):
         planned = date(2026, 9, 20)
         pi = self.make_pi(planned=planned, advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5))
         pi.container_loading_date = planned
         db.session.add(OrderFreightAgreement(pi_id=pi.id, freight_forwarder_name_snapshot="FF", amount=Decimal("100"), currency="USD"))
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 20))
+        pi.shipping_company, pi.bill_of_lading_number = "Saved Carrier", "Saved BL"
+        detail = self.client().get(f"/v2/orders/{pi.id}/enter-shipped").get_data(as_text=True)
+        self.assertIn('value="Saved Carrier"', detail)
+        self.assertIn('value="Saved BL"', detail)
+        self.assertIn('name="csrf_token"', detail)
         self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/enter-shipped", data={}).status_code, 400)
         self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/status", data={"status": "SHIPPED"}).status_code, 409)
-        response = self.client().post(f"/v2/orders/{pi.id}/enter-shipped", data={"actual_departure_date": "2026-09-20"})
+        self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/enter-shipped", data={"actual_departure_date": "2026-09-20"}).status_code, 400)
+        response = self.client().post(f"/v2/orders/{pi.id}/enter-shipped", data={
+            "actual_departure_date": "2026-09-20", "shipping_company": "Carrier", "bill_of_lading_number": "BL-1",
+        })
         self.assertEqual(response.status_code, 302)
         self.assertEqual((pi.status, pi.actual_departure_date), ("SHIPPED", planned))
+        self.assertEqual((pi.shipping_company, pi.bill_of_lading_number), ("Carrier", "BL-1"))
         self.assertEqual(self.task(pi, "STAGE_GATE_SHIPPED").status, "DONE")
         self.assertEqual(self.task(pi, "PAYMENT_EMAIL").status, "ACTION")
+
+    def test_enter_arrived_renders_and_enforces_existing_csrf_convention(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        client = self.client()
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        response = client.get(f"/v2/orders/{pi.id}/enter-arrived")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        token = re.search(r'name="csrf_token" value="([^"]+)"', html)
+        self.assertIsNotNone(token)
+        self.assertEqual(client.post(f"/v2/orders/{pi.id}/enter-arrived", data={"actual_arrival_date": "2026-09-22"}).status_code, 400)
+        valid = client.post(f"/v2/orders/{pi.id}/enter-arrived", data={
+            "actual_arrival_date": "2026-09-22", "csrf_token": token.group(1),
+        })
+        self.assertEqual(valid.status_code, 302)
+        self.assertEqual((pi.status, pi.actual_arrival_date), ("ARRIVED", date(2026, 9, 22)))
+
+    def test_pre_shipment_has_one_freight_agreement_entry_and_independent_save_copy(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
+        html = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        self.assertEqual(html.count(f"/v2/orders/{pi.id}/freight-agreement"), 1)
+        self.assertLess(html.index("Shipment Preparation · Freight"), html.index("Booking Cargo Information"))
+        script = self.client().get("/v2/static/v2_batch1.js").get_data(as_text=True)
+        self.assertIn("This section saves independently", script)
+
+    def test_enter_arrived_requires_only_actual_arrival_and_creates_pickup_reminder(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        pi.actual_departure_date = date(2026, 9, 20)
+        db.session.add(FreightSettlement(
+            pi_id=pi.id, usd_bill_required=True, cny_bill_required=True,
+            usd_invoice_issued=True, cny_invoice_issued=True,
+            usd_payment_status="UNPAID", cny_payment_status="UNPAID",
+        ))
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 21))
+        self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/status", data={"status": "ARRIVED"}).status_code, 409)
+        self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/enter-arrived", data={}).status_code, 400)
+        self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/enter-arrived", data={"actual_arrival_date": "2026-09-22"}).status_code, 302)
+        self.assertEqual((pi.status, pi.actual_arrival_date), ("ARRIVED", date(2026, 9, 22)))
+        pickup = self.task(pi, "ARRIVAL_CUSTOMER_PICKUP")
+        self.assertEqual((pickup.status, pickup.source, pickup.completion_mode), ("ACTION", "AUTO", "MANUAL"))
+        pickup_id = pickup.id; reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 22))
+        self.assertEqual(self.task(pi, "ARRIVAL_CUSTOMER_PICKUP").id, pickup_id)
+
+    def test_enter_arrived_link_is_visible_for_every_shipped_order_only(self):
+        pi = self.make_pi(planned=date(2026, 9, 20)); pi.status = "SHIPPED"
+        pi.coo_required = True
+        db.session.add(FreightSettlement(pi_id=pi.id, usd_bill_required=True, cny_bill_required=True,
+                                         usd_payment_status="UNPAID", cny_payment_status="UNPAID"))
+        client = self.client()
+        shipped = client.get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        enter_arrived = f"/v2/orders/{pi.id}/enter-arrived"
+        self.assertIn(enter_arrived, shipped)
+        self.assertIn("确认货物已到港", shipped)
+        for status in ("PRE_SHIPMENT", "ARRIVED"):
+            pi.status = status; db.session.commit()
+            self.assertNotIn(enter_arrived, client.get(f"/v2/orders/{pi.id}").get_data(as_text=True))
+
+    def _outbound_done(self, pi, *, email_at=None, mail_at=None):
+        """Complete only the selected outbound task(s) at deterministic times."""
+        if email_at:
+            reconcile_order_tasks_for_pi(pi, now=email_at)
+            task = self.task(pi, "PAYMENT_EMAIL")
+            from v2.task_service import mark_done
+            mark_done(task, self.user.id)
+            task.completed_at = email_at
+        if mail_at:
+            pi.original_bl_required = True
+            pi.original_documents_mail_required = True
+            reconcile_order_tasks_for_pi(pi, now=mail_at)
+            from v2.task_service import mark_done
+            mark_done(self.task(pi, "DOCUMENT_ORIGINAL_BL"), self.user.id)
+            reconcile_order_tasks_for_pi(pi, now=mail_at)
+            task = self.task(pi, "ORIGINAL_DOCUMENTS_MAIL")
+            mark_done(task, self.user.id, payload={"tracking_number": "DHL-1"})
+            task.completed_at = mail_at
+
+    def test_balance_followup_uses_payment_email_calendar_day_boundary(self):
+        baseline = datetime(2026, 9, 1, 23, 55)
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        self._outbound_done(pi, email_at=baseline)
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 3, 23, 59))
+        task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        self.assertEqual(task.status, "UPCOMING")
+        self.assertEqual(task.context_payload["trigger_date"], "2026-09-04")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 0, 0))
+        self.assertEqual(task.status, "ACTION")
+
+    def test_balance_followup_uses_original_mail_when_it_is_only_prerequisite(self):
+        baseline = datetime(2026, 9, 1, 8)
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        self._outbound_done(pi, mail_at=baseline)
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 9))
+        task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        self.assertEqual((task.status, task.context_payload["base_completed_at"]), ("ACTION", baseline.isoformat()))
+
+    def test_balance_followup_uses_earliest_outbound_completion_and_waiting_schedule(self):
+        email_at, mail_at = datetime(2026, 9, 2, 18), datetime(2026, 9, 1, 8)
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        self._outbound_done(pi, email_at=email_at, mail_at=mail_at)
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 12))
+        task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        self.assertEqual((task.status, task.context_payload["base_completed_at"]), ("ACTION", mail_at.isoformat()))
+        follow_up(task, self.user.id, waiting_on="CUSTOMER", next_follow_up_at=datetime(2026, 9, 6), note="Awaiting transfer")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 23, 59))
+        self.assertEqual(task.status, "WAITING")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 6))
+        self.assertEqual(task.status, "ACTION")
+        pi.balance_received_amount = Decimal("1000")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 6, 1))
+        self.assertEqual(task.status, "DONE")
+
+    def test_balance_followup_is_absent_without_done_outbound_task_or_when_paid_early(self):
+        no_outbound = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); no_outbound.status = "SHIPPED"
+        reconcile_order_tasks_for_pi(no_outbound, now=datetime(2026, 9, 20))
+        self.assertIsNone(self.task(no_outbound, "PAYMENT_BALANCE_FOLLOWUP"))
+        paid = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); paid.status = "SHIPPED"
+        paid.balance_received_amount = Decimal("1000")
+        self._outbound_done(paid, email_at=datetime(2026, 9, 1))
+        reconcile_order_tasks_for_pi(paid, now=datetime(2026, 9, 4))
+        self.assertIsNone(self.task(paid, "PAYMENT_BALANCE_FOLLOWUP"))
+
+    def test_product_batch_crud_duplicate_and_order_lifecycle_protection(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        other = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); other.status = "SHIPPED"
+        client = self.client()
+        self.assertIn(f'id="batch-item-{pi.items[0].id}"', client.get(f"/v2/orders/{pi.id}").get_data(as_text=True))
+        add = lambda number: client.post(f"/v2/orders/{pi.id}/batches", data={"pi_item_id": pi.items[0].id, "batch_number": number})
+        self.assertEqual(add("B-1").status_code, 302)
+        batch = pi.items[0].batches[0]
+        edited = client.post(f"/v2/orders/{pi.id}/batches/{batch.id}/edit", data={"batch_number": "B-2"})
+        self.assertEqual(edited.status_code, 302)
+        self.assertTrue(edited.headers["Location"].endswith(f"#batch-item-{pi.items[0].id}"))
+        self.assertEqual(batch.batch_number, "B-2")
+        self.assertEqual(add("B-2").status_code, 302)
+        self.assertEqual(ProductBatch.query.filter_by(pi_item_id=pi.items[0].id).count(), 1)
+        self.assertEqual(client.post(f"/v2/orders/{other.id}/batches/{batch.id}/edit", data={"batch_number": "wrong"}).status_code, 404)
+        pi.status = "PRE_SHIPMENT"; db.session.commit()
+        self.assertEqual(add("blocked").status_code, 403)
+        self.assertEqual(client.post(f"/v2/orders/{pi.id}/batches/{batch.id}/delete").status_code, 403)
+        pi.status = "ARRIVED"; db.session.commit()
+        deleted = client.post(f"/v2/orders/{pi.id}/batches/{batch.id}/delete")
+        self.assertEqual(deleted.status_code, 302)
+        self.assertTrue(deleted.headers["Location"].endswith(f"#batch-item-{pi.items[0].id}"))
+        self.assertEqual(ProductBatch.query.filter_by(pi_item_id=pi.items[0].id).count(), 0)
+
+    def test_booking_editing_is_pre_shipment_only_in_order_view(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0"))
+        pi.status = "PRE_SHIPMENT"
+        pre_shipment = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        self.assertIn('id="booking-cargo-information"', pre_shipment)
+        self.assertIn('id="shipment-preparation"', pre_shipment)
+        self.assertNotIn('id="post-loading-booking-facts"', pre_shipment)
+        for status in ("SHIPPED", "ARRIVED"):
+            pi.status = status; db.session.commit()
+            html = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+            self.assertNotIn('id="post-loading-booking-facts"', html)
+            self.assertNotIn('id="booking-cargo-information"', html)
+            self.assertNotIn('id="shipment-preparation"', html)
+
+    def test_arrived_preserves_existing_work_and_cancels_driver_history(self):
+        now = datetime(2026, 9, 20, 9)
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        pi.actual_departure_date = date(2026, 9, 10); pi.coo_required = True
+        settlement = FreightSettlement(pi_id=pi.id, usd_bill_required=True, cny_bill_required=True)
+        db.session.add(settlement)
+        self._outbound_done(pi, email_at=datetime(2026, 9, 15, 8))
+        reconcile_order_tasks_for_pi(pi, now=now)
+        tracked = {code: self.task(pi, code).id for code in ("FREIGHT_USD_AMOUNT_CAPTURE", "FREIGHT_CNY_AMOUNT_CAPTURE", "DOCUMENT_COO", "PAYMENT_BALANCE_FOLLOWUP")}
+        driver = OrderTask(pi_id=pi.id, task_code="SHIPPING_DRIVER_INFO", title="Driver", source="AUTO", status="ACTION", health="NORMAL", completion_mode="RULE_DATA", dedupe_key=f"v2:order:{pi.id}:shipping_driver_info")
+        db.session.add(driver); db.session.flush()
+        pi.status = "ARRIVED"; pi.actual_arrival_date = date(2026, 9, 20)
+        reconcile_order_tasks_for_pi(pi, now=now)
+        self.assertEqual(driver.status, "CANCELLED")
+        self.assertTrue(any(row.event_type == "CANCELLED" for row in driver.activities))
+        for code, task_id in tracked.items():
+            self.assertEqual(self.task(pi, code).id, task_id)
+        pickup = self.task(pi, "ARRIVAL_CUSTOMER_PICKUP")
+        self.assertEqual((pickup.status, pickup.source, pickup.completion_mode), ("ACTION", "AUTO", "MANUAL"))
+        reconcile_order_tasks_for_pi(pi, now=now)
+        self.assertEqual(self.task(pi, "ARRIVAL_CUSTOMER_PICKUP").id, pickup.id)
+
+    def test_task_action_redirects_to_task_and_activity_datetime_is_minutes(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 1))
+        task = self.task(pi, "PAYMENT_EMAIL"); db.session.commit()
+        done = self.client().post(f"/v2/tasks/{task.id}/done")
+        self.assertTrue(done.headers["Location"].endswith(f"#task-{task.id}"))
+        reopened = self.client().post(f"/v2/tasks/{task.id}/reopen", data={"reason": "Correction"})
+        self.assertTrue(reopened.headers["Location"].endswith(f"#task-{task.id}"))
+        waiting = self.client().post(f"/v2/tasks/{task.id}/waiting", data={"waiting_on": "CUSTOMER"})
+        self.assertTrue(waiting.headers["Location"].endswith(f"#task-{task.id}"))
+        self.assertEqual(format_task_datetime(datetime(2026, 9, 1, 7, 5)), "2026-09-01 07:05")
 
     def test_expired_no_advance_has_one_general_exception(self):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0"))
@@ -159,13 +363,15 @@ class NewSalesReminderTest(TestCase):
         self.assertEqual((OrderTask.query.count(), TaskActivity.query.count()), before)
 
     def test_stage_gate_post_is_the_only_new_to_pre_shipment_transition(self):
-        pi = self.make_pi(planned=date.today() + timedelta(days=15), advance=Decimal("0"))
+        clock = datetime(2026, 9, 5, 12)
+        pi = self.make_pi(planned=clock.date() + timedelta(days=15), advance=Decimal("0"))
         db.session.commit()
         client = self.client()
         self.assertEqual(client.post(f"/v2/orders/{pi.id}/status", data={"status": "PRE_SHIPMENT"}).status_code, 409)
-        reconcile_order_tasks_for_pi(pi, now=datetime.now())
-        db.session.commit()
-        response = client.post(f"/v2/orders/{pi.id}/enter-pre-shipment")
+        with patch("v2.services.utcnow", return_value=clock):
+            reconcile_order_tasks_for_pi(pi)
+            db.session.commit()
+            response = client.post(f"/v2/orders/{pi.id}/enter-pre-shipment")
         self.assertEqual(response.status_code, 302)
         self.assertEqual(pi.status, "PRE_SHIPMENT")
         self.assertEqual(self.task(pi, "SHIPPING_CONTAINER_LOADING").status, "ACTION")

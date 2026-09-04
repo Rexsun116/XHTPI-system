@@ -365,7 +365,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     else:
         _resolve_task(pi, "SHIPPING_PLANNED_DATE_OVERDUE")
 
-    if loading_date and pi.status in {OrderStage.PRE_SHIPMENT, OrderStage.SHIPPED}:
+    if loading_date and pi.status == OrderStage.PRE_SHIPMENT:
         complete = all((pi.driver_name, pi.driver_phone, pi.vehicle_number))
         activation = datetime.combine(loading_date - timedelta(days=1), datetime.min.time())
         _set_rule_data(pi, "SHIPPING_DRIVER_INFO", "确认司机信息",
@@ -374,6 +374,8 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                        context={"container_loading_date": loading_date.isoformat(), "container_loading_period": pi.container_loading_period,
                                 "message": "装柜日期已到，但司机信息尚未完整填写" if now.date() >= loading_date and not complete else None},
                        activation_at=activation)
+    elif pi.status in {OrderStage.SHIPPED, OrderStage.ARRIVED, OrderStage.COMPLETED}:
+        _cancel_task(pi, "SHIPPING_DRIVER_INFO", "NO_LONGER_APPLICABLE_AFTER_SHIPMENT")
 
     if pi.etd:
         active = pi.etd <= now.date() and not pi.actual_departure_date
@@ -456,6 +458,15 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                          context={"currency": pi.currency, "outstanding_amount": str(max(outstanding, Decimal('0'))),
                                   "base_completed_at": base.isoformat(), "trigger_date": activation_date.isoformat()},
                          activation_at=activation)
+    else:
+        _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+
+    if pi.status == OrderStage.ARRIVED:
+        _upsert_task(pi, "ARRIVAL_CUSTOMER_PICKUP", "提醒客户安排提货",
+                     status="ACTION", completion_mode="MANUAL", priority=40,
+                     context={"action_target": "VIEW_ORDER"})
+    elif pi.status != OrderStage.COMPLETED:
+        _cancel_task(pi, "ARRIVAL_CUSTOMER_PICKUP", "ORDER_NOT_ARRIVED")
 
     if settlement and pi.actual_departure_date:
         trigger_date = pi.actual_departure_date + timedelta(days=7)
