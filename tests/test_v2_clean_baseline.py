@@ -87,7 +87,7 @@ class V2CleanBaselineTest(TestCase):
             conn.execute("PRAGMA foreign_keys=ON")
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
-            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0003")
+            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0004")
             columns = {row[1] for row in conn.execute("PRAGMA table_info(pi)")}
         self.assertNotIn("commission_exporter_id", columns)
         self.assertNotIn("payment_received", columns)
@@ -217,14 +217,16 @@ class V2CleanBaselineTest(TestCase):
         self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_USD_AMOUNT_CONFIRM")))
         settlement.usd_bill_confirmed = settlement.cny_bill_confirmed = True
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 21, 14, 0)); db.session.commit()
-        self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_INVOICE_ISSUED")))
-        settlement.invoice_issued = True
+        self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_USD_INVOICE_ISSUED")))
+        self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_CNY_INVOICE_ISSUED")))
+        settlement.usd_invoice_issued = settlement.cny_invoice_issued = True
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 21, 15, 0)); db.session.commit()
-        payment_task = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_PAYMENT_CONFIRM"))
-        self.assertEqual(payment_task.status, "ACTION")
-        settlement.payment_status = "PAID"
+        usd_payment_task = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_USD_PAYMENT_CONFIRM"))
+        cny_payment_task = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_CNY_PAYMENT_CONFIRM"))
+        self.assertEqual((usd_payment_task.status, cny_payment_task.status), ("ACTION", "ACTION"))
+        settlement.usd_payment_status = settlement.cny_payment_status = "PAID"
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 21, 16, 0)); db.session.commit()
-        self.assertEqual(payment_task.status, "DONE")
+        self.assertEqual((usd_payment_task.status, cny_payment_task.status), ("DONE", "DONE"))
 
         pi.status = "ARRIVED"; pi.actual_arrival_date = date(2026, 8, 22)
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 22, 18, 0)); db.session.commit()

@@ -303,6 +303,16 @@ class FreightSettlement(TimestampMixin, db.Model):
     cny_bill_required = db.Column(db.Boolean)
     cny_bill_amount = db.Column(db.Numeric(18, 2))
     cny_bill_confirmed = db.Column(db.Boolean)
+    usd_invoice_issued = db.Column(db.Boolean)
+    usd_invoice_issued_at = db.Column(db.DateTime)
+    usd_payment_status = db.Column(db.String(20))
+    usd_paid_at = db.Column(db.DateTime)
+    cny_invoice_issued = db.Column(db.Boolean)
+    cny_invoice_issued_at = db.Column(db.DateTime)
+    cny_payment_status = db.Column(db.String(20))
+    cny_paid_at = db.Column(db.DateTime)
+    # Retained only for v2_0003 historical inspection and downgrade safety.
+    # New workflow logic must use the currency-specific fields above.
     invoice_issued = db.Column(db.Boolean)
     invoice_issued_at = db.Column(db.DateTime)
     payment_status = db.Column(db.String(20))

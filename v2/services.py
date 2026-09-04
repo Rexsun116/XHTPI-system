@@ -181,12 +181,37 @@ def _set_rule_data(pi, code, title, active, *, future=False, health="NORMAL", co
     return task
 
 
+def required_freight_settlements_paid(settlement):
+    """Whether every required currency branch has an explicit PAID fact."""
+    if settlement is None:
+        return True
+    return (
+        (settlement.usd_bill_required is not True or settlement.usd_payment_status == "PAID")
+        and (settlement.cny_bill_required is not True or settlement.cny_payment_status == "PAID")
+    )
+
+
+def _currency_settlement_fields(settlement, currency):
+    prefix = currency.lower()
+    return (
+        getattr(settlement, f"{prefix}_bill_required"),
+        getattr(settlement, f"{prefix}_bill_amount"),
+        getattr(settlement, f"{prefix}_bill_confirmed"),
+        getattr(settlement, f"{prefix}_invoice_issued"),
+        getattr(settlement, f"{prefix}_payment_status"),
+    )
+
+
 def reconcile_order_tasks_for_pi(pi, *, now=None):
     """V2-only targeted rules. No legacy import or dashboard side effects."""
     now = now or utcnow()
     settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
     agreement = db.session.scalar(select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
     loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
+    # These shared tasks represent the pre-v2_0004 model.  Preserve history but
+    # prevent any active legacy task from competing with a currency branch.
+    _cancel_task(pi, "FREIGHT_INVOICE_ISSUED", "Superseded by currency-specific freight settlement workflow.")
+    _cancel_task(pi, "FREIGHT_PAYMENT_CONFIRM", "Superseded by currency-specific freight settlement workflow.")
     # A new sales order has one advance-payment business item, not separate
     # "wait" and "chase" tasks.  User follow-ups keep the same task in WAITING
     # until their requested follow-up time; the rule never creates a duplicate.
@@ -439,11 +464,14 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             ("USD", settlement.usd_bill_required, settlement.usd_bill_amount, settlement.usd_bill_confirmed),
             ("CNY", settlement.cny_bill_required, settlement.cny_bill_amount, settlement.cny_bill_confirmed),
         )
-        required_confirmations = []
         for currency, required, amount, confirmed in components:
+            invoice_code = f"FREIGHT_{currency}_INVOICE_ISSUED"
+            payment_code = f"FREIGHT_{currency}_PAYMENT_CONFIRM"
             if required is not True:
                 _cancel_task(pi, f"FREIGHT_{currency}_AMOUNT_CAPTURE")
                 _cancel_task(pi, f"FREIGHT_{currency}_AMOUNT_CONFIRM")
+                _cancel_task(pi, invoice_code)
+                _cancel_task(pi, payment_code)
                 continue
             capture_code = f"FREIGHT_{currency}_AMOUNT_CAPTURE"
             confirm_code = f"FREIGHT_{currency}_AMOUNT_CONFIRM"
@@ -468,28 +496,26 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                         activation_at=datetime.combine(trigger_date, datetime.min.time()),
                         force_reactivate=amount_changed,
                     )
-            required_confirmations.append(confirmed is True and not amount_changed if amount is not None else False)
-            if amount_changed:
-                invoice_task = _find_task(pi, "FREIGHT_INVOICE_ISSUED")
-                if invoice_task:
-                    context = dict(invoice_task.context_payload or {})
-                    context["warning"] = "货代账单金额在发票流程后发生变化，请核实货代发票"
-                    invoice_task.context_payload = context
-        if required_confirmations and all(required_confirmations):
-            if settlement.invoice_issued is True:
-                _resolve_task(pi, "FREIGHT_INVOICE_ISSUED")
-                if settlement.payment_status == "PAID":
-                    _resolve_task(pi, "FREIGHT_PAYMENT_CONFIRM")
-                else:
-                    _upsert_task(pi, "FREIGHT_PAYMENT_CONFIRM", "确认是否已给货代付款", status="ACTION")
+            invoice_issued = getattr(settlement, f"{currency.lower()}_invoice_issued")
+            payment_status = getattr(settlement, f"{currency.lower()}_payment_status")
+            prerequisites_met = amount is not None and confirmed is True and not amount_changed
+            if not prerequisites_met:
+                _cancel_task(pi, invoice_code, "PREREQUISITES_NOT_MET")
+                _cancel_task(pi, payment_code, "PREREQUISITES_NOT_MET")
+                continue
+            if invoice_issued is not True:
+                _upsert_task(pi, invoice_code, f"确认 {currency} 货代 Invoice 已开具",
+                             status="ACTION", completion_mode="MANUAL",
+                             context={"currency": currency})
+                _cancel_task(pi, payment_code, "INVOICE_NOT_ISSUED")
+                continue
+            _resolve_task(pi, invoice_code)
+            if payment_status == "PAID":
+                _resolve_task(pi, payment_code)
             else:
-                _upsert_task(
-                    pi, "FREIGHT_INVOICE_ISSUED", "确认货代发票已开具",
-                    status="ACTION", completion_mode="MANUAL",
-                )
-        elif required_confirmations:
-            _cancel_task(pi, "FREIGHT_INVOICE_ISSUED", "PREREQUISITES_NOT_MET")
-            _cancel_task(pi, "FREIGHT_PAYMENT_CONFIRM", "PREREQUISITES_NOT_MET")
+                _upsert_task(pi, payment_code, f"确认 {currency} 货代付款",
+                             status="ACTION", completion_mode="RULE_DATA",
+                             context={"currency": currency, "action_target": f"UPDATE_{currency}_FREIGHT_PAYMENT"})
 
     if settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)
@@ -544,11 +570,17 @@ def apply_manual_task_business_fact(task):
         else:
             settlement.cny_bill_confirmed = True
         payload = {"currency": currency, "confirmed_amount": f"{Decimal(amount):.2f}"}
-    elif task.task_code == "FREIGHT_INVOICE_ISSUED":
+    elif task.task_code in {"FREIGHT_USD_INVOICE_ISSUED", "FREIGHT_CNY_INVOICE_ISSUED"}:
         if settlement is None:
             raise ValueError("Freight settlement facts are missing.")
-        settlement.invoice_issued = True
-        settlement.invoice_issued_at = utcnow()
+        currency = "USD" if "USD" in task.task_code else "CNY"
+        required, amount, confirmed, _, _ = _currency_settlement_fields(settlement, currency)
+        if required is not True or amount is None or confirmed is not True:
+            raise ValueError(f"{currency} freight invoice prerequisites are not complete.")
+        confirmed_at = utcnow()
+        setattr(settlement, f"{currency.lower()}_invoice_issued", True)
+        setattr(settlement, f"{currency.lower()}_invoice_issued_at", confirmed_at)
+        payload = {"currency": currency, "confirmed_at": confirmed_at.isoformat()}
     return payload
 
 

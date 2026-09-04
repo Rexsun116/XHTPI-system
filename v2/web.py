@@ -153,6 +153,37 @@ def _reject_unexpected_fields(allowed):
         abort(400, "Fields are not editable in this lifecycle/module: " + ", ".join(sorted(unexpected)))
 
 
+def _update_currency_payment_facts(settlement, form, *, require_enabled):
+    """Apply structured payment facts without ever touching legacy shared fields."""
+    for currency in ("usd", "cny"):
+        status_field, paid_at_field = f"{currency}_payment_status", f"{currency}_paid_at"
+        if status_field not in form and paid_at_field not in form:
+            continue
+        status = (form.get(status_field) or "").upper() or None
+        raw_paid_at = form.get(paid_at_field)
+        # A blank control is not a payment decision.  The settlement screen
+        # deliberately omits payment controls before invoice confirmation, but
+        # this also preserves PATCH semantics for older/browser-crafted forms.
+        if status is None and not raw_paid_at:
+            if not require_enabled:
+                setattr(settlement, status_field, None)
+                setattr(settlement, paid_at_field, None)
+            continue
+        if require_enabled and getattr(settlement, f"{currency}_bill_required") is not True:
+            abort(400, f"{currency.upper()} freight payment is not required for this order.")
+        if require_enabled and getattr(settlement, f"{currency}_invoice_issued") is not True:
+            abort(400, f"{currency.upper()} freight invoice must be confirmed before payment.")
+        if status not in {None, "UNPAID", "PAID"}:
+            abort(400, f"{currency.upper()} payment status is invalid.")
+        if raw_paid_at and status != "PAID":
+            abort(400, f"{currency.upper()} Paid At requires PAID status.")
+        setattr(settlement, status_field, status)
+        if status == "PAID":
+            setattr(settlement, paid_at_field, datetime.fromisoformat(raw_paid_at) if raw_paid_at else utcnow())
+        elif status in {None, "UNPAID"}:
+            setattr(settlement, paid_at_field, None)
+
+
 def _render_create_form(*, form_data=None, error=None, status=200):
     return render_template("v2/order_form.html", pi=None, form_data=form_data or {}, error=error,
                            **_order_choices()), status
@@ -334,7 +365,7 @@ def order_facts(pi_id):
             "PAYMENT": {"advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","advance_received_at","balance_received_amount","balance_received_at"},
             "DOCUMENTS": set(DOCUMENT_FACTS),
             "SHIPPING": {"container_type","container_location","container_loading_date","container_loading_period","driver_name","driver_phone","vehicle_number","etd","eta","actual_departure_date"},
-            "FREIGHT": {"usd_bill_required","cny_bill_required","usd_bill_amount","cny_bill_amount","usd_bill_confirmed","cny_bill_confirmed","invoice_issued","payment_status","paid_at","agreement_amount","agreement_currency","agreement_note"},
+            "FREIGHT": {"usd_bill_required","cny_bill_required","usd_bill_amount","cny_bill_amount","usd_bill_confirmed","cny_bill_confirmed","usd_invoice_issued","usd_invoice_issued_at","usd_payment_status","usd_paid_at","cny_invoice_issued","cny_invoice_issued_at","cny_payment_status","cny_paid_at","agreement_amount","agreement_currency","agreement_note"},
             "ARRIVAL": {"actual_arrival_date"},
         }
         _reject_unexpected_fields(correction_fields[correction.module])
@@ -365,12 +396,13 @@ def order_facts(pi_id):
             settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id))
             if not settlement:
                 settlement=FreightSettlement(pi_id=pi.id); db.session.add(settlement)
-            for f in ("usd_bill_required","cny_bill_required","usd_bill_confirmed","cny_bill_confirmed","invoice_issued"):
+            for f in ("usd_bill_required","cny_bill_required","usd_bill_confirmed","cny_bill_confirmed","usd_invoice_issued","cny_invoice_issued"):
                 if f in request.form: setattr(settlement,f,_tri_state(request.form.get(f)))
             for f in ("usd_bill_amount","cny_bill_amount"):
                 if f in request.form: setattr(settlement,f,Decimal(request.form[f])) if request.form[f] else setattr(settlement,f,None)
-            if "payment_status" in request.form: settlement.payment_status=request.form.get("payment_status") or None
-            if "paid_at" in request.form: settlement.paid_at=datetime.fromisoformat(request.form["paid_at"]) if request.form["paid_at"] else None
+            for f in ("usd_invoice_issued_at", "cny_invoice_issued_at"):
+                if f in request.form: setattr(settlement, f, datetime.fromisoformat(request.form[f]) if request.form[f] else None)
+            _update_currency_payment_facts(settlement, request.form, require_enabled=False)
             agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
             if agreement and (request.form.get("agreement_amount") or request.form.get("agreement_currency")):
                 old=f"{agreement.currency} {agreement.amount}"
@@ -386,7 +418,7 @@ def order_facts(pi_id):
     if pi.status == "PRE_SHIPMENT" and any(field in request.form for field in DOCUMENT_FACTS):
         abort(400, "Use the dedicated Document Requirements editor.")
     if pi.status in {"SHIPPED", "ARRIVED"} and any(
-        field in request.form for field in ("usd_bill_confirmed", "cny_bill_confirmed", "invoice_issued")
+        field in request.form for field in ("usd_bill_confirmed", "cny_bill_confirmed", "invoice_issued", "usd_invoice_issued", "cny_invoice_issued")
     ):
         abort(400, "Freight amount/invoice confirmation must use the corresponding Task action.")
     if pi.status=="NEW":
@@ -488,13 +520,16 @@ def order_facts(pi_id):
             if "vgm" in request.form:
                 pi.vgm_kg = normalize_weight_input(request.form.get("vgm"), unit)
         settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id)) or FreightSettlement(pi_id=pi.id)
-        if request.form.get("usd_bill_amount"): settlement.usd_bill_amount=Decimal(request.form["usd_bill_amount"])
-        if request.form.get("cny_bill_amount"): settlement.cny_bill_amount=Decimal(request.form["cny_bill_amount"])
+        for currency in ("usd", "cny"):
+            amount_field = f"{currency}_bill_amount"
+            if request.form.get(amount_field):
+                if getattr(settlement, f"{currency}_bill_required") is not True:
+                    abort(400, f"{currency.upper()} freight bill is not required for this order.")
+                setattr(settlement, amount_field, Decimal(request.form[amount_field]))
         if "usd_bill_confirmed" in request.form: settlement.usd_bill_confirmed=_tri_state(request.form.get("usd_bill_confirmed"))
         if "cny_bill_confirmed" in request.form: settlement.cny_bill_confirmed=_tri_state(request.form.get("cny_bill_confirmed"))
-        if "invoice_issued" in request.form: settlement.invoice_issued=_tri_state(request.form.get("invoice_issued"))
-        settlement.payment_status=request.form.get("payment_status") or settlement.payment_status
-        settlement.paid_at=datetime.fromisoformat(request.form["paid_at"]) if request.form.get("paid_at") else settlement.paid_at; db.session.add(settlement)
+        _update_currency_payment_facts(settlement, request.form, require_enabled=True)
+        db.session.add(settlement)
     save_order_with_reconcile(pi); return redirect(url_for("v2.order_view",pi_id=pi.id))
 
 
@@ -665,7 +700,7 @@ def correction_edit(session_id):
         "PAYMENT":{"advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","advance_received_at","balance_received_amount","balance_received_at"},
         "DOCUMENTS":set(DOCUMENT_FACTS)|{"other_document_notes"},
         "SHIPPING":{"container_type","container_count","container_loading_at","container_location","driver_name","driver_phone","vehicle_number","etd","eta","actual_departure_date","vessel_info","booking_number","shipping_mark","freight_term","contract_number","freight_clause","waybill_option","container_number","seal_number","package_unit"},
-        "FREIGHT":{"usd_bill_required","cny_bill_required","usd_bill_amount","cny_bill_amount","payment_status","paid_at","agreement_amount","agreement_currency"},
+        "FREIGHT":{"usd_bill_required","cny_bill_required","usd_bill_amount","cny_bill_amount","usd_invoice_issued","usd_invoice_issued_at","usd_payment_status","usd_paid_at","cny_invoice_issued","cny_invoice_issued_at","cny_payment_status","cny_paid_at","agreement_amount","agreement_currency"},
         "ARRIVAL":{"actual_arrival_date"},
     }
     _reject_unexpected_fields(correction_allowed[session.module])
@@ -705,8 +740,11 @@ def correction_edit(session_id):
         settlement=settlement or FreightSettlement(pi_id=pi.id); db.session.add(settlement)
         for f in ("usd_bill_required","cny_bill_required"): setattr(settlement,f,_tri_state(request.form.get(f)))
         for f in ("usd_bill_amount","cny_bill_amount"): setattr(settlement,f,Decimal(request.form[f])) if request.form.get(f) else setattr(settlement,f,None)
-        settlement.payment_status=request.form.get("payment_status") or None
-        settlement.paid_at=datetime.fromisoformat(request.form["paid_at"]) if request.form.get("paid_at") else None
+        for f in ("usd_invoice_issued", "cny_invoice_issued"):
+            if f in request.form: setattr(settlement, f, _tri_state(request.form.get(f)))
+        for f in ("usd_invoice_issued_at", "cny_invoice_issued_at"):
+            if f in request.form: setattr(settlement, f, datetime.fromisoformat(request.form[f]) if request.form[f] else None)
+        _update_currency_payment_facts(settlement, request.form, require_enabled=False)
         if agreement and request.form.get("agreement_amount") and request.form.get("agreement_currency"):
             old=f"{agreement.currency} {agreement.amount}"
             agreement.amount=Decimal(request.form["agreement_amount"]); agreement.currency=request.form["agreement_currency"].upper()
