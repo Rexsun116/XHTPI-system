@@ -1,0 +1,10 @@
+<form id="payment-receipts" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="card p-4 mb-3">{{ csrf() }}
+  <h5>Customer Payment Receipts</h5>
+  <div class="row g-3">
+    <div class="col-md-3"><label>Advance Received Amount</label><input class="form-control" name="advance_received_amount" type="number" min="0" step=".01" value="{{ pi.advance_received_amount or '' }}"></div>
+    <div class="col-md-3"><label>Advance Received Date</label><input class="form-control" name="advance_received_at" type="date" value="{{ pi.advance_received_at.date().isoformat() if pi.advance_received_at else '' }}"></div>
+    <div class="col-md-3"><label>Balance Received Amount</label><input class="form-control" name="balance_received_amount" type="number" min="0" step=".01" value="{{ pi.balance_received_amount or '' }}"></div>
+    <div class="col-md-3"><label>Balance Received Date</label><input class="form-control" name="balance_received_at" type="date" value="{{ pi.balance_received_at.date().isoformat() if pi.balance_received_at else '' }}"></div>
+  </div>
+  <button class="btn btn-primary mt-3">Save Payment Receipts</button>
+</form>

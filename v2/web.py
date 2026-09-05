@@ -11,7 +11,7 @@ from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
     Product, ProductBatch, TaskActivity, db, utcnow)
 from .services import (apply_bank_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
-    reconcile_order_tasks_for_pi, save_order_with_reconcile)
+    completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile)
 from .presenter import present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -151,6 +151,11 @@ def _validate_schedule_dates(etd, eta):
         abort(400, "ETA must not be earlier than ETD.")
 
 
+def _parse_calendar_date(value):
+    """Store normal business dates at midnight while preserving DateTime schema."""
+    return datetime.combine(date.fromisoformat(value), datetime.min.time())
+
+
 def _reject_unexpected_fields(allowed):
     submitted = set(request.form) - {"csrf_token"}
     unexpected = submitted - set(allowed)
@@ -184,7 +189,7 @@ def _update_currency_payment_facts(settlement, form, *, require_enabled):
             abort(400, f"{currency.upper()} Paid At requires PAID status.")
         setattr(settlement, status_field, status)
         if status == "PAID":
-            setattr(settlement, paid_at_field, datetime.fromisoformat(raw_paid_at) if raw_paid_at else utcnow())
+            setattr(settlement, paid_at_field, _parse_calendar_date(raw_paid_at) if raw_paid_at else utcnow())
         elif status in {None, "UNPAID"}:
             setattr(settlement, paid_at_field, None)
 
@@ -298,13 +303,15 @@ def order_new():
 def advance_receipt(pi_id):
     """Record the structured fact which can auto-resolve an advance task."""
     pi = db.get_or_404(PI, pi_id)
+    if pi.status == "COMPLETED":
+        abort(409, "Completed orders are read-only.")
     if pi.order_type != "SALES":
         abort(400, "Advance receipts are available only for Sales orders.")
     try:
         amount = Decimal((request.form.get("advance_received_amount") or "").strip())
-        received_at = parse_datetime(request.form.get("advance_received_at"))
+        received_at = _parse_calendar_date((request.form.get("advance_received_at") or "").strip())
         if amount < 0 or received_at is None:
-            raise ValueError("Advance received amount and date/time are required.")
+            raise ValueError("Advance received amount and date are required.")
         pi.advance_received_amount = amount
         pi.advance_received_at = received_at
         save_order_with_reconcile(pi)
@@ -325,7 +332,8 @@ def order_view(pi_id):
     open_task = request.args.get("open_task", type=int)
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
         agreement=agreement,settlement=settlement,forwarders=list(db.session.scalars(db.select(FreightForwarder))),
-        present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS)
+        present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
+        completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None)
 
 
 @blueprint.route("/orders/<int:pi_id>/delete", methods=["GET", "POST"])
@@ -381,7 +389,7 @@ def order_facts(pi_id):
             for f in ("advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","balance_received_amount"):
                 if f in request.form: setattr(pi,f,Decimal(request.form[f])) if request.form[f] else setattr(pi,f,None)
             for f in ("advance_received_at","balance_received_at"):
-                if f in request.form: setattr(pi,f,datetime.fromisoformat(request.form[f])) if request.form[f] else setattr(pi,f,None)
+                if f in request.form: setattr(pi,f,_parse_calendar_date(request.form[f])) if request.form[f] else setattr(pi,f,None)
         elif correction.module=="SHIPPING":
             for f in ("container_type","container_location","driver_name","driver_phone","vehicle_number","vessel_info","booking_number"):
                 if f in request.form: setattr(pi,f,request.form.get(f) or None)
@@ -420,6 +428,11 @@ def order_facts(pi_id):
         validate_lifecycle_submission(pi, request.form)
     except LifecyclePolicyError as exc:
         abort(400, str(exc))
+    if request.form.get("_form_scope") == "FREIGHT_SETTLEMENT":
+        _reject_unexpected_fields({
+            "_form_scope", "usd_bill_amount", "cny_bill_amount",
+            "usd_payment_status", "usd_paid_at", "cny_payment_status", "cny_paid_at",
+        })
     if pi.status == "PRE_SHIPMENT" and any(field in request.form for field in DOCUMENT_FACTS):
         abort(400, "Use the dedicated Document Requirements editor.")
     if pi.status in {"SHIPPED", "ARRIVED"} and any(
@@ -507,12 +520,14 @@ def order_facts(pi_id):
                 amount=Decimal(request.form["agreement_amount"]),currency=request.form["agreement_currency"].upper(),
                 agreed_at=utcnow(),note=request.form.get("agreement_note")))
     elif pi.status in {"SHIPPED","ARRIVED"}:
-        pi.actual_departure_date=date.fromisoformat(request.form["actual_departure_date"]) if request.form.get("actual_departure_date") else pi.actual_departure_date
-        pi.actual_arrival_date=date.fromisoformat(request.form["actual_arrival_date"]) if request.form.get("actual_arrival_date") else pi.actual_arrival_date
+        if "actual_departure_date" in request.form:
+            pi.actual_departure_date=date.fromisoformat(request.form["actual_departure_date"]) if request.form["actual_departure_date"] else None
+        if "actual_arrival_date" in request.form:
+            pi.actual_arrival_date=date.fromisoformat(request.form["actual_arrival_date"]) if request.form["actual_arrival_date"] else None
         for f in ("advance_received_amount","balance_received_amount"):
-            if request.form.get(f): setattr(pi,f,Decimal(request.form[f]))
+            if f in request.form: setattr(pi,f,Decimal(request.form[f]) if request.form[f] else None)
         for f in ("advance_received_at","balance_received_at"):
-            if request.form.get(f): setattr(pi,f,datetime.fromisoformat(request.form[f]))
+            if f in request.form: setattr(pi,f,_parse_calendar_date(request.form[f]) if request.form[f] else None)
         for f in ("bill_of_lading_number","shipping_company","booking_number","shipping_mark"):
             if f in request.form: setattr(pi,f,request.form.get(f) or None)
         for f in ("container_number", "seal_number"):
@@ -675,6 +690,26 @@ def enter_arrived(pi_id):
     return redirect(url_for("v2.order_view", pi_id=pi.id))
 
 
+@blueprint.route("/orders/<int:pi_id>/enter-completed", methods=["GET", "POST"])
+@login_required
+def enter_completed(pi_id):
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status != "ARRIVED":
+        abort(409, "Order is not ready to enter COMPLETED.")
+    check = completion_check(pi)
+    if request.method == "GET":
+        return render_template("v2/enter_completed.html", pi=pi, completion=check)
+    if not check["overall_complete"]:
+        abort(409, "Completion requirements are not satisfied.")
+    try:
+        pi.status = "COMPLETED"
+        save_order_with_reconcile(pi)
+    except (ValueError, ArithmeticError) as exc:
+        db.session.rollback()
+        abort(400, str(exc))
+    return redirect(url_for("v2.order_view", pi_id=pi.id))
+
+
 @blueprint.post("/orders/<int:pi_id>/eta")
 @login_required
 def update_eta(pi_id):
@@ -811,7 +846,7 @@ def correction_edit(session_id):
         for f in ("advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","balance_received_amount"):
             if f in request.form: setattr(pi,f,Decimal(request.form[f])) if request.form[f] else setattr(pi,f,None)
         for f in ("advance_received_at","balance_received_at"):
-            if f in request.form: setattr(pi,f,datetime.fromisoformat(request.form[f])) if request.form[f] else setattr(pi,f,None)
+            if f in request.form: setattr(pi,f,_parse_calendar_date(request.form[f])) if request.form[f] else setattr(pi,f,None)
     elif session.module=="DOCUMENTS":
         for f in DOCUMENT_FACTS: setattr(pi,f,_tri_state(request.form.get(f)))
         pi.other_document_notes=request.form.get("other_document_notes") or None
@@ -845,6 +880,8 @@ def correction_edit(session_id):
 @login_required
 def task_action(task_id,action):
     task=db.get_or_404(OrderTask,task_id)
+    if task.pi.status == "COMPLETED":
+        abort(409, "Completed order tasks are read-only.")
     try:
         if action=="done":
             payload=apply_manual_task_business_fact(task) or {}

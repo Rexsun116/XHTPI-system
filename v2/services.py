@@ -192,6 +192,66 @@ def required_freight_settlements_paid(settlement):
     )
 
 
+def _latest_completed_activity(task):
+    """Return current-task completion evidence, newest first by durable order."""
+    if task is None:
+        return None
+    return db.session.scalar(select(TaskActivity).where(
+        TaskActivity.task_id == task.id,
+        TaskActivity.event_type == "COMPLETED",
+    ).order_by(TaskActivity.created_at.desc(), TaskActivity.id.desc()))
+
+
+def completion_check(pi):
+    """Read-only, authoritative ARRIVED -> COMPLETED gate evaluation."""
+    zero = Decimal("0.00")
+    total = pi.contract_total
+    received = (pi.advance_received_amount or zero) + (pi.balance_received_amount or zero)
+    outstanding = max(total - received, zero)
+    payment = {
+        "total": total, "received": received, "outstanding": outstanding,
+        "complete": outstanding == zero,
+    }
+
+    settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
+    freight = {
+        "usd": {
+            "required": bool(settlement and settlement.usd_bill_required is True),
+            "status": settlement.usd_payment_status if settlement else None,
+            "complete": not settlement or settlement.usd_bill_required is not True or settlement.usd_payment_status == "PAID",
+        },
+        "cny": {
+            "required": bool(settlement and settlement.cny_bill_required is True),
+            "status": settlement.cny_payment_status if settlement else None,
+            "complete": not settlement or settlement.cny_bill_required is not True or settlement.cny_payment_status == "PAID",
+        },
+        "complete": required_freight_settlements_paid(settlement),
+    }
+
+    telex_task = _find_task(pi, "DOCUMENT_TELEX_RELEASE")
+    telex_required = pi.telex_release_required is True
+    telex = {
+        "required": telex_required,
+        "complete": not telex_required or bool(telex_task and telex_task.status == "DONE"),
+    }
+    mail_task = _find_task(pi, "ORIGINAL_DOCUMENTS_MAIL")
+    mail_required = pi.original_documents_mail_required is True
+    mail_evidence = _latest_completed_activity(mail_task) if mail_task and mail_task.status == "DONE" else None
+    tracking_number = str((mail_evidence.payload or {}).get("tracking_number") or "").strip() if mail_evidence else ""
+    mail = {
+        "required": mail_required,
+        "complete": not mail_required or bool(mail_task and mail_task.status == "DONE" and tracking_number),
+        "tracking_number": tracking_number or None,
+    }
+    documents = {"telex": telex, "mail": mail, "complete": telex["complete"] and mail["complete"]}
+    return {
+        "payment": payment,
+        "freight": freight,
+        "documents": documents,
+        "overall_complete": payment["complete"] and freight["complete"] and documents["complete"],
+    }
+
+
 def _currency_settlement_fields(settlement, currency):
     prefix = currency.lower()
     return (

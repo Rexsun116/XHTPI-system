@@ -1,0 +1,5 @@
+{% extends 'v2/base.html' %}{% block content %}
+<h2>Enter COMPLETED · {{pi.pi_no}}</h2><p class="text-muted">Confirm core commercial and delivery closure. Operational reminders do not block this transition.</p>
+{% include 'v2/_completion_check.html' %}
+{% if completion.overall_complete %}<form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn btn-success">确认订单完成</button><a class="btn btn-outline-secondary" href="{{url_for('v2.order_view',pi_id=pi.id)}}">Cancel</a></form>{% else %}<a class="btn btn-outline-secondary" href="{{url_for('v2.order_view',pi_id=pi.id)}}">Back to Order</a>{% endif %}
+{% endblock %}

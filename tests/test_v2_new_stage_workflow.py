@@ -476,7 +476,7 @@ class NewSalesReminderTest(TestCase):
         reconcile_order_tasks_for_pi(pi, now=datetime.now()); db.session.commit()
         task = self.task(pi, "PAYMENT_ADVANCE_WAITING")
         response = self.client().post(f"/v2/orders/{pi.id}/advance-receipt", data={
-            "advance_received_amount": "200.00", "advance_received_at": "2026-09-10T09:00",
+            "advance_received_amount": "200.00", "advance_received_at": "2026-09-10",
         })
         self.assertEqual(response.status_code, 302)
         self.assertEqual((task.id, task.status, task.resolution_code), (task.id, "DONE", "AUTO_RESOLVED"))

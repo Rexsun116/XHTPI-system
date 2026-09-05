@@ -1,0 +1,21 @@
+<form id="freight-settlement" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="card p-4 mb-3">{{ csrf() }}
+  <input type="hidden" name="_form_scope" value="FREIGHT_SETTLEMENT">
+  <h5>Freight Settlement</h5>
+  {% for currency, required, amount, invoice, status, paid_at in [('USD', settlement.usd_bill_required if settlement else none, settlement.usd_bill_amount if settlement else none, settlement.usd_invoice_issued if settlement else none, settlement.usd_payment_status if settlement else none, settlement.usd_paid_at if settlement else none), ('CNY', settlement.cny_bill_required if settlement else none, settlement.cny_bill_amount if settlement else none, settlement.cny_invoice_issued if settlement else none, settlement.cny_payment_status if settlement else none, settlement.cny_paid_at if settlement else none)] %}
+    {% if required is sameas true %}
+      <fieldset class="border rounded p-3 mt-3"><legend class="float-none w-auto px-2 h6">{{ currency }} Settlement</legend><div class="row g-3">
+        <div class="col-md-3"><label>Bill Amount</label><input class="form-control" name="{{ currency|lower }}_bill_amount" type="number" min="0" step=".01" value="{{ amount or '' }}"></div>
+        <div class="col-md-3"><label>Amount Confirmed</label><input class="form-control" readonly value="{{ 'Yes' if (settlement|attr(currency|lower ~ '_bill_confirmed')) is sameas true else 'No' }}"></div>
+        <div class="col-md-3"><label>Invoice Issued</label><input class="form-control" readonly value="{{ 'Yes' if invoice is sameas true else 'No' }}"></div>
+        {% if invoice is sameas true %}
+          <div class="col-md-3"><label>Payment Status</label><select class="form-select" name="{{ currency|lower }}_payment_status"><option value="">Not set</option><option value="UNPAID" {% if status=='UNPAID' %}selected{% endif %}>Unpaid</option><option value="PAID" {% if status=='PAID' %}selected{% endif %}>Paid</option></select></div>
+          <div class="col-md-3"><label>Paid At</label><input class="form-control" name="{{ currency|lower }}_paid_at" type="date" value="{{ paid_at.date().isoformat() if paid_at else '' }}"></div>
+        {% else %}
+          <div class="col-md-3"><label>Payment Status</label><input class="form-control" readonly value="Available after Invoice confirmation"></div>
+          <div class="col-md-3"><label>Paid At</label><input class="form-control" readonly value="-"></div>
+        {% endif %}
+      </div></fieldset>
+    {% endif %}
+  {% endfor %}
+  <button class="btn btn-primary mt-3">Save Freight Settlement</button>
+</form>
