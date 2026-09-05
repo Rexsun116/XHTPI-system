@@ -13,7 +13,7 @@ from .services import (apply_bank_snapshot, apply_product_snapshot, close_correc
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
     reconcile_order_tasks_for_pi, save_order_with_reconcile)
 from .presenter import present_activity, present_task
-from .selector import projected, select_next_action, sort_key
+from .selector import projected, projected_details, select_next_action, sort_key
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
                            move_to_waiting, parse_datetime, reopen)
 from .documents import normalize_weight_input
@@ -45,8 +45,8 @@ def dashboard():
     grouped = {key: [] for key in ("ACTION","WAITING","UPCOMING","DONE")}
     grouped["EXCEPTION"] = []
     for task in ordered:
-        status, health = projected(task)
-        task._dashboard_status, task._dashboard_health = status, health
+        status, health, context = projected_details(task)
+        task._dashboard_status, task._dashboard_health, task._dashboard_context = status, health, context
         if health == "EXCEPTION" and status not in {"DONE", "CANCELLED"}:
             grouped["EXCEPTION"].append(task)
         if status in grouped:
@@ -144,6 +144,11 @@ DOCUMENT_FACTS = ("coo_required", "apta_required", "export_license_required", "c
 
 def _tri_state(value):
     return None if value in (None, "") else value == "true"
+
+
+def _validate_schedule_dates(etd, eta):
+    if etd and eta and eta < etd:
+        abort(400, "ETA must not be earlier than ETD.")
 
 
 def _reject_unexpected_fields(allowed):
@@ -465,13 +470,13 @@ def order_facts(pi_id):
             pi.volume_cbm = Decimal(request.form["volume"]) if request.form["volume"] else None
         if "freight_forwarder_id" in request.form:
             pi.freight_forwarder_id=int(request.form["freight_forwarder_id"]) if request.form.get("freight_forwarder_id") else None
-        # The PRE_SHIPMENT preparation form intentionally does not submit
-        # ETD/ETA.  Do not turn omitted fields into destructive NULL updates;
-        # only an explicit, lifecycle-authorized field may change them.
+        schedule_etd = date.fromisoformat(request.form["etd"]) if request.form.get("etd") else (None if "etd" in request.form else pi.etd)
+        schedule_eta = date.fromisoformat(request.form["eta"]) if request.form.get("eta") else (None if "eta" in request.form else pi.eta)
+        _validate_schedule_dates(schedule_etd, schedule_eta)
         if "etd" in request.form:
-            pi.etd = date.fromisoformat(request.form["etd"]) if request.form["etd"] else None
+            pi.etd = schedule_etd
         if "eta" in request.form:
-            pi.eta = date.fromisoformat(request.form["eta"]) if request.form["eta"] else None
+            pi.eta = schedule_eta
         if "usd_bill_required" in request.form or "cny_bill_required" in request.form:
             settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id)) or FreightSettlement(pi_id=pi.id)
             if "usd_bill_required" in request.form:
@@ -668,6 +673,30 @@ def enter_arrived(pi_id):
         db.session.rollback()
         abort(400, str(exc))
     return redirect(url_for("v2.order_view", pi_id=pi.id))
+
+
+@blueprint.post("/orders/<int:pi_id>/eta")
+@login_required
+def update_eta(pi_id):
+    """Update only the post-sailing ETA schedule fact."""
+    pi = db.get_or_404(PI, pi_id)
+    if pi.status != "SHIPPED":
+        abort(403, "ETA can be updated only while the order is SHIPPED.")
+    raw = (request.form.get("eta") or "").strip()
+    if not raw:
+        abort(400, "ETA is required.")
+    try:
+        eta = date.fromisoformat(raw)
+    except ValueError:
+        abort(400, "ETA is invalid.")
+    _validate_schedule_dates(pi.etd, eta)
+    try:
+        pi.eta = eta
+        save_order_with_reconcile(pi)
+    except (ValueError, ArithmeticError):
+        db.session.rollback()
+        raise
+    return redirect(url_for("v2.order_view", pi_id=pi.id) + "#shipping-schedule")
 
 
 @blueprint.post("/orders/<int:pi_id>/freight-agreement")

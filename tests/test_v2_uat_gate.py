@@ -94,7 +94,7 @@ class V2UATGateTest(TestCase):
         self.assertEqual(len([a for a in follow.activities if a.event_type=="WAITING_STARTED"]),1)
 
     def test_rule_data_reverse_reactivates_without_duplicates(self):
-        now=datetime(2026,8,21,10); pi=self.pi(status="SHIPPED",etd=date(2026,8,20))
+        now=datetime(2026,8,21,10); pi=self.pi(status="PRE_SHIPMENT",etd=date(2026,8,20))
         reconcile_order_tasks_for_pi(pi,now=now); task=self.task(pi,"SHIPPING_ACTUAL_DEPARTURE"); task_id=task.id
         pi.actual_departure_date=date(2026,8,21); reconcile_order_tasks_for_pi(pi,now=now); self.assertEqual(task.status,"DONE")
         pi.actual_departure_date=None; reconcile_order_tasks_for_pi(pi,now=now); self.assertEqual(task.status,"ACTION")

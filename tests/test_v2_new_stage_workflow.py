@@ -226,14 +226,14 @@ class NewSalesReminderTest(TestCase):
             task.completed_at = mail_at
 
     def test_balance_followup_uses_payment_email_calendar_day_boundary(self):
-        baseline = datetime(2026, 9, 1, 23, 55)
+        baseline = datetime(2026, 9, 1, 12)
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
         self._outbound_done(pi, email_at=baseline)
-        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 3, 23, 59))
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 3, 12))
         task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
         self.assertEqual(task.status, "UPCOMING")
         self.assertEqual(task.context_payload["trigger_date"], "2026-09-04")
-        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 0, 0))
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 3, 16))
         self.assertEqual(task.status, "ACTION")
 
     def test_balance_followup_uses_original_mail_when_it_is_only_prerequisite(self):
@@ -252,7 +252,7 @@ class NewSalesReminderTest(TestCase):
         task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
         self.assertEqual((task.status, task.context_payload["base_completed_at"]), ("ACTION", mail_at.isoformat()))
         follow_up(task, self.user.id, waiting_on="CUSTOMER", next_follow_up_at=datetime(2026, 9, 6), note="Awaiting transfer")
-        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 23, 59))
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 12))
         self.assertEqual(task.status, "WAITING")
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 6))
         self.assertEqual(task.status, "ACTION")

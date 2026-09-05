@@ -19,7 +19,7 @@ def money(currency, amount):
 
 
 def present_task(task):
-    context = task.context_payload or {}
+    context = getattr(task, "_dashboard_context", task.context_payload) or {}
     lines = []
     for key, label in (("expected_amount", "Expected"), ("received_amount", "Received"),
                        ("outstanding_amount", "Outstanding"), ("amount", "Amount"),
@@ -78,6 +78,9 @@ def task_actions(task):
                             "label": "登记预付款到账" if task.task_code == "PAYMENT_ADVANCE_WAITING" else "更新付款信息"})
             if health == "EXCEPTION":
                 actions.append({"kind": "edit_shipment", "label": "修改计划发运日期"})
+        elif task.task_code == "SHIPPING_ACTUAL_ARRIVAL":
+            actions.append({"kind": "enter_arrived", "label": "确认货物已到港"})
+            actions.append({"kind": "followup", "label": "Follow-up"})
         elif task.completion_mode == "MANUAL_REQUIRED_INPUT":
             actions.append({"kind": "required_done", "label": "完成邮寄"})
         elif task.completion_mode == "MANUAL":
