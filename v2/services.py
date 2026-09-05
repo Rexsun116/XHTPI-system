@@ -22,6 +22,7 @@ from .models import (
     utcnow,
 )
 from .business_time import arrival_schedule_projection, business_today
+from .linked_trade import financial_owner_for, is_export_order
 from .rules import DOCUMENT_RULES
 
 
@@ -192,6 +193,25 @@ def required_freight_settlements_paid(settlement):
     )
 
 
+EXPORT_FINANCIAL_TASK_CODES = (
+    "PAYMENT_ADVANCE_WAITING", "PAYMENT_EMAIL", "PAYMENT_BALANCE_FOLLOWUP",
+    "SETTLEMENT_DOCUMENT_ADVANCE", "SETTLEMENT_DOCUMENT_BALANCE",
+    "FREIGHT_INVOICE_ISSUED", "FREIGHT_PAYMENT_CONFIRM", "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE",
+    "FREIGHT_USD_AMOUNT_CAPTURE", "FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_USD_INVOICE_ISSUED",
+    "FREIGHT_USD_PAYMENT_CONFIRM", "FREIGHT_CNY_AMOUNT_CAPTURE", "FREIGHT_CNY_AMOUNT_CONFIRM",
+    "FREIGHT_CNY_INVOICE_ISSUED", "FREIGHT_CNY_PAYMENT_CONFIRM",
+)
+
+
+def _cancel_export_financial_tasks(pi):
+    for code in EXPORT_FINANCIAL_TASK_CODES:
+        _cancel_task(pi, code, "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+
+
+def _fully_paid(pi):
+    return bool(pi.contract_total and (pi.advance_received_amount or 0) + (pi.balance_received_amount or 0) >= pi.contract_total)
+
+
 def _latest_completed_activity(task):
     """Return current-task completion evidence, newest first by durable order."""
     if task is None:
@@ -204,29 +224,35 @@ def _latest_completed_activity(task):
 
 def completion_check(pi):
     """Read-only, authoritative ARRIVED -> COMPLETED gate evaluation."""
-    zero = Decimal("0.00")
-    total = pi.contract_total
-    received = (pi.advance_received_amount or zero) + (pi.balance_received_amount or zero)
-    outstanding = max(total - received, zero)
-    payment = {
-        "total": total, "received": received, "outstanding": outstanding,
-        "complete": outstanding == zero,
-    }
-
-    settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
-    freight = {
-        "usd": {
-            "required": bool(settlement and settlement.usd_bill_required is True),
-            "status": settlement.usd_payment_status if settlement else None,
-            "complete": not settlement or settlement.usd_bill_required is not True or settlement.usd_payment_status == "PAID",
-        },
-        "cny": {
-            "required": bool(settlement and settlement.cny_bill_required is True),
-            "status": settlement.cny_payment_status if settlement else None,
-            "complete": not settlement or settlement.cny_bill_required is not True or settlement.cny_payment_status == "PAID",
-        },
-        "complete": required_freight_settlements_paid(settlement),
-    }
+    resolution = financial_owner_for(pi)
+    if is_export_order(pi):
+        if resolution.valid:
+            payment = {"complete": True, "managed_by": resolution.owner, "not_applicable": True}
+            freight = {"complete": True, "managed_by": resolution.owner, "not_applicable": True,
+                       "usd": {"required": False, "complete": True}, "cny": {"required": False, "complete": True}}
+        else:
+            payment = {"complete": False, "configuration_error": resolution.error, "not_applicable": True}
+            freight = {"complete": False, "configuration_error": resolution.error, "not_applicable": True,
+                       "usd": {"required": False, "complete": False}, "cny": {"required": False, "complete": False}}
+    else:
+        zero = Decimal("0.00")
+        total = pi.contract_total
+        received = (pi.advance_received_amount or zero) + (pi.balance_received_amount or zero)
+        outstanding = max(total - received, zero)
+        payment = {
+            "total": total, "received": received, "outstanding": outstanding,
+            "complete": outstanding == zero,
+        }
+        settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
+        freight = {
+            "usd": {"required": bool(settlement and settlement.usd_bill_required is True),
+                    "status": settlement.usd_payment_status if settlement else None,
+                    "complete": not settlement or settlement.usd_bill_required is not True or settlement.usd_payment_status == "PAID"},
+            "cny": {"required": bool(settlement and settlement.cny_bill_required is True),
+                    "status": settlement.cny_payment_status if settlement else None,
+                    "complete": not settlement or settlement.cny_bill_required is not True or settlement.cny_payment_status == "PAID"},
+            "complete": required_freight_settlements_paid(settlement),
+        }
 
     telex_task = _find_task(pi, "DOCUMENT_TELEX_RELEASE")
     telex_required = pi.telex_release_required is True
@@ -269,6 +295,13 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     today = business_today(now)
     settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
     agreement = db.session.scalar(select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
+    export_order = is_export_order(pi)
+    owner_resolution = financial_owner_for(pi)
+    linked_agreement = (db.session.scalar(select(OrderFreightAgreement).where(
+        OrderFreightAgreement.pi_id == owner_resolution.owner.id
+    )) if export_order and owner_resolution.valid else None)
+    if export_order:
+        _cancel_export_financial_tasks(pi)
     loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
     # These shared tasks represent the pre-v2_0004 model.  Preserve history but
     # prevent any active legacy task from competing with a currency branch.
@@ -280,9 +313,11 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     planned_date = pi.planned_shipment_date or pi.etd
     advance_expected = pi.advance_payment_amount or Decimal("0")
     advance_received = pi.advance_received_amount or Decimal("0")
-    advance_unpaid = pi.order_type == "SALES" and advance_expected > 0 and advance_received < advance_expected
+    advance_unpaid = not export_order and pi.order_type == "SALES" and advance_expected > 0 and advance_received < advance_expected
     advance_task = _find_task(pi, "PAYMENT_ADVANCE_WAITING")
-    if advance_unpaid:
+    if export_order:
+        _cancel_task(pi, "PAYMENT_ADVANCE_WAITING", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+    elif advance_unpaid:
         outstanding = advance_expected - advance_received
         days_remaining = (planned_date - today).days if planned_date else None
         overdue = bool(planned_date and today > planned_date)
@@ -346,12 +381,15 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_LOADING_INFO"},
             activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
         )
-        _set_rule_data(
-            pi, "SHIPPING_FREIGHT_AGREEMENT", "向货代询价并确认船期",
-            agreement is None,
-            context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_FREIGHT_AGREEMENT"},
-            activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
-        )
+        if export_order:
+            _cancel_task(pi, "SHIPPING_FREIGHT_AGREEMENT", "LINKED_CUSTOMER_ORDER_OWNS_FREIGHT_AGREEMENT")
+        else:
+            _set_rule_data(
+                pi, "SHIPPING_FREIGHT_AGREEMENT", "向货代询价并确认船期",
+                agreement is None,
+                context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_FREIGHT_AGREEMENT"},
+                activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
+            )
     elif advance_unpaid:
         # Do not present premature shipment-preparation work while the
         # commercial prerequisite is unmet.
@@ -368,12 +406,18 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         loading_task = _find_task(pi, "SHIPPING_CONTAINER_LOADING")
         agreement_task = _find_task(pi, "SHIPPING_FREIGHT_AGREEMENT")
         loading_ready = bool(loading_task and loading_task.status == "DONE" and loading_date)
-        agreement_ready = bool(agreement_task and agreement_task.status == "DONE" and agreement)
+        stage_agreement = linked_agreement if export_order else agreement
+        agreement_ready = (bool(owner_resolution.valid and linked_agreement) if export_order
+                           else bool(agreement_task and agreement_task.status == "DONE" and agreement))
         missing = []
         if not loading_ready:
             missing.append("工厂装柜日期尚未确认")
         if not agreement_ready:
-            missing.append("货代船期/最终报价尚未确认")
+            missing.append(
+                owner_resolution.error if export_order and not owner_resolution.valid
+                else f"Linked customer order {owner_resolution.owner.pi_no} has no final accepted freight agreement."
+                if export_order else "货代船期/最终报价尚未确认"
+            )
         if planned_date and today >= planned_date:
             days_late = (today - planned_date).days
             if missing:
@@ -390,7 +434,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                     health="EXCEPTION" if days_late >= 3 else "NORMAL", completion_mode="RULE_DATA", priority=15,
                     context={"planned_shipment_date": planned_date.isoformat(),
                              "container_loading_date": loading_date.isoformat() if loading_date else None,
-                             "freight_forwarder": agreement.freight_forwarder_name_snapshot,
+                             "freight_forwarder": stage_agreement.freight_forwarder_name_snapshot,
                              "days_overdue": days_late if days_late >= 3 else None,
                              "message": "计划发运日期已超过 3 天，订单仍处于待发运状态。请确认货物是否已经实际发运，或修改计划发运日期。" if days_late >= 3 else "确认货物是否已经实际发运"},
                 )
@@ -401,7 +445,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                 activation_at=datetime.combine(planned_date, datetime.min.time()),
                 context={"planned_shipment_date": planned_date.isoformat(),
                          "container_loading_date": loading_date.isoformat() if loading_date else None,
-                         "freight_forwarder": agreement.freight_forwarder_name_snapshot,
+                         "freight_forwarder": stage_agreement.freight_forwarder_name_snapshot,
                          "message": "发运准备已完成，等待计划发运日期。"},
             )
         else:
@@ -506,45 +550,55 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                      status="ACTION" if ready else "UPCOMING", completion_mode="MANUAL_REQUIRED_INPUT",
                      context={"required_inputs": ["tracking_number"], "prerequisites": originals})
 
-    if pi.status in {"SHIPPED","ARRIVED","COMPLETED"}:
+    payment_readiness_pi = owner_resolution.owner if export_order and owner_resolution.valid else pi
+    fully_paid = _fully_paid(payment_readiness_pi)
+    if export_order:
+        _cancel_task(pi, "PAYMENT_EMAIL", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+        _cancel_task(pi, "SETTLEMENT_DOCUMENT_ADVANCE", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+        _cancel_task(pi, "SETTLEMENT_DOCUMENT_BALANCE", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+        _cancel_task(pi, "PAYMENT_BALANCE_FOLLOWUP", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
+    elif pi.status in {"SHIPPED","ARRIVED","COMPLETED"}:
         _upsert_task(pi,"PAYMENT_EMAIL","EMAIL发送付款文件给客户并请款",status="ACTION",completion_mode="MANUAL")
     else:
         _cancel_task(pi, "PAYMENT_EMAIL", "NOT_APPLICABLE")
 
-    fully_paid = bool(pi.contract_total and (pi.advance_received_amount or 0) + (pi.balance_received_amount or 0) >= pi.contract_total)
     if pi.telex_release_required is True:
-        _upsert_task(pi,"DOCUMENT_TELEX_RELEASE","取得/发送提单电放件",status="ACTION" if fully_paid else "UPCOMING",completion_mode="MANUAL")
+        if export_order and not owner_resolution.valid:
+            _upsert_task(pi, "DOCUMENT_TELEX_RELEASE", "取得/发送提单电放件", status="ACTION",
+                         health="EXCEPTION", completion_mode="MANUAL",
+                         context={"message": owner_resolution.error})
+        else:
+            _upsert_task(pi,"DOCUMENT_TELEX_RELEASE","取得/发送提单电放件",status="ACTION" if fully_paid else "UPCOMING",completion_mode="MANUAL")
     else:
         _cancel_task(pi, "DOCUMENT_TELEX_RELEASE")
-    if pi.settlement_documents_required is True:
-        if (pi.advance_received_amount or 0)>0 and pi.advance_received_at:
-            _upsert_task(pi,"SETTLEMENT_DOCUMENT_ADVANCE","准备预付款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.advance_received_amount)})
-        if (pi.balance_received_amount or 0)>0 and pi.balance_received_at:
-            _upsert_task(pi,"SETTLEMENT_DOCUMENT_BALANCE","准备尾款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.balance_received_amount)})
-    else:
-        _cancel_task(pi, "SETTLEMENT_DOCUMENT_ADVANCE")
-        _cancel_task(pi, "SETTLEMENT_DOCUMENT_BALANCE")
-
-    prerequisites = [task for task in (_task_done(pi, "PAYMENT_EMAIL"), _task_done(pi, "ORIGINAL_DOCUMENTS_MAIL")) if task and task.completed_at]
-    followup = _find_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
-    if fully_paid:
-        _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
-    elif prerequisites and (pi.balance_payment_amount or Decimal("0")) > Decimal("0"):
-        base = min(task.completed_at for task in prerequisites)
-        activation_date = base.date() + timedelta(days=3)
-        activation = datetime.combine(activation_date, datetime.min.time())
-        outstanding = (pi.balance_payment_amount or Decimal("0")) - (pi.balance_received_amount or Decimal("0"))
-        if followup and followup.status == "WAITING" and followup.next_follow_up_at and followup.next_follow_up_at.date() > today:
-            pass
+    if not export_order:
+        if pi.settlement_documents_required is True:
+            if (pi.advance_received_amount or 0)>0 and pi.advance_received_at:
+                _upsert_task(pi,"SETTLEMENT_DOCUMENT_ADVANCE","准备预付款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.advance_received_amount)})
+            if (pi.balance_received_amount or 0)>0 and pi.balance_received_at:
+                _upsert_task(pi,"SETTLEMENT_DOCUMENT_BALANCE","准备尾款结汇文件",status="ACTION",completion_mode="MANUAL",context={"currency":pi.currency,"amount":str(pi.balance_received_amount)})
         else:
-            _upsert_task(pi, "PAYMENT_BALANCE_FOLLOWUP", "催客户付款",
-                         status="ACTION" if today >= activation_date else "UPCOMING",
-                         health="OVERDUE" if today > activation_date else "NORMAL",
-                         context={"currency": pi.currency, "outstanding_amount": str(max(outstanding, Decimal('0'))),
-                                  "base_completed_at": base.isoformat(), "trigger_date": activation_date.isoformat()},
-                         activation_at=activation)
-    else:
-        _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+            _cancel_task(pi, "SETTLEMENT_DOCUMENT_ADVANCE")
+            _cancel_task(pi, "SETTLEMENT_DOCUMENT_BALANCE")
+
+        prerequisites = [task for task in (_task_done(pi, "PAYMENT_EMAIL"), _task_done(pi, "ORIGINAL_DOCUMENTS_MAIL")) if task and task.completed_at]
+        followup = _find_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        if fully_paid:
+            _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        elif prerequisites and (pi.balance_payment_amount or Decimal("0")) > Decimal("0"):
+            base = min(task.completed_at for task in prerequisites)
+            activation_date = base.date() + timedelta(days=3)
+            activation = datetime.combine(activation_date, datetime.min.time())
+            outstanding = (pi.balance_payment_amount or Decimal("0")) - (pi.balance_received_amount or Decimal("0"))
+            if not (followup and followup.status == "WAITING" and followup.next_follow_up_at and followup.next_follow_up_at.date() > today):
+                _upsert_task(pi, "PAYMENT_BALANCE_FOLLOWUP", "催客户付款",
+                             status="ACTION" if today >= activation_date else "UPCOMING",
+                             health="OVERDUE" if today > activation_date else "NORMAL",
+                             context={"currency": pi.currency, "outstanding_amount": str(max(outstanding, Decimal('0'))),
+                                      "base_completed_at": base.isoformat(), "trigger_date": activation_date.isoformat()},
+                             activation_at=activation)
+        else:
+            _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
 
     if pi.status == OrderStage.ARRIVED:
         _upsert_task(pi, "ARRIVAL_CUSTOMER_PICKUP", "提醒客户安排提货",
@@ -553,7 +607,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     elif pi.status != OrderStage.COMPLETED:
         _cancel_task(pi, "ARRIVAL_CUSTOMER_PICKUP", "ORDER_NOT_ARRIVED")
 
-    if settlement and pi.actual_departure_date:
+    if not export_order and settlement and pi.actual_departure_date:
         trigger_date = pi.actual_departure_date + timedelta(days=7)
         reached = today >= trigger_date
         components = (
@@ -613,7 +667,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                              status="ACTION", completion_mode="RULE_DATA",
                              context={"currency": currency, "action_target": f"UPDATE_{currency}_FREIGHT_PAYMENT"})
 
-    if settlement and agreement:
+    if not export_order and settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)
         if comparison.get("reason") == "AMOUNT_DIFFERENCE":
             _upsert_task(
@@ -681,6 +735,8 @@ def apply_manual_task_business_fact(task):
 
 
 def open_correction_session(pi, module, reason, actor_id):
+    if is_export_order(pi) and module in {"PAYMENT", "FREIGHT"}:
+        raise LifecyclePolicyError("Financial corrections are managed by the linked CUSTOMER_ORDER.")
     if pi.status != OrderStage.COMPLETED:
         raise LifecyclePolicyError("Correction sessions are only for completed orders.")
     if module not in CORRECTION_TO_POLICY_MODULE:

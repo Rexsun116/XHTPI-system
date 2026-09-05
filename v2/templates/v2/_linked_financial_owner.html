@@ -1,0 +1,18 @@
+<section id="linked-financial-owner" class="card p-4 mb-3">
+  <h5>Linked Financial Owner</h5>
+  {% if not financial_owner_resolution.valid %}
+    <div class="alert alert-danger mb-0">Linked trade configuration problem: {{ financial_owner_resolution.error }}</div>
+  {% else %}
+    {% set owner = financial_owner_resolution.owner %}
+    <div class="mb-3"><b>Customer Order:</b> <a href="{{ url_for('v2.order_view', pi_id=owner.id) }}">{{ owner.pi_no }}</a>
+      <a class="btn btn-sm btn-outline-primary ms-2" href="{{ url_for('v2.order_view', pi_id=owner.id) }}">Open financial owner order</a></div>
+    <div class="row g-2 mb-3"><div class="col-md-6"><b>Customer Payment:</b> Managed by linked customer order {{ owner.pi_no }}</div><div class="col-md-6"><b>Freight Finance:</b> Managed by linked customer order {{ owner.pi_no }}</div></div>
+    <div class="row g-3">
+      <div class="col-md-4"><b>Freight Forwarder</b><div>{{ financial_agreement.freight_forwarder_name_snapshot if financial_agreement else 'Not yet available' }}</div></div>
+      <div class="col-md-4"><b>Accepted Freight Agreement</b><div>{{ financial_agreement.currency if financial_agreement else '—' }} {{ financial_agreement.amount if financial_agreement else 'Not yet available' }}</div></div>
+      {% for code, required, amount, status, paid_at in [('USD', financial_settlement.usd_bill_required if financial_settlement else none, financial_settlement.usd_bill_amount if financial_settlement else none, financial_settlement.usd_payment_status if financial_settlement else none, financial_settlement.usd_paid_at if financial_settlement else none), ('CNY', financial_settlement.cny_bill_required if financial_settlement else none, financial_settlement.cny_bill_amount if financial_settlement else none, financial_settlement.cny_payment_status if financial_settlement else none, financial_settlement.cny_paid_at if financial_settlement else none)] %}
+      <div class="col-md-4"><b>{{ code }} Freight Settlement</b><div>Required: {{ 'Yes' if required is sameas true else 'No' if required is sameas false else '—' }}</div><div>Bill: {{ amount if amount is not none else '—' }}</div><div>Status: {{ status or '—' }} · Paid At: {{ paid_at.date().isoformat() if paid_at else '—' }}</div></div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</section>

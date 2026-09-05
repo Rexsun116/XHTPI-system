@@ -260,6 +260,10 @@ class PI(TimestampMixin, db.Model):
         return self.trade_group_id is not None and self.trade_role is not None
 
     @property
+    def is_export_order(self):
+        return self.is_linked_trade and self.trade_role == "EXPORT_ORDER"
+
+    @property
     def linked_customer_order(self):
         return self.trade_group.customer_order if self.trade_group else None
 

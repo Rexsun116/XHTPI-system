@@ -11,7 +11,9 @@ from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
     Product, ProductBatch, TaskActivity, db, utcnow)
 from .services import (apply_bank_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
-    completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile)
+    completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
+    EXPORT_FINANCIAL_TASK_CODES)
+from .linked_trade import financial_owner_for, is_export_order
 from .presenter import present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -305,6 +307,8 @@ def advance_receipt(pi_id):
     pi = db.get_or_404(PI, pi_id)
     if pi.status == "COMPLETED":
         abort(409, "Completed orders are read-only.")
+    if is_export_order(pi):
+        abort(409, "Customer payment is managed by the linked CUSTOMER_ORDER.")
     if pi.order_type != "SALES":
         abort(400, "Advance receipts are available only for Sales orders.")
     try:
@@ -329,9 +333,18 @@ def order_view(pi_id):
     quotes=list(db.session.scalars(db.select(FreightQuote)))
     agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
     settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id))
+    financial_owner_resolution = financial_owner_for(pi)
+    financial_agreement = agreement
+    financial_settlement = settlement
+    if is_export_order(pi) and financial_owner_resolution.valid:
+        owner_id = financial_owner_resolution.owner.id
+        financial_agreement = db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == owner_id))
+        financial_settlement = db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id == owner_id))
     open_task = request.args.get("open_task", type=int)
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
-        agreement=agreement,settlement=settlement,forwarders=list(db.session.scalars(db.select(FreightForwarder))),
+        agreement=agreement,settlement=settlement,financial_agreement=financial_agreement,
+        financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
+        forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
         completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None)
 
@@ -372,6 +385,17 @@ def task_history(task_id):
 @login_required
 def order_facts(pi_id):
     pi=db.get_or_404(PI,pi_id)
+    financial_fields = {
+        "advance_payment_percent", "advance_payment_amount", "balance_payment_amount",
+        "advance_received_amount", "advance_received_at", "balance_received_amount", "balance_received_at",
+        "usd_bill_required", "cny_bill_required", "usd_bill_amount", "cny_bill_amount",
+        "usd_bill_confirmed", "cny_bill_confirmed", "usd_invoice_issued", "cny_invoice_issued",
+        "usd_invoice_issued_at", "cny_invoice_issued_at", "usd_payment_status", "cny_payment_status",
+        "usd_paid_at", "cny_paid_at", "agreement_amount", "agreement_currency", "agreement_note",
+    }
+    if is_export_order(pi) and (financial_fields.intersection(request.form) or request.form.get("quote_id")
+                                or request.form.get("_form_scope") == "FREIGHT_SETTLEMENT"):
+        abort(409, "Financial facts are managed by the linked CUSTOMER_ORDER.")
     if pi.status=="COMPLETED":
         correction=db.session.scalar(db.select(OrderCorrectionSession).where(OrderCorrectionSession.pi_id==pi.id,OrderCorrectionSession.closed_at.is_(None)))
         if not correction: abort(403,"Use a correction session")
@@ -637,13 +661,17 @@ def _shipped_gate_is_ready(pi):
         OrderTask.pi_id == pi.id, OrderTask.task_code == "SHIPPING_CONTAINER_LOADING",
         OrderTask.status == "DONE",
     ))
+    resolution = financial_owner_for(pi)
     agreement_task = db.session.scalar(db.select(OrderTask).where(
         OrderTask.pi_id == pi.id, OrderTask.task_code == "SHIPPING_FREIGHT_AGREEMENT",
         OrderTask.status == "DONE",
     ))
-    agreement = db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
+    agreement = db.session.scalar(db.select(OrderFreightAgreement).where(
+        OrderFreightAgreement.pi_id == (resolution.owner.id if is_export_order(pi) and resolution.valid else pi.id)
+    ))
     loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
-    return bool(gate and loading and agreement_task and loading_date and agreement)
+    agreement_ready = bool(resolution.valid and agreement) if is_export_order(pi) else bool(agreement_task and agreement)
+    return bool(gate and loading and loading_date and agreement_ready)
 
 
 @blueprint.route("/orders/<int:pi_id>/enter-shipped", methods=["GET", "POST"])
@@ -740,6 +768,8 @@ def update_eta(pi_id):
 @login_required
 def freight_agreement_manual(pi_id):
     pi=db.get_or_404(PI,pi_id)
+    if is_export_order(pi):
+        abort(409, "Freight agreement is managed by the linked CUSTOMER_ORDER.")
     if pi.status!="PRE_SHIPMENT": abort(403)
     if db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
         abort(409,"Accepted agreement is immutable; use a controlled correction.")
@@ -796,7 +826,10 @@ def batch_delete(pi_id, batch_id):
 @blueprint.post("/orders/<int:pi_id>/corrections")
 @login_required
 def correction_open(pi_id):
-    pi=db.get_or_404(PI,pi_id); open_correction_session(pi,request.form["module"],request.form.get("reason"),current_user.id); db.session.commit()
+    pi=db.get_or_404(PI,pi_id)
+    if is_export_order(pi) and request.form.get("module") in {"PAYMENT", "FREIGHT"}:
+        abort(409, "Financial corrections are managed by the linked CUSTOMER_ORDER.")
+    open_correction_session(pi,request.form["module"],request.form.get("reason"),current_user.id); db.session.commit()
     return redirect(url_for("v2.order_view",pi_id=pi.id))
 
 
@@ -813,6 +846,8 @@ def correction_edit(session_id):
     session=db.get_or_404(OrderCorrectionSession,session_id)
     if session.closed_at: abort(409,"Correction session is closed")
     pi=db.get_or_404(PI,session.pi_id); settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id))
+    if is_export_order(pi) and session.module in {"PAYMENT", "FREIGHT"}:
+        abort(409, "Financial corrections are managed by the linked CUSTOMER_ORDER.")
     agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
     if request.method=="GET":
         return render_template("v2/correction.html",pi=pi,correction=session,settlement=settlement,agreement=agreement,
@@ -884,6 +919,8 @@ def task_action(task_id,action):
     task=db.get_or_404(OrderTask,task_id)
     if task.pi.status == "COMPLETED":
         abort(409, "Completed order tasks are read-only.")
+    if is_export_order(task.pi) and task.task_code in EXPORT_FINANCIAL_TASK_CODES:
+        abort(409, "Financial tasks are managed by the linked CUSTOMER_ORDER.")
     try:
         if action=="done":
             payload=apply_manual_task_business_fact(task) or {}
