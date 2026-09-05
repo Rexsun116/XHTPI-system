@@ -342,6 +342,8 @@ def order_delete(pi_id):
     pi = db.get_or_404(PI, pi_id)
     if pi.status != "NEW":
         abort(409, "Only NEW orders can be permanently deleted.")
+    if pi.trade_group_id is not None:
+        abort(409, "Linked-trade orders cannot be permanently deleted; use a future group-aware unlink workflow.")
     if request.method == "GET":
         return render_template("v2/order_delete.html", pi=pi, error=None)
     try:

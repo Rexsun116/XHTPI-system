@@ -31,6 +31,10 @@ def delete_new_order(pi, submitted_confirmation):
     """Delete one NEW order and all order-owned rows in one transaction."""
     if pi.status != "NEW":
         raise OrderDeletionNotAllowed("Only NEW orders can be permanently deleted.")
+    if pi.trade_group_id is not None:
+        raise OrderDeletionNotAllowed(
+            "Linked-trade orders cannot be permanently deleted; use a future group-aware unlink workflow."
+        )
     if submitted_confirmation != pi.pi_no:
         raise OrderDeletionConfirmationError("Enter the exact PI Number to confirm permanent deletion.")
 

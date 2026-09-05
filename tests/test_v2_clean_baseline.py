@@ -87,11 +87,14 @@ class V2CleanBaselineTest(TestCase):
             conn.execute("PRAGMA foreign_keys=ON")
             self.assertEqual(conn.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(conn.execute("PRAGMA foreign_key_check").fetchall(), [])
-            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0004")
+            self.assertEqual(conn.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0005")
             columns = {row[1] for row in conn.execute("PRAGMA table_info(pi)")}
+            trade_group_columns = {row[1] for row in conn.execute("PRAGMA table_info(trade_group)")}
         self.assertNotIn("commission_exporter_id", columns)
         self.assertNotIn("payment_received", columns)
         self.assertNotIn("ocean_freight", columns)
+        self.assertTrue({"trade_group_id", "trade_role", "include_in_business_stats"}.issubset(columns))
+        self.assertEqual(trade_group_columns, {"id", "group_no", "created_at"})
 
     def test_02_app_boot_login_create_sales_and_targeted_reminder(self):
         client = self.login_client()

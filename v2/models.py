@@ -100,12 +100,40 @@ class FreightQuote(TimestampMixin, db.Model):
     freight_forwarder = db.relationship("FreightForwarder")
 
 
+class TradeGroup(db.Model):
+    """A non-owning relationship between the two PIs of a triangular trade."""
+    __tablename__ = "trade_group"
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_no = db.Column(db.String(50), nullable=False, unique=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=utcnow)
+    members = db.relationship("PI", back_populates="trade_group", order_by="PI.id")
+
+    def member_with_role(self, role):
+        return next((pi for pi in self.members if pi.trade_role == role), None)
+
+    @property
+    def customer_order(self):
+        return self.member_with_role("CUSTOMER_ORDER")
+
+    @property
+    def export_order(self):
+        return self.member_with_role("EXPORT_ORDER")
+
+
 class PI(TimestampMixin, db.Model):
     __tablename__ = "pi"
     __table_args__ = (
         CheckConstraint("order_type IN ('SALES','COMMISSION')", name="ck_pi_order_type"),
         CheckConstraint("status IN ('NEW','PRE_SHIPMENT','SHIPPED','ARRIVED','COMPLETED')", name="ck_pi_status"),
         CheckConstraint("commission_amount_mode IS NULL OR commission_amount_mode IN ('DERIVED','EXPLICIT_OVERRIDE')", name="ck_pi_commission_mode"),
+        CheckConstraint(
+            "(trade_group_id IS NULL AND trade_role IS NULL) OR "
+            "(trade_group_id IS NOT NULL AND trade_role IS NOT NULL "
+            "AND trade_role IN ('CUSTOMER_ORDER','EXPORT_ORDER'))",
+            name="ck_pi_trade_link_pairing",
+        ),
+        UniqueConstraint("trade_group_id", "trade_role", name="uq_pi_trade_group_role"),
     )
     id = db.Column(db.Integer, primary_key=True)
     pi_no = db.Column(db.String(50), nullable=False, unique=True)
@@ -115,6 +143,9 @@ class PI(TimestampMixin, db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey("customer.id"), nullable=False)
     exporter_id = db.Column(db.Integer, db.ForeignKey("exporter.id"))
     commission_factory_id = db.Column(db.Integer, db.ForeignKey("factory.id"))
+    trade_group_id = db.Column(db.Integer, db.ForeignKey("trade_group.id", ondelete="RESTRICT"), index=True)
+    trade_role = db.Column(db.String(20))
+    include_in_business_stats = db.Column(db.Boolean, nullable=False, default=True, server_default="1")
 
     customer_name_snapshot = db.Column(db.String(150), nullable=False)
     customer_address_snapshot = db.Column(db.Text)
@@ -221,7 +252,30 @@ class PI(TimestampMixin, db.Model):
     commission_factory = db.relationship("Factory", foreign_keys=[commission_factory_id])
     bank_account = db.relationship("BankAccount")
     freight_forwarder = db.relationship("FreightForwarder")
+    trade_group = db.relationship("TradeGroup", back_populates="members")
     items = db.relationship("PIItem", back_populates="pi", cascade="all, delete-orphan")
+
+    @property
+    def is_linked_trade(self):
+        return self.trade_group_id is not None and self.trade_role is not None
+
+    @property
+    def linked_customer_order(self):
+        return self.trade_group.customer_order if self.trade_group else None
+
+    @property
+    def linked_export_order(self):
+        return self.trade_group.export_order if self.trade_group else None
+
+    @property
+    def linked_peer(self):
+        if not self.is_linked_trade or self.trade_group is None:
+            return None
+        expected_role = (
+            "EXPORT_ORDER" if self.trade_role == "CUSTOMER_ORDER"
+            else "CUSTOMER_ORDER" if self.trade_role == "EXPORT_ORDER" else None
+        )
+        return self.trade_group.member_with_role(expected_role) if expected_role else None
 
     @property
     def contract_total(self):
