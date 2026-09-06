@@ -14,6 +14,11 @@ from .services import (apply_bank_snapshot, apply_product_snapshot, close_correc
     completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     EXPORT_FINANCIAL_TASK_CODES)
 from .linked_trade import financial_owner_for, is_export_order
+from .linked_trade_creation import (
+    LinkedExportCreationError,
+    create_linked_export_order,
+    linked_export_creation_error,
+)
 from .presenter import present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -346,7 +351,38 @@ def order_view(pi_id):
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
-        completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None)
+        completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None,
+        can_create_linked_export=linked_export_creation_error(pi) is None)
+
+
+def _render_linked_export_create(source, *, form_data=None, error=None, status=200):
+    return render_template("v2/create_linked_export_order.html", source=source,
+                           form_data=form_data or {}, error=error,
+                           document_facts=DOCUMENT_FACTS, **_order_choices()), status
+
+
+@blueprint.route("/orders/<int:pi_id>/create-linked-export", methods=["GET", "POST"])
+@login_required
+def create_linked_export(pi_id):
+    source = db.get_or_404(PI, pi_id)
+    if request.method == "GET":
+        error = linked_export_creation_error(source)
+        if error:
+            abort(409, error)
+        return _render_linked_export_create(source)
+    try:
+        export = create_linked_export_order(source.id, request.form)
+    except LinkedExportCreationError as exc:
+        db.session.rollback()
+        source = db.get_or_404(PI, pi_id)
+        return _render_linked_export_create(source, form_data=request.form, error=str(exc), status=400)
+    except IntegrityError:
+        db.session.rollback()
+        source = db.get_or_404(PI, pi_id)
+        return _render_linked_export_create(source, form_data=request.form,
+                                            error="Linked export order could not be created.", status=400)
+    flash(f"Linked export order {export.pi_no} created.", "success")
+    return redirect(url_for("v2.order_view", pi_id=export.id))
 
 
 @blueprint.route("/orders/<int:pi_id>/delete", methods=["GET", "POST"])
