@@ -108,8 +108,8 @@ def document_context(pi, kind):
         "format_decimal_compact": format_decimal_compact,
         "format_product_description": format_product_description,
         "format_trade_term_for_document": format_trade_term_for_document,
-        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind == "pi" else None,
-        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind == "pi" else "seal",
+        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind in {"pi", "invoice"} else None,
+        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind in {"pi", "invoice"} else "seal",
     }
 
 

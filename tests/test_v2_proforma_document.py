@@ -78,6 +78,23 @@ class ProformaDocumentTest(TestCase):
         self.assertNotIn("Live Bank", html); self.assertNotIn("LIVE", html)
         self.assertIn("Reference\nOnly", html)
 
+    def test_commercial_invoice_reuses_approved_pi_body_with_only_title_changed(self):
+        pi = self.pi(); item = pi.items[0]
+        item.product_category_snapshot = "TITANIUM DIOXIDE"; item.product_brand_snapshot = None
+        item.product_model_snapshot = "R-996"; item.trade_term = "FOB"
+        pi.exporter_name_snapshot = "Exporter;中文公司"; pi.customer_address_snapshot = "Line 1；Line 2"
+        pi.loading_port = "SHANGHAI"; db.session.commit()
+        proforma = render_invoice_html(pi, "pi")
+        invoice = render_invoice_html(pi, "invoice")
+        self.assertIn(">INVOICE<", invoice)
+        self.assertNotIn("PROFORMA INVOICE", invoice); self.assertNotIn("COMMERCIAL INVOICE", invoice)
+        self.assertEqual(proforma.replace("PROFORMA INVOICE", "DOCUMENT-TITLE"),
+                         invoice.replace("INVOICE", "DOCUMENT-TITLE"))
+        for required in ("TITANIUM DIOXIDE R-996", "FOB SHANGHAI", "Account with Bank:",
+                         "Bank address:", "Beneficiary:", "Account number:", "SWIFT Code:",
+                         "Exporter\n中文公司", "Line 1\nLine 2"):
+            self.assertIn(required, invoice)
+
     def test_structured_exporter_seal_isolated_by_code_and_missing_is_safe(self):
         pi = self.pi(); root = Path(self.app.config["DOCUMENT_ASSET_DIR"]); root.mkdir(parents=True)
         (root / "EXP-DOC.png").write_bytes(b"synthetic-test-image")
