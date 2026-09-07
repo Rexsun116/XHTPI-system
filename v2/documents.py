@@ -3,11 +3,64 @@
 from io import BytesIO
 from pathlib import Path
 from decimal import Decimal
+import logging
+import re
 
 from docx import Document
-from flask import render_template
+from flask import current_app, render_template
 
 from v2_domain import format_batch_numbers, format_container_requirement
+
+
+logger = logging.getLogger(__name__)
+_SAFE_EXPORTER_CODE = re.compile(r"^[A-Za-z0-9_-]+$")
+_SEAL_EXTENSIONS = (".png", ".jpg", ".jpeg")
+_ROUND_SEAL_EXPORTER_CODES = frozenset({"EXP0001", "EXP0003"})
+
+
+def format_document_multiline(value):
+    """Preserve the established semicolon convention without marking HTML safe."""
+    return str(value or "").replace(";", "\n").replace("；", "\n")
+
+
+def format_product_description(*parts):
+    """Join document snapshot fields without leaking empty/null-like values."""
+    return " ".join(
+        text for part in parts
+        if (text := str(part).strip() if part is not None else "") and text.lower() not in {"none", "null"}
+    )
+
+
+def exporter_seal_css_class(pi):
+    """Apply a visual profile only through stable exporter master identity."""
+    code = getattr(pi.exporter, "code", None)
+    if code == "EXP0003":
+        return "seal seal-round seal-round-titax"
+    return "seal seal-round" if code in _ROUND_SEAL_EXPORTER_CODES else "seal"
+
+
+def resolve_exporter_seal_uri(pi):
+    """Return a local file URI for this PI's structured exporter, or no seal."""
+    exporter = pi.exporter
+    code = getattr(exporter, "code", None)
+    if not code or not _SAFE_EXPORTER_CODE.fullmatch(code):
+        if pi.exporter_name_snapshot:
+            logger.warning("No structured exporter identity available for PI seal rendering.")
+        return None
+    root = Path(current_app.config["DOCUMENT_ASSET_DIR"]).expanduser().resolve()
+    for extension in _SEAL_EXTENSIONS:
+        candidate = (root / f"{code}{extension}").resolve()
+        if candidate.parent == root and candidate.is_file():
+            return candidate.as_uri()
+    logger.info("No electronic seal asset available for exporter code %s.", code)
+    return None
+
+
+def format_trade_term_for_document(trade_term, pi):
+    """Add the relevant existing PI port for the narrowly defined PI terms."""
+    term = (trade_term or "").strip().upper()
+    port = pi.loading_port if term == "FOB" else pi.destination_port if term in {"CIF", "CFR"} else None
+    return f"{term} {port}".strip() if port else term
 
 
 def format_decimal_compact(value):
@@ -51,6 +104,12 @@ def document_context(pi, kind):
         "pi": pi, "kind": kind, "net_weight_kg": net_weight,
         "container_display": format_container_requirement(pi.container_type, pi.container_count),
         "format_batches": lambda item: format_batch_numbers([b.batch_number for b in item.batches]),
+        "format_document_multiline": format_document_multiline,
+        "format_decimal_compact": format_decimal_compact,
+        "format_product_description": format_product_description,
+        "format_trade_term_for_document": format_trade_term_for_document,
+        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind == "pi" else None,
+        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind == "pi" else "seal",
     }
 
 

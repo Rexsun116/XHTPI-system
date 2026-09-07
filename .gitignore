@@ -7,6 +7,7 @@ instance/*.db
 instance_v2/*.db
 instance_v2/*.db-*
 instance_v2/*.db.*
+instance_v2/document_assets/
 static_v2/generated/
 instance/*.db-*
 

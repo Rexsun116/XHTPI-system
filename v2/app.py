@@ -30,7 +30,11 @@ def create_app(database_uri, *, testing=False, secret_key=None):
     app = Flask(__name__)
     app.config.update(SECRET_KEY=secret or "test-only", SQLALCHEMY_DATABASE_URI=database_uri,
                       SQLALCHEMY_TRACK_MODIFICATIONS=False, TESTING=testing,
-                      WTF_CSRF_ENABLED=not testing)
+                      WTF_CSRF_ENABLED=not testing,
+                      DOCUMENT_ASSET_DIR=os.environ.get(
+                          "XHTPI_DOCUMENT_ASSET_DIR",
+                          str(Path(app.root_path).parent / "instance_v2" / "document_assets" / "stamps"),
+                      ))
     db.init_app(app)
     with app.app_context():
         def _fk_on(connection, _record):
