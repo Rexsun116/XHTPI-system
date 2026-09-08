@@ -74,6 +74,16 @@ def format_decimal_compact(value):
     return text or "0"
 
 
+def format_decimal_compact_grouped(value):
+    """Packing-list display: compact Decimal text with English digit grouping."""
+    if value is None:
+        return ""
+    text = format(Decimal(str(value)), ",f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text or "0"
+
+
 def normalize_weight_input(value, display_unit):
     unit = (display_unit or "KGS").upper()
     if unit not in {"KGS", "MT"}:
@@ -98,18 +108,50 @@ def format_value_unit(value, unit):
     return f"{format_decimal_compact(value)}{unit or ''}"
 
 
+def quantity_to_kg(quantity, quantity_unit):
+    """Convert only explicit product-weight units; never guess cargo units."""
+    unit = (quantity_unit or "").strip().upper()
+    amount = Decimal(str(quantity))
+    if unit == "MT":
+        return amount * Decimal("1000")
+    if unit in {"KG", "KGS"}:
+        return amount
+    raise ValueError(f"Packing List cannot derive net weight from unsupported PI item unit: {quantity_unit or 'missing'}.")
+
+
+def net_weight_kg_for_items(items):
+    return sum((quantity_to_kg(item.quantity, item.quantity_unit) for item in items), Decimal("0"))
+
+
+def packing_values(items):
+    """Keep all distinct snapshot packaging values in item order."""
+    values = []
+    for item in items:
+        value = item.product_packaging_snapshot
+        text = str(value).strip() if value is not None else ""
+        if text and text not in values:
+            values.append(text)
+    return values
+
+
 def document_context(pi, kind):
-    net_weight = sum((item.quantity for item in pi.items), 0) * 1000
+    net_weight = net_weight_kg_for_items(pi.items) if kind == "packing" else None
     return {
         "pi": pi, "kind": kind, "net_weight_kg": net_weight,
         "container_display": format_container_requirement(pi.container_type, pi.container_count),
         "format_batches": lambda item: format_batch_numbers([b.batch_number for b in item.batches]),
         "format_document_multiline": format_document_multiline,
         "format_decimal_compact": format_decimal_compact,
+        "format_decimal_compact_grouped": format_decimal_compact_grouped,
         "format_product_description": format_product_description,
         "format_trade_term_for_document": format_trade_term_for_document,
-        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind in {"pi", "invoice"} else None,
-        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind in {"pi", "invoice"} else "seal",
+        "packing_descriptions": [format_product_description(
+            item.product_category_snapshot, item.product_brand_snapshot, item.product_model_snapshot
+        ) for item in pi.items] if kind == "packing" else (),
+        "packing_values": packing_values(pi.items) if kind == "packing" else (),
+        "package_unit_display": (pi.package_unit or "").strip().upper() or None,
+        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind in {"pi", "invoice", "packing"} else None,
+        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind in {"pi", "invoice", "packing"} else "seal",
     }
 
 

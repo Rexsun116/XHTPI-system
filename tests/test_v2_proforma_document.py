@@ -8,8 +8,8 @@ from unittest import TestCase
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.documents import (exporter_seal_css_class, format_decimal_compact, format_document_multiline,
-                          format_product_description, format_trade_term_for_document,
+from v2.documents import (exporter_seal_css_class, format_decimal_compact, format_decimal_compact_grouped, format_document_multiline,
+                          format_product_description, format_trade_term_for_document, net_weight_kg_for_items,
                           render_invoice_html, resolve_exporter_seal_uri)
 from v2.models import BankAccount, Customer, Exporter, PI, PIItem, User, db
 
@@ -173,3 +173,42 @@ class ProformaDocumentTest(TestCase):
         for kind, magic in (("invoice", b"%PDF"), ("packing", b"%PDF")):
             response = self.client().get(f"/v2/orders/{pi.id}/documents/{kind}")
             self.assertEqual(response.status_code, 200); self.assertTrue(response.data.startswith(magic))
+
+    def test_packing_list_uses_order_level_cargo_facts_and_multi_item_net_weight(self):
+        pi = self.pi(); pi.package_count = 800; pi.package_unit = "Pallets"; pi.gross_weight_kg = Decimal("20500")
+        first = pi.items[0]; first.product_category_snapshot = "TITANIUM DIOXIDE"; first.product_brand_snapshot = None
+        first.product_model_snapshot = "R-996"; first.quantity = Decimal("20.5"); first.quantity_unit = "MT"; first.product_packaging_snapshot = "25 KG/BAG"
+        pi.items.append(PIItem(unit_price=Decimal("1"), quantity=Decimal("500"), quantity_unit="KGS", line_total=Decimal("500"),
+                               product_category_snapshot="TITANIUM DIOXIDE", product_brand_snapshot="TITAX",
+                               product_model_snapshot="R-2195", product_packaging_snapshot="25 KG/BAG"))
+        db.session.commit(); html = render_invoice_html(pi, "packing")
+        for heading in ("MARK &amp; NO.", "QUANTITIES &amp; DESCRIPTIONS", "QUANTITY (PALLETS)",
+                        "GROSS WEIGHT (KGS)", "NET WEIGHT (KGS)"):
+            self.assertIn(heading, html)
+        self.assertEqual(html.count(">800<"), 2); self.assertEqual(html.count(">20,500<"), 2); self.assertEqual(html.count(">21,000<"), 2)
+        self.assertIn("TITANIUM DIOXIDE R-996", html); self.assertIn("TITANIUM DIOXIDE TITAX R-2195", html)
+        self.assertEqual(html.count("25 KG/BAG"), 1); self.assertIn("PACKING:", html)
+
+    def test_packing_list_missing_unit_and_unsupported_item_weight_are_safe(self):
+        pi = self.pi(); pi.package_unit = None; pi.items[0].quantity_unit = "PCS"; db.session.commit()
+        with self.assertRaisesRegex(ValueError, "unsupported PI item unit: PCS"):
+            render_invoice_html(pi, "packing")
+        pi.items[0].quantity_unit = "KG"; db.session.commit()
+        html = render_invoice_html(pi, "packing")
+        self.assertIn("<th>QUANTITY</th>", html); self.assertNotIn("QUANTITY (BAGS)", html)
+        self.assertEqual(net_weight_kg_for_items(pi.items), Decimal("2"))
+
+    def test_packing_list_grouped_numbers_and_total_column_position(self):
+        self.assertEqual(format_decimal_compact_grouped(Decimal("20000")), "20,000")
+        self.assertEqual(format_decimal_compact_grouped(Decimal("23000")), "23,000")
+        self.assertEqual(format_decimal_compact_grouped(Decimal("20300")), "20,300")
+        self.assertEqual(format_decimal_compact_grouped(Decimal("1234.5")), "1,234.5")
+        self.assertEqual(format_decimal_compact_grouped(Decimal("1234.56")), "1,234.56")
+        self.assertEqual(format_decimal_compact_grouped(Decimal("800")), "800")
+        pi = self.pi(); pi.package_count = 800; pi.gross_weight_kg = Decimal("20300")
+        pi.items[0].quantity = Decimal("20"); pi.items[0].quantity_unit = "MT"; db.session.commit()
+        packing = render_invoice_html(pi, "packing")
+        self.assertIn("<tr><td><b>TOTAL</b></td><td></td><td><b>800</b></td><td><b>20,300</b></td><td><b>20,000</b></td></tr>", packing)
+        proforma = render_invoice_html(pi, "pi"); invoice = render_invoice_html(pi, "invoice")
+        self.assertIn(">20 MT<", proforma); self.assertIn(">20 MT<", invoice)
+        self.assertNotIn("20,000", proforma); self.assertNotIn("20,000", invoice)

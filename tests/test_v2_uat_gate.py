@@ -144,7 +144,9 @@ class V2UATGateTest(TestCase):
                    package_count=10,package_unit="BAGS",gross_weight_kg=Decimal("10100"),volume_cbm=Decimal("20"))
         pi.items[0].batches.extend([ProductBatch(batch_number="A",display_order=0),ProductBatch(batch_number="B",display_order=1)])
         html=render_invoice_html(pi,"packing")
-        self.assertIn("BATCH NO.",html); self.assertIn("A / B",html); self.assertIn("10100",html)
+        self.assertIn("MARK &amp; NO.",html); self.assertIn("QUANTITY (BAGS)",html)
+        self.assertIn("GROSS WEIGHT (KGS)",html); self.assertIn("NET WEIGHT (KGS)",html)
+        self.assertIn(">N/M<",html); self.assertIn("10,100",html); self.assertIn("10,000",html)
         root=Path(__file__).resolve().parents[1]
         data=render_booking_docx(pi,root/"v2"/"templates"/"word"/"BN-Sample.docx").getvalue()
         self.assertGreater(len(data),1000)

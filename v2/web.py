@@ -1001,6 +1001,9 @@ def document(pi_id,kind):
     else:
         from weasyprint import HTML
         if kind not in {"pi","invoice","packing"}: abort(404)
-        html=render_invoice_html(pi,kind)
+        try:
+            html=render_invoice_html(pi,kind)
+        except ValueError as exc:
+            abort(400, str(exc))
         path=root/f"{kind}_{pi.pi_no}.pdf"; HTML(string=html).write_pdf(path)
     return send_file(path,as_attachment=True)
