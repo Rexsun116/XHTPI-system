@@ -8,10 +8,11 @@ from unittest import TestCase
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.documents import (exporter_seal_css_class, format_decimal_compact, format_decimal_compact_grouped, format_document_multiline,
-                          format_product_description, format_trade_term_for_document, net_weight_kg_for_items,
+from v2.documents import (contract_missing_fields, exporter_seal_css_class, format_decimal_compact,
+                          format_decimal_compact_grouped, format_document_multiline, format_product_description,
+                          format_trade_term_for_document, net_weight_kg_for_items, render_contract_html,
                           render_invoice_html, resolve_exporter_seal_uri)
-from v2.models import BankAccount, Customer, Exporter, PI, PIItem, User, db
+from v2.models import BankAccount, Customer, Exporter, PI, PIItem, TradeGroup, User, db
 
 
 class ProformaDocumentTest(TestCase):
@@ -38,7 +39,8 @@ class ProformaDocumentTest(TestCase):
                 customer_address_snapshot="Line 1;Line 2；Line 3", customer_tax_code_snapshot="TAX",
                 exporter_name_snapshot="Historical Exporter", exporter_address_snapshot="Top;Address",
                 currency="USD", payment_terms="OA90", loading_port="SHANGHAI LONG PORT",
-                destination_port="LOS ANGELES VERY LONG DESTINATION PORT", bank_account_id=self.bank.id,
+                destination_port="LOS ANGELES VERY LONG DESTINATION PORT", planned_shipment_date=date(2025, 11, 20),
+                bank_account_id=self.bank.id,
                 bank_name_snapshot="Snapshot Bank", bank_address_snapshot="Snapshot Bank;Address",
                 bank_beneficiary_snapshot="Snapshot Beneficiary", bank_account_number_snapshot="SNAP-123",
                 bank_swift_snapshot="SNAPSWIFT", bank_remittance_snapshot="Reference;Only")
@@ -170,9 +172,80 @@ class ProformaDocumentTest(TestCase):
 
     def test_commercial_invoice_packing_and_booking_document_routes_remain_available(self):
         pi = self.pi()
-        for kind, magic in (("invoice", b"%PDF"), ("packing", b"%PDF")):
+        for kind, magic in (("invoice", b"%PDF"), ("packing", b"%PDF"), ("contract", b"%PDF")):
             response = self.client().get(f"/v2/orders/{pi.id}/documents/{kind}")
             self.assertEqual(response.status_code, 200); self.assertTrue(response.data.startswith(magic))
+
+    def test_contract_renders_current_pi_snapshots_bilingual_terms_and_grouped_commercial_values(self):
+        pi = self.pi(pi_no="CONTRACT-2025"); item = pi.items[0]
+        pi.customer_name_snapshot = "Buyer;买方 <unsafe>"; pi.customer_address_snapshot = "Buyer Address;第二行"
+        pi.exporter_name_snapshot = "Seller;卖方"; pi.exporter_address_snapshot = "Seller Address;第二行"
+        pi.currency = "EUR"; pi.payment_terms = "T/T"; pi.loading_port = "SHANGHAI"; pi.destination_port = "APAPA, NIGERIA"
+        item.product_category_snapshot = "TITANIUM DIOXIDE"; item.product_brand_snapshot = None; item.product_model_snapshot = "R-996"
+        item.trade_term = "CIF"; item.unit_price = Decimal("1234.56"); item.quantity = Decimal("20.5"); item.quantity_unit = "MT"; item.line_total = Decimal("25308.48")
+        item.product_packaging_snapshot = "25 KG/BAG"; db.session.commit()
+        html = render_contract_html(pi)
+        for text in ("SALES CONTRACT", "CONTRACT NO:</b> CONTRACT-2025", "DATE:</b> 2026/09/06", "BUYER:", "SELLER:",
+                     "The Buyer requests to buy and the Seller agree to sell", "品名", "单价（EUR） CIF", "数量（MT）",
+                     "总金额（EUR）", "TITANIUM DIOXIDE R-996", ">1,234.56<", ">20.5<", ">25,308.48<",
+                     "EUR 25,308.48", "2 PACKING:", "25 KG/BAG", "OCEAN", "运输方式：</b>海运", "NOV 2025",
+                     "2025年11月", "PORT OF LOADING:</b> SHANGHAI", "PORT OF DESTINATION:</b> APAPA, NIGERIA",
+                     "WAYS OF PAYMENT:</b> T/T", "THE BUYER:", "THE SELLER:"):
+            self.assertIn(text, html)
+        self.assertIn("Buyer\n买方 &lt;unsafe&gt;", html); self.assertIn("Seller\n卖方", html)
+        self.assertNotIn("None", html); self.assertNotIn("$", html)
+        self.assertIn('<div class="contract-no"><b>CONTRACT NO:</b> CONTRACT-2025</div>', html)
+        self.assertIn('<div class="contract-date"><b>DATE:</b> 2026/09/06</div>', html)
+        self.assertIn('<b>3 WAYS OF TRANSPORTATION:</b> OCEAN', html)
+        self.assertIn('<b>4 DATE OF DELIVERY:</b> NOV 2025', html)
+        self.assertNotIn('<b>3 WAYS OF TRANSPORTATION: OCEAN</b>', html)
+        self.assertNotIn('<b>4 DATE OF DELIVERY: NOV 2025</b>', html)
+        self.assertEqual(pi.customer_name_snapshot, "Buyer;买方 <unsafe>")
+        self.assertEqual(pi.exporter_name_snapshot, "Seller;卖方")
+
+    def test_contract_multi_item_units_packaging_and_linked_pi_values_stay_current_pi_local(self):
+        customer_order = self.pi(pi_no="WU-CONTRACT")
+        customer_order.items[0].unit_price = Decimal("999"); customer_order.items[0].line_total = Decimal("1998")
+        customer_order.items[0].product_packaging_snapshot = "25 KG/BAG"
+        export = self.pi(pi_no="XHT-CONTRACT")
+        export.currency = "CNY"; export.payment_terms = "OA90"; export.items[0].unit_price = Decimal("1870")
+        export.items[0].quantity = Decimal("48"); export.items[0].quantity_unit = "MT"; export.items[0].line_total = Decimal("89760")
+        export.items[0].trade_term = "FOB"; export.items[0].product_packaging_snapshot = "25 KG/BAG"
+        export.items.append(PIItem(unit_price=Decimal("2"), quantity=Decimal("800"), quantity_unit="BAGS", line_total=Decimal("1600"),
+                                   trade_term="CIF", product_category_snapshot="SECOND", product_model_snapshot="ITEM",
+                                   product_packaging_snapshot="1 MT/BAG"))
+        group = TradeGroup(group_no="CONTRACT-LINK")
+        customer_order.trade_group = group; customer_order.trade_role = "CUSTOMER_ORDER"
+        export.trade_group = group; export.trade_role = "EXPORT_ORDER"; db.session.commit()
+        html = render_contract_html(export)
+        self.assertIn("Unit Price (CNY)", html); self.assertNotIn("Unit Price (CNY) FOB", html)
+        self.assertIn(">48 MT<", html); self.assertIn(">800 BAGS<", html)
+        self.assertIn(">1,870<", html); self.assertIn(">89,760<", html); self.assertIn("CNY 91,360", html)
+        self.assertIn("25 KG/BAG", html); self.assertIn("1 MT/BAG", html)
+        self.assertNotIn(">999<", html); self.assertNotIn(">1,998<", html)
+        self.assertEqual(customer_order.contract_total, Decimal("1998"))
+
+    def test_contract_missing_essential_facts_fail_in_a_controlled_way(self):
+        pi = self.pi(); pi.destination_port = None; db.session.commit()
+        self.assertIn("Destination Port", contract_missing_fields(pi))
+        with self.assertRaisesRegex(ValueError, "Contract is missing: Destination Port"):
+            render_contract_html(pi)
+        response = self.client().get(f"/v2/orders/{pi.id}/documents/contract")
+        self.assertEqual(response.status_code, 400)
+
+    def test_contract_link_and_structured_seller_seal_profiles_preserve_buyer_without_a_seal(self):
+        pi = self.pi(); root = Path(self.app.config["DOCUMENT_ASSET_DIR"]); root.mkdir(parents=True)
+        for code in ("EXP0001", "EXP0002", "EXP0003"):
+            (root / f"{code}.png").write_bytes(b"seal")
+        pi.exporter.code = "EXP0001"; db.session.commit()
+        html = render_contract_html(pi)
+        self.assertIn(f'/v2/orders/{pi.id}/documents/contract', self.client().get(f'/v2/orders/{pi.id}').get_data(as_text=True))
+        self.assertIn('class="seal seal-round"', html); self.assertEqual(html.count('alt="Electronic exporter seal"'), 1)
+        self.assertIn("THE BUYER:", html); self.assertIn("THE SELLER:", html)
+        pi.exporter.code = "EXP0002"; db.session.commit()
+        self.assertIn('class="seal"', render_contract_html(pi)); self.assertNotIn('class="seal seal-round"', render_contract_html(pi))
+        pi.exporter.code = "EXP0003"; db.session.commit()
+        self.assertIn('class="seal seal-round seal-round-titax"', render_contract_html(pi))
 
     def test_packing_list_uses_order_level_cargo_facts_and_multi_item_net_weight(self):
         pi = self.pi(); pi.package_count = 800; pi.package_unit = "Pallets"; pi.gross_weight_kg = Decimal("20500")

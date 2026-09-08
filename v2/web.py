@@ -989,7 +989,7 @@ def task_action(task_id,action):
 def document(pi_id,kind):
     from pathlib import Path
     from flask import current_app
-    from .documents import booking_missing_fields, render_booking_docx, render_invoice_html
+    from .documents import booking_missing_fields, render_booking_docx, render_contract_html, render_invoice_html
     pi=db.get_or_404(PI,pi_id)
     root=Path(current_app.root_path).parent/"static_v2"/"generated"/kind; root.mkdir(parents=True,exist_ok=True)
     if kind=="booking":
@@ -1000,9 +1000,9 @@ def document(pi_id,kind):
         path.write_bytes(render_booking_docx(pi, Path(current_app.root_path)/"templates"/"word"/"BN-Sample.docx").getvalue())
     else:
         from weasyprint import HTML
-        if kind not in {"pi","invoice","packing"}: abort(404)
+        if kind not in {"pi","invoice","packing","contract"}: abort(404)
         try:
-            html=render_invoice_html(pi,kind)
+            html=render_contract_html(pi) if kind == "contract" else render_invoice_html(pi,kind)
         except ValueError as exc:
             abort(400, str(exc))
         path=root/f"{kind}_{pi.pi_no}.pdf"; HTML(string=html).write_pdf(path)

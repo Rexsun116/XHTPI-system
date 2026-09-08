@@ -10,9 +10,10 @@ from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
 from v2.linked_trade import financial_owner_for
-from v2.models import (Customer, Exporter, Factory, FreightSettlement, OrderCorrectionSession, OrderFreightAgreement,
+from v2.models import (BankAccount, Customer, Exporter, Factory, FreightSettlement, OrderCorrectionSession, OrderFreightAgreement,
                        OrderTask, PI, PIItem, Product, ProductBatch, TaskActivity, TradeGroup, User, db)
 from v2.linked_trade_creation import create_linked_export_order
+from v2.documents import render_invoice_html
 
 
 class LinkedTradeCreateExportTest(TestCase):
@@ -27,8 +28,12 @@ class LinkedTradeCreateExportTest(TestCase):
         self.export_seller = Exporter(code="EXP-EXPORT", name="Export Seller", active=True)
         self.factory = Factory(code="FAC-B3", name="Factory", active=True)
         self.product = Product(code="PRD-B3", model="Product B3", hs_code="810890", active=True)
+        self.customer_bank = BankAccount(code="BNK-CUSTOMER", name="Customer-side Bank", beneficiary_name="Customer Beneficiary",
+                                         bank_name="Customer Bank", account_number="CUSTOMER-ACCOUNT", active=True)
+        self.export_bank = BankAccount(code="BNK-EXPORT", name="Export-side Bank", beneficiary_name="Export Beneficiary",
+                                       bank_name="Export Bank", account_number="EXPORT-ACCOUNT", active=True)
         db.session.add_all((self.user, self.customer, self.export_customer, self.exporter,
-                            self.export_seller, self.factory, self.product)); db.session.commit()
+                            self.export_seller, self.factory, self.product, self.customer_bank, self.export_bank)); db.session.commit()
 
     def tearDown(self):
         db.session.rollback(); db.session.remove(); self.ctx.pop(); self.tmp.cleanup()
@@ -71,7 +76,8 @@ class LinkedTradeCreateExportTest(TestCase):
 
     def payload(self, source, **extra):
         values = {"pi_no": "XHT-B3", "customer_id": str(self.export_customer.id),
-                  "exporter_id": str(self.export_seller.id), "currency": "USD", "payment_terms": "OA90"}
+                  "exporter_id": str(self.export_seller.id), "bank_account_id": str(self.export_bank.id),
+                  "currency": "USD", "payment_terms": "OA90"}
         for item in source.items:
             values[f"unit_price_{item.id}"] = "123.45"; values[f"trade_term_{item.id}"] = "FOB"
         values.update(extra); return values
@@ -87,6 +93,8 @@ class LinkedTradeCreateExportTest(TestCase):
         self.assertEqual(export.trade_group_id, source.trade_group_id)
         self.assertIs(financial_owner_for(export).owner, source)
         self.assertEqual((export.payment_terms, export.items[0].trade_term, export.items[0].unit_price), ("OA90", "FOB", Decimal("123.45")))
+        self.assertEqual((export.bank_account_id, export.bank_name_snapshot, export.bank_account_number_snapshot),
+                         (self.export_bank.id, "Export Bank", "EXPORT-ACCOUNT"))
         self.assertEqual(export.items[0].line_total, Decimal("246.90"))
         self.assertEqual(export.items[0].product_hs_code_snapshot, source.items[0].product_hs_code_snapshot)
         self.assertEqual((export.loading_port, export.etd, export.eta, export.container_type), ("SHA", date(2026, 9, 29), date(2026, 10, 15), "20GP"))
@@ -137,11 +145,33 @@ class LinkedTradeCreateExportTest(TestCase):
         page = client.get(f"/v2/orders/{source.id}/create-linked-export").get_data(as_text=True)
         self.assertIn("Source commercial PI", page); self.assertIn("Shipment Plan Prefill", page)
         self.assertIn("value=\"OA90\"", page); self.assertIn("value=\"FOB\"", page)
+        self.assertIn('name="bank_account_id" required', page); self.assertIn("Export-side Bank", page)
         self.assertNotIn('value="999"', page)
         payload = self.payload(source, customer_id="", **{f"unit_price_{source.items[0].id}": "not-a-number"})
         self.assertEqual(client.post(f"/v2/orders/{source.id}/create-linked-export", data=payload).status_code, 400)
         source = db.session.get(PI, source.id)
         self.assertIsNone(source.trade_group_id)
+
+    def test_linked_export_bank_selection_is_required_local_snapshot_and_never_borrows_peer_bank(self):
+        source = self.source()
+        source.bank_account_id = self.customer_bank.id; source.bank_name_snapshot = "Customer Bank"
+        source.bank_account_number_snapshot = "CUSTOMER-ACCOUNT"; db.session.commit()
+        missing = self.payload(source); missing.pop("bank_account_id")
+        self.assertEqual(self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=missing).status_code, 400)
+        source = db.session.get(PI, source.id)
+        self.assertIsNone(source.trade_group_id)
+        self.assertEqual(self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=self.payload(source)).status_code, 302)
+        export = db.session.scalar(db.select(PI).where(PI.pi_no == "XHT-B3"))
+        self.assertEqual(export.bank_account_id, self.export_bank.id)
+        self.assertEqual(export.bank_name_snapshot, "Export Bank")
+        self.assertNotEqual(export.bank_account_number_snapshot, source.bank_account_number_snapshot)
+        self.export_bank.bank_name = "Changed Live Bank"; self.export_bank.account_number = "CHANGED"; db.session.commit()
+        db.session.refresh(export)
+        self.assertEqual((export.bank_name_snapshot, export.bank_account_number_snapshot), ("Export Bank", "EXPORT-ACCOUNT"))
+        pi_html = render_invoice_html(export, "pi"); invoice_html = render_invoice_html(export, "invoice")
+        for html in (pi_html, invoice_html):
+            self.assertIn("Export Bank", html); self.assertIn("EXPORT-ACCOUNT", html)
+            self.assertNotIn("Customer Bank", html); self.assertNotIn("Changed Live Bank", html)
 
     def test_prices_and_shipment_plans_remain_independent_after_creation(self):
         source = self.source(); self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=self.payload(source))

@@ -256,8 +256,9 @@ class V2CleanBaselineTest(TestCase):
         client=self.login_client(); client.post("/orders",json=self.sales_payload("DOCS"))
         pi=db.session.scalar(db.select(PI).where(PI.pi_no=="DOCS"))
         pi.vessel_info="TEST VESSEL"; pi.container_type="20GP"; pi.container_count=1
-        pi.shipping_mark="TEST MARK"; pi.freight_term="FOB"; pi.waybill_option="ORIGINAL"; db.session.commit()
-        for kind,magic in (("pi",b"%PDF"),("invoice",b"%PDF"),("packing",b"%PDF"),("booking",b"PK")):
+        pi.shipping_mark="TEST MARK"; pi.freight_term="FOB"; pi.waybill_option="ORIGINAL"
+        pi.loading_port="SHANGHAI"; pi.destination_port="MUMBAI"; db.session.commit()
+        for kind,magic in (("pi",b"%PDF"),("invoice",b"%PDF"),("packing",b"%PDF"),("contract",b"%PDF"),("booking",b"PK")):
             response=client.get(f"/v2/orders/{pi.id}/documents/{kind}")
             self.assertEqual(response.status_code,200); self.assertTrue(response.data.startswith(magic))
 

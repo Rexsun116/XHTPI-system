@@ -6,8 +6,8 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from .models import Customer, Exporter, PI, PIItem, TradeGroup, db
-from .services import reconcile_order_tasks_for_pi
+from .models import BankAccount, Customer, Exporter, PI, PIItem, TradeGroup, db
+from .services import apply_bank_snapshot, reconcile_order_tasks_for_pi
 
 
 class LinkedExportCreationError(ValueError):
@@ -79,6 +79,13 @@ def create_linked_export_order(source_id, form):
         exporter = db.session.get(Exporter, exporter_id)
         if customer is None or exporter is None or not customer.active or not exporter.active:
             raise LinkedExportCreationError("Export customer or seller is unavailable.")
+        try:
+            bank_account_id = int(_required(form, "bank_account_id", "Bank Account"))
+        except ValueError as exc:
+            raise LinkedExportCreationError("Bank Account is invalid.") from exc
+        bank_account = db.session.get(BankAccount, bank_account_id)
+        if bank_account is None or not bank_account.active:
+            raise LinkedExportCreationError("Bank Account is unavailable.")
 
         prices = {}
         for item in source.items:
@@ -119,6 +126,7 @@ def create_linked_export_order(source_id, form):
             freight_forwarder_id=source.freight_forwarder_id, vessel_info=source.vessel_info,
             booking_number=source.booking_number, etd=source.etd, eta=source.eta,
         )
+        apply_bank_snapshot(export, bank_account)
         for fact in DOCUMENT_FACTS:
             setattr(export, fact, _tri_state(form.get(fact)))
         for source_item in source.items:

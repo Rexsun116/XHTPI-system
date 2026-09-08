@@ -134,6 +134,47 @@ def packing_values(items):
     return values
 
 
+def contract_missing_fields(pi):
+    """Return the commercial facts a Contract must not silently invent."""
+    required = {
+        "PI No.": pi.pi_no,
+        "PI Date": pi.pi_date,
+        "Buyer": pi.customer_name_snapshot,
+        "Seller": pi.exporter_name_snapshot,
+        "Currency": pi.currency,
+        "Planned Shipment Date": pi.planned_shipment_date,
+        "Loading Port": pi.loading_port,
+        "Destination Port": pi.destination_port,
+        "Payment Terms": pi.payment_terms,
+    }
+    missing = [label for label, value in required.items() if value is None or not str(value).strip()]
+    if not pi.items:
+        missing.append("PI Items")
+    for number, item in enumerate(pi.items, start=1):
+        item_required = {
+            "quantity": item.quantity,
+            "quantity unit": item.quantity_unit,
+            "unit price": item.unit_price,
+            "line total": item.line_total,
+        }
+        missing.extend(
+            f"PI Item {number} {label}"
+            for label, value in item_required.items()
+            if value is None or not str(value).strip()
+        )
+    return missing
+
+
+def _common_item_value(items, attribute):
+    values = []
+    for item in items:
+        value = getattr(item, attribute, None)
+        text = str(value).strip() if value is not None else ""
+        if text and text not in values:
+            values.append(text)
+    return values[0] if len(values) == 1 else None
+
+
 def document_context(pi, kind):
     net_weight = net_weight_kg_for_items(pi.items) if kind == "packing" else None
     return {
@@ -148,15 +189,26 @@ def document_context(pi, kind):
         "packing_descriptions": [format_product_description(
             item.product_category_snapshot, item.product_brand_snapshot, item.product_model_snapshot
         ) for item in pi.items] if kind == "packing" else (),
-        "packing_values": packing_values(pi.items) if kind == "packing" else (),
+        "packing_values": packing_values(pi.items) if kind in {"packing", "contract"} else (),
         "package_unit_display": (pi.package_unit or "").strip().upper() or None,
-        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind in {"pi", "invoice", "packing"} else None,
-        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind in {"pi", "invoice", "packing"} else "seal",
+        "contract_quantity_unit": _common_item_value(pi.items, "quantity_unit") if kind == "contract" else None,
+        "contract_trade_term": _common_item_value(pi.items, "trade_term") if kind == "contract" else None,
+        "contract_delivery_en": pi.planned_shipment_date.strftime("%b %Y").upper() if kind == "contract" and pi.planned_shipment_date else None,
+        "contract_delivery_zh": f"{pi.planned_shipment_date.year}年{pi.planned_shipment_date.month}月" if kind == "contract" and pi.planned_shipment_date else None,
+        "exporter_seal_uri": resolve_exporter_seal_uri(pi) if kind in {"pi", "invoice", "packing", "contract"} else None,
+        "exporter_seal_css_class": exporter_seal_css_class(pi) if kind in {"pi", "invoice", "packing", "contract"} else "seal",
     }
 
 
 def render_invoice_html(pi, kind):
     return render_template("v2/documents/invoice.html", **document_context(pi, kind))
+
+
+def render_contract_html(pi):
+    missing = contract_missing_fields(pi)
+    if missing:
+        raise ValueError("Contract is missing: " + ", ".join(missing))
+    return render_template("v2/documents/contract.html", **document_context(pi, "contract"))
 
 
 _LINE_BREAK = "\uf000"
