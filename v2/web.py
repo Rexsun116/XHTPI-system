@@ -1,5 +1,5 @@
 """Authenticated, CSRF-protected V2 browser UI."""
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
@@ -21,9 +21,10 @@ from .linked_trade_creation import (
 )
 from .presenter import present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
+from .business_time import business_today
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
                            move_to_waiting, parse_datetime, reopen)
-from .documents import normalize_weight_input
+from .documents import format_decimal_compact, normalize_weight_input
 from .order_deletion import (
     OrderDeletionConfirmationError,
     OrderDeletionNotAllowed,
@@ -59,8 +60,41 @@ def dashboard():
         if status in grouped:
             grouped[status].append(task)
     next_by_order = {pi.id: select_next_action([task for task in tasks if task.pi_id == pi.id]) for pi in orders}
+    tasks_by_order = {pi.id: [] for pi in orders}
+    for task in ordered:
+        if task.status != "CANCELLED":
+            tasks_by_order.setdefault(task.pi_id, []).append(task)
+    today = business_today()
+    upcoming_days = [{"date": today + timedelta(days=offset), "events": []} for offset in range(7)]
+    days_by_date = {row["date"]: row for row in upcoming_days}
+    for task in ordered:
+        status = getattr(task, "_dashboard_status", task.status)
+        if status in {"DONE", "CANCELLED"}:
+            continue
+        event_at = task.next_follow_up_at or task.due_at or task.activation_at
+        if event_at and event_at.date() in days_by_date:
+            days_by_date[event_at.date()]["events"].append({
+                "kind": "task", "pi_id": task.pi_id, "pi_no": task.pi.pi_no,
+                "task_id": task.id, "title": task.title,
+            })
+    for pi in orders:
+        for label, event_date in (("Planned shipment", pi.planned_shipment_date), ("ETD", pi.etd), ("ETA", pi.eta)):
+            if event_date in days_by_date:
+                days_by_date[event_date]["events"].append({
+                    "kind": "order", "pi_id": pi.id, "pi_no": pi.pi_no, "title": label,
+                })
+    active_business_orders = [pi for pi in orders if pi.status != "COMPLETED" and pi.include_in_business_stats]
+    summary = {
+        "active_orders": len(active_business_orders),
+        "exception": len(grouped["EXCEPTION"]),
+        "action": len([task for task in grouped["ACTION"] if task._dashboard_health != "EXCEPTION"]),
+        "waiting": len(grouped["WAITING"]),
+        "upcoming": len(grouped["UPCOMING"]),
+    }
     return render_template("v2/dashboard.html", grouped=grouped, orders=orders,
-                           next_by_order=next_by_order, present_task=present_task)
+                           tasks_by_order=tasks_by_order, next_by_order=next_by_order,
+                           upcoming_days=upcoming_days, summary=summary, present_task=present_task,
+                           format_decimal_compact=format_decimal_compact)
 
 
 @blueprint.route("/master/<kind>", methods=["GET", "POST"])
@@ -972,6 +1006,9 @@ def task_action(task_id,action):
                 move_to_waiting(task,current_user.id,waiting_on=request.form.get("waiting_on"),
                                 next_follow_up_at=parse_datetime(request.form.get("next_follow_up_at")),note=request.form.get("note"))
         elif action=="followup":
+            reconcile_order_tasks_for_pi(task.pi)
+            db.session.flush()
+            db.session.refresh(task)
             follow_up(task,current_user.id,waiting_on=request.form.get("waiting_on") or task.waiting_on,
                       next_follow_up_at=parse_datetime(request.form.get("next_follow_up_at")),note=request.form.get("note"),
                       continue_waiting=request.form.get("continue_waiting","true")=="true")

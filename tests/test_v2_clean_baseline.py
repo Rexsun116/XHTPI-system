@@ -9,6 +9,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+from unittest.mock import patch
 from unittest import TestCase
 
 from werkzeug.security import generate_password_hash
@@ -98,7 +99,9 @@ class V2CleanBaselineTest(TestCase):
 
     def test_02_app_boot_login_create_sales_and_targeted_reminder(self):
         client = self.login_client()
-        response = client.post("/orders", json=self.sales_payload())
+        # Before the planned-shipment minus-10 activation boundary: initial advance task waits.
+        with patch("v2.services.utcnow", return_value=datetime(2026, 9, 9, 12)):
+            response = client.post("/orders", json=self.sales_payload())
         self.assertEqual(response.status_code, 201)
         pi = db.session.scalar(db.select(PI).where(PI.pi_no == "V2-SALES"))
         self.assertEqual(pi.advance_payment_amount, Decimal("200.00"))
@@ -250,7 +253,17 @@ class V2CleanBaselineTest(TestCase):
         self.assertEqual(response.status_code,302)
         pi=db.session.scalar(db.select(PI).where(PI.pi_no=="UI-ORDER"))
         self.assertEqual((len(pi.items),pi.contract_total),(2,Decimal("200.00")))
-        self.assertIn("Order Control Center",client.get("/v2/").get_data(as_text=True))
+        dashboard = client.get("/v2/").get_data(as_text=True)
+        self.assertIn("订单控制中心", dashboard)
+        self.assertIn("v35-dashboard", dashboard)
+        self.assertIn("--v35-primary:#14b8a6", dashboard)
+        self.assertIn("v35-cell-primary", dashboard)
+        self.assertIn("v35-cell-secondary", dashboard)
+        self.assertIn("applyCollapsedState", dashboard)
+        self.assertIn("limits={exception:3,action:5,waiting:4}", dashboard)
+        self.assertIn("applyCollapsedState();", dashboard)
+        self.assertIn("aria-expanded','false'", dashboard)
+        self.assertIn("var(--upcoming)", dashboard)
 
     def test_12_documents_generate_in_v2_directory(self):
         client=self.login_client(); client.post("/orders",json=self.sales_payload("DOCS"))
