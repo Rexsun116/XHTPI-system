@@ -2,16 +2,17 @@
 {% block content %}
 <section class="card p-4" style="max-width:560px">
   <h3>更新订单为已发运</h3>
-  <p class="text-muted">{{ pi.pi_no }}：确认实际发运日期、承运人和提单号后，订单将进入 SHIPPED。</p>
+  {% if linked_pair %}<p class="text-muted">确认一次实际发运日期：{{ linked_pair[1].pi_no }} 将进入 COMPLETED，{{ linked_pair[0].pi_no }} 将进入 SHIPPED，两张订单保存相同实际发运日期。</p>
+  {% else %}<p class="text-muted">{{ pi.pi_no }}：确认实际发运日期、承运人和提单号后，订单将进入 SHIPPED。</p>{% endif %}
   {% if not ready %}<div class="alert alert-warning">发运准备尚未完成。请先补全装柜信息和货代最终报价，再提交实际发运。</div><p><a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}#shipment-preparation">填写装柜信息</a>{% if pi.is_export_order and financial_owner_resolution.valid %} <a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=financial_owner_resolution.owner.id) }}#freight-agreement">查看客户订单报价</a>{% elif pi.is_export_order %} <span class="text-danger">{{ financial_owner_resolution.error }}</span>{% else %} <a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}#freight-agreement">查看/录入报价</a>{% endif %}</p>{% endif %}
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="form-label">Actual Departure Date *</label>
     <input class="form-control" type="date" name="actual_departure_date" required value="{{ pi.actual_departure_date or '' }}">
-    <label class="form-label mt-3">Shipping Line / Carrier *</label>
-    <input class="form-control" name="shipping_company" required value="{{ pi.shipping_company or '' }}">
-    <label class="form-label mt-3">B/L No. *</label>
-    <input class="form-control" name="bill_of_lading_number" required value="{{ pi.bill_of_lading_number or '' }}">
+    <label class="form-label mt-3">Shipping Line / Carrier {{ '(optional)' if linked_pair else '*' }}</label>
+    <input class="form-control" name="shipping_company" {% if not linked_pair %}required{% endif %} value="{{ pi.shipping_company or '' }}">
+    <label class="form-label mt-3">B/L No. {{ '(optional)' if linked_pair else '*' }}</label>
+    <input class="form-control" name="bill_of_lading_number" {% if not linked_pair %}required{% endif %} value="{{ pi.bill_of_lading_number or '' }}">
     <button class="btn btn-primary mt-3">确认已发运</button>
     <a class="btn btn-outline-secondary mt-3" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a>
   </form>

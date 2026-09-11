@@ -1,0 +1,13 @@
+<section id="shared-shipment" class="card p-3 mb-3">
+  <h5>Shared Shipment · read-only</h5>
+  {% if shipment_owner %}
+  <p>Shipment Controller: <a href="{{ url_for('v2.order_view', pi_id=shipment_owner.id) }}">{{ shipment_owner.pi_no }}</a>. Edit physical shipment facts on the customer order.</p>
+  <div class="row g-3">
+    {% for label, field in [('Planned Shipment Date','planned_shipment_date'),('Loading Port','loading_port'),('Destination Port','destination_port'),('Loading Date','container_loading_date'),('Loading Period','container_loading_period'),('Loading Location','container_location'),('Container Type','container_type'),('Container Count','container_count'),('Booking Number','booking_number'),('Vessel / Voyage','vessel_info'),('ETD','etd'),('ETA','eta'),('Actual Departure','actual_departure_date'),('Driver Name','driver_name'),('Driver Phone','driver_phone'),('Vehicle Number','vehicle_number'),('Package Count','package_count'),('Package Unit','package_unit'),('Gross Weight (KGS)','gross_weight_kg'),('Volume (CBM)','volume_cbm'),('Carrier','shipping_company'),('B/L Number','bill_of_lading_number')] %}
+    <div class="col-md-3"><small>{{ label }}</small><div>{{ shipment_owner|attr(field) if shipment_owner|attr(field) is not none else '—' }}</div></div>
+    {% endfor %}
+    <div class="col-md-3"><small>Freight Forwarder</small><div>{{ shipment_owner.freight_forwarder.name if shipment_owner.freight_forwarder else '—' }}</div></div>
+  </div>
+  {% else %}<p class="text-danger">Linked CUSTOMER_ORDER shipment controller is missing or invalid.</p>{% endif %}
+</section>
+{% if pi.status == 'PRE_SHIPMENT' %}<p><a class="btn btn-outline-secondary" href="{{ url_for('v2.document_requirements_editor', pi_id=pi.id) }}">修改文件需求</a> <a class="btn btn-outline-secondary" href="{{ url_for('v2.booking_hs_codes', pi_id=pi.id) }}">填写 PIItem HS Code</a></p>{% endif %}

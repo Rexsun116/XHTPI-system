@@ -161,7 +161,7 @@ class ScheduleEnhancementTest(TestCase):
         self.assertEqual((pi.etd, pi.status), (date(2026, 9, 27), "PRE_SHIPMENT"))
         self.assertEqual(self.task(pi, "SHIPPING_ACTUAL_DEPARTURE").status, "UPCOMING")
 
-    def test_linked_roles_use_etd_without_synchronizing_order_dates(self):
+    def test_linked_roles_share_etd_but_keep_planned_dates_independent(self):
         clock = datetime(2026, 9, 20, 12)
         group = TradeGroup(group_no="DATE-SEMANTICS")
         db.session.add(group)
@@ -173,13 +173,16 @@ class ScheduleEnhancementTest(TestCase):
         for pi in (customer, export):
             reconcile_order_tasks_for_pi(pi, now=clock)
             task = self.task(pi, "SHIPPING_ACTUAL_DEPARTURE")
-            self.assertEqual((task.status, task.health), ("UPCOMING", "NORMAL"))
-            self.assertNotIn("planned_shipment_date", task.context_payload)
+            if pi is export:
+                self.assertIsNone(task)
+            else:
+                self.assertEqual((task.status, task.health), ("UPCOMING", "NORMAL"))
+                self.assertNotIn("planned_shipment_date", task.context_payload)
         db.session.commit()
         with patch("v2.services.utcnow", return_value=clock):
-            for pi, new_etd in ((customer, "2026-09-27"), (export, "2026-09-28")):
+            for pi, new_etd in ((customer, "2026-09-27"), (customer, "2026-09-28")):
                 self.assertEqual(self.client().post(f"/v2/orders/{pi.id}/facts", data={"etd": new_etd}).status_code, 302)
-        self.assertEqual((customer.etd, export.etd), (date(2026, 9, 27), date(2026, 9, 28)))
+        self.assertEqual((customer.etd, export.etd), (date(2026, 9, 28), date(2026, 9, 28)))
         self.assertEqual((customer.planned_shipment_date, export.planned_shipment_date),
                          (date(2026, 9, 1), date(2026, 9, 2)))
         self.assertEqual((customer.status, export.status), ("PRE_SHIPMENT", "PRE_SHIPMENT"))

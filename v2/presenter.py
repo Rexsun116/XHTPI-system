@@ -58,6 +58,10 @@ def waiting_summary(task):
 
 def task_actions(task):
     """Return UI actions by task semantics, keeping task-code knowledge out of Jinja."""
+    from .linked_trade import is_export_order
+    from .shipment_ownership import is_physical_shipment_task
+    if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
+        return [{"kind": "history", "label": "History"}]
     context = getattr(task, "_dashboard_context", task.context_payload) or {}
     actions = []
     target = context.get("action_target")
@@ -65,7 +69,7 @@ def task_actions(task):
     health = getattr(task, "_dashboard_health", task.health)
     if status in {"ACTION", "WAITING"}:
         if task.task_code == "SHIPPING_ACTUAL_DEPARTURE" or context.get("shipment_clock") == "ETD":
-            if context.get("etd"):
+            if context.get("etd") or task.pi.is_linked_trade:
                 actions.append({"kind": "enter_shipped", "label": "Record Actual Departure"})
             actions.append({"kind": "edit_schedule", "label": "Edit ETD"})
         elif task.task_code == "STAGE_GATE_SHIPPED":
@@ -101,6 +105,10 @@ def task_actions(task):
             actions.append({"kind": "view_order", "label": "查看订单"})
     elif status == "UPCOMING":
         actions.append({"kind": "view_order", "label": "查看订单"})
+        if task.pi.is_linked_trade and task.pi.status == "PRE_SHIPMENT" and (
+            task.task_code == "SHIPPING_ACTUAL_DEPARTURE" or context.get("shipment_clock") == "ETD"
+        ):
+            actions.append({"kind": "enter_shipped", "label": "Record Actual Departure"})
     elif status == "DONE":
         actions.append({"kind": "history", "label": "History"})
         if task.completion_mode != "RULE_DATA":

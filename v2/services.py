@@ -24,6 +24,7 @@ from .models import (
 from .business_time import arrival_schedule_projection, business_today, departure_schedule_projection
 from .linked_trade import financial_owner_for, is_export_order
 from .rules import DOCUMENT_RULES
+from .shipment_ownership import is_physical_shipment_task
 
 
 CORRECTION_TO_POLICY_MODULE = {
@@ -101,6 +102,8 @@ def _find_task(pi, code):
 
 def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="RULE_DATA", context=None,
                  activation_at=None, due_at=None, priority=100, force_reactivate=False):
+    if is_export_order(pi) and is_physical_shipment_task(code):
+        return _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_PHYSICAL_SHIPMENT")
     key = f"v2:order:{pi.id}:{code.lower()}"
     task = db.session.scalar(select(OrderTask).where(OrderTask.dedupe_key == key))
     if task is None:
@@ -302,6 +305,9 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     )) if export_order and owner_resolution.valid else None)
     if export_order:
         _cancel_export_financial_tasks(pi)
+        for task in db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)):
+            if is_physical_shipment_task(task.task_code):
+                _cancel_task(pi, task.task_code, "LINKED_CUSTOMER_OWNS_PHYSICAL_SHIPMENT")
     loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
     # These shared tasks represent the pre-v2_0004 model.  Preserve history but
     # prevent any active legacy task from competing with a currency branch.
@@ -646,6 +652,17 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             )
         else:
             _resolve_task(pi, "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE")
+    if export_order and pi.status == OrderStage.COMPLETED:
+        # Linked departure completes export execution. Preserve document work
+        # for the later role-aware cleanup, but retire contradictory lifecycle
+        # tasks (including historical stage-gate codes) without deleting history.
+        for task in db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)):
+            if task.task_code.startswith("STAGE_GATE_") or task.task_code in {
+                "SHIPPING_CONTAINER_LOADING", "SHIPPING_FREIGHT_AGREEMENT",
+                "SHIPPING_PLANNED_DATE_OVERDUE", "SHIPPING_DRIVER_INFO",
+                "SHIPPING_ACTUAL_DEPARTURE", "SHIPPING_ACTUAL_ARRIVAL", "ARRIVAL_CUSTOMER_PICKUP",
+            }:
+                _cancel_task(pi, task.task_code, "LINKED_EXPORT_EXECUTION_COMPLETED")
     return list(db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)))
 
 

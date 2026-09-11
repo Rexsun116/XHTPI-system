@@ -112,7 +112,7 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         ):
             self.assertEqual(client.post(url, data=payload).status_code, 409)
         export.status = "PRE_SHIPMENT"; db.session.commit()
-        self.assertEqual(client.post(f"/v2/orders/{export.id}/facts", data={"container_location": "Shanghai"}).status_code, 302)
+        self.assertEqual(client.post(f"/v2/orders/{export.id}/facts", data={"container_location": "Shanghai"}).status_code, 409)
 
     def test_export_stage_gate_uses_linked_agreement_without_own_freight_task(self):
         owner, export = self.pair(export_status="PRE_SHIPMENT")
@@ -122,7 +122,7 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         db.session.commit()
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
         departure = db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_ACTUAL_DEPARTURE"))
-        self.assertEqual((departure.status, departure.health), ("ACTION", "NORMAL"))
+        self.assertIsNone(departure)
         self.assertTrue(_shipped_gate_is_ready(export))
         self.assertIsNone(db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == export.id)))
         self.assertIsNone(db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_FREIGHT_AGREEMENT", OrderTask.status != "CANCELLED")))
@@ -236,14 +236,14 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         self.assertFalse(_shipped_gate_is_ready(export))
         departure = db.session.scalar(db.select(OrderTask).where(
             OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_ACTUAL_DEPARTURE"))
-        self.assertEqual((departure.status, departure.health), ("ACTION", "NORMAL"))
-        self.assertEqual(self.client().post(f"/v2/orders/{export.id}/enter-shipped", data={}).status_code, 409)
+        self.assertIsNone(departure)
+        self.assertEqual(self.client().post(f"/v2/orders/{export.id}/enter-shipped", data={}).status_code, 400)
         orphan_group = TradeGroup(group_no="TRI-GATE-ORPHAN"); db.session.add(orphan_group); db.session.flush()
         orphan = self.pi("XHT-GATE-ORPHAN", group=orphan_group, role="EXPORT_ORDER")
         self.prepare_gate(orphan); db.session.flush()
         reconcile_order_tasks_for_pi(orphan, now=datetime(2026, 9, 20, 12))
         self.assertFalse(_shipped_gate_is_ready(orphan))
-        self.assertIn("no CUSTOMER_ORDER", self.client().get(f"/v2/orders/{orphan.id}/enter-shipped").get_data(as_text=True))
+        self.assertEqual(self.client().get(f"/v2/orders/{orphan.id}/enter-shipped").status_code, 409)
 
     def test_normal_and_customer_gate_still_require_own_done_task_and_agreement(self):
         normal = self.pi("NORMAL-GATE")
@@ -334,25 +334,25 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
 
     def test_export_operations_do_not_mutate_peer_snapshot(self):
         owner, export = self.pair(export_status="PRE_SHIPMENT")
+        owner.status = "PRE_SHIPMENT"
         owner.advance_received_amount = Decimal("12")
         agreement = self.agreement(owner)
         settlement = FreightSettlement(pi_id=owner.id, usd_bill_required=True,
                                        usd_bill_amount=Decimal("30"), usd_payment_status="UNPAID")
         peer_task = self.task(owner, "PAYMENT_EMAIL")
         db.session.add(settlement); db.session.commit()
-        before = (owner.status, owner.advance_received_amount, agreement.amount,
+        before = (owner.advance_received_amount, agreement.amount,
                   settlement.usd_bill_amount, settlement.usd_payment_status,
-                  peer_task.id, peer_task.status,
-                  db.session.scalar(db.select(db.func.count(TaskActivity.id)).join(OrderTask).where(OrderTask.pi_id == owner.id)))
+                  peer_task.id, peer_task.status)
         self.prepare_gate(export); db.session.flush()
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
         self.assertTrue(_shipped_gate_is_ready(export))
         response = self.client().post(f"/v2/orders/{export.id}/enter-shipped", data={
             "actual_departure_date": "2026-09-20", "shipping_company": "Carrier", "bill_of_lading_number": "BL-1"})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(export.status, "SHIPPED")
-        after = (owner.status, owner.advance_received_amount, agreement.amount,
+        self.assertEqual((export.status, owner.status), ("COMPLETED", "SHIPPED"))
+        self.assertEqual(export.actual_departure_date, owner.actual_departure_date)
+        after = (owner.advance_received_amount, agreement.amount,
                  settlement.usd_bill_amount, settlement.usd_payment_status,
-                 peer_task.id, peer_task.status,
-                 db.session.scalar(db.select(db.func.count(TaskActivity.id)).join(OrderTask).where(OrderTask.pi_id == owner.id)))
+                 peer_task.id, peer_task.status)
         self.assertEqual(after, before)

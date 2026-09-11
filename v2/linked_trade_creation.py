@@ -3,11 +3,12 @@ from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from .models import BankAccount, Customer, Exporter, PI, PIItem, TradeGroup, db
 from .services import apply_bank_snapshot, reconcile_order_tasks_for_pi
+from .shipment_ownership import copy_physical_facts
 
 
 class LinkedExportCreationError(ValueError):
@@ -66,6 +67,20 @@ def create_linked_export_order(source_id, form):
         error = linked_export_creation_error(source)
         if error:
             raise LinkedExportCreationError(error)
+        # Claim the still-unlinked source before constructing its peer. A
+        # concurrent lifecycle/link change must reject rather than use stale state.
+        initial_status = source.status
+        with db.session.no_autoflush:
+            claimed = db.session.execute(update(PI).where(
+                PI.id == source.id, PI.status == initial_status,
+                PI.trade_group_id.is_(None), PI.trade_role.is_(None),
+            ).values(status=PI.status, updated_at=PI.updated_at).execution_options(synchronize_session=False))
+            if claimed.rowcount != 1:
+                raise LinkedExportCreationError("Source order changed; reload before creating its linked export.")
+            db.session.refresh(source, with_for_update=True)
+            error = linked_export_creation_error(source)
+            if error:
+                raise LinkedExportCreationError(error)
 
         pi_no = _required(form, "pi_no", "Export PI Number")
         if db.session.scalar(select(PI.id).where(PI.pi_no == pi_no)) is not None:
@@ -107,7 +122,8 @@ def create_linked_export_order(source_id, form):
 
         payment_terms = _required(form, "payment_terms", "Payment Terms")
         export = PI(
-            pi_no=pi_no, pi_date=date.today(), order_type="SALES", status="NEW",
+            pi_no=pi_no, pi_date=date.today(), order_type="SALES",
+            status="PRE_SHIPMENT" if source.status == "PRE_SHIPMENT" else "NEW",
             customer_id=customer.id, exporter_id=exporter.id,
             customer_name_snapshot=customer.name, customer_address_snapshot=customer.address,
             customer_country_snapshot=customer.country, customer_contact_snapshot=customer.contact_person,
@@ -127,6 +143,7 @@ def create_linked_export_order(source_id, form):
             booking_number=source.booking_number, etd=source.etd, eta=source.eta,
         )
         apply_bank_snapshot(export, bank_account)
+        copy_physical_facts(source, export)
         for fact in DOCUMENT_FACTS:
             setattr(export, fact, _tri_state(form.get(fact)))
         for source_item in source.items:

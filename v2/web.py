@@ -1,9 +1,10 @@
 """Authenticated, CSRF-protected V2 browser UI."""
+from contextlib import nullcontext
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 import re
 from order_lifecycle import LifecyclePolicyError, validate_lifecycle_submission
 from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
@@ -14,6 +15,9 @@ from .services import (apply_bank_snapshot, apply_product_snapshot, close_correc
     completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     EXPORT_FINANCIAL_TASK_CODES)
 from .linked_trade import financial_owner_for, is_export_order
+from .linked_shipment import (LinkedShipmentError, has_trade_link, shipment_pair,
+                              record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
+from .shipment_ownership import PHYSICAL_FORM_FIELDS, is_physical_shipment_task, shipment_owner_for
 from .linked_trade_creation import (
     LinkedExportCreationError,
     create_linked_export_order,
@@ -386,6 +390,7 @@ def order_view(pi_id):
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
         agreement=agreement,settlement=settlement,financial_agreement=financial_agreement,
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
+        shipment_owner=shipment_owner_for(pi),
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
         completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None,
@@ -458,6 +463,8 @@ def task_history(task_id):
 @login_required
 def order_facts(pi_id):
     pi=db.get_or_404(PI,pi_id)
+    if is_export_order(pi) and pi.status != "COMPLETED" and PHYSICAL_FORM_FIELDS.intersection(request.form):
+        abort(409, "Physical shipment facts are managed by the linked CUSTOMER_ORDER.")
     financial_fields = {
         "advance_payment_percent", "advance_payment_amount", "balance_payment_amount",
         "advance_received_amount", "advance_received_at", "balance_received_amount", "balance_received_at",
@@ -472,6 +479,7 @@ def order_facts(pi_id):
     if pi.status=="COMPLETED":
         correction=db.session.scalar(db.select(OrderCorrectionSession).where(OrderCorrectionSession.pi_id==pi.id,OrderCorrectionSession.closed_at.is_(None)))
         if not correction: abort(403,"Use a correction session")
+        _protect_shared_correction_dates(pi)
         correction_fields = {
             "COMMERCIAL": {"payment_terms","note","loading_port","destination_port","shipping_mark","freight_term","contract_number","freight_clause","waybill_option"},
             "PAYMENT": {"advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","advance_received_at","balance_received_amount","balance_received_at"},
@@ -557,76 +565,80 @@ def order_facts(pi_id):
         for f in DOCUMENT_FACTS:
             if f in request.form: setattr(pi,f,_tri_state(request.form.get(f)))
     elif pi.status=="PRE_SHIPMENT":
-        # Several distinct forms submit to this endpoint.  Patch only the
-        # fields owned by the submitting form: absent is not an instruction to
-        # clear a fact from a different PRE_SHIPMENT module.
-        if "container_type" in request.form:
-            pi.container_type = request.form.get("container_type") or None
-        if "container_count" in request.form:
-            pi.container_count = int(request.form["container_count"]) if request.form.get("container_count") else None
-        if "container_loading_date" in request.form:
-            pi.container_loading_date = date.fromisoformat(request.form["container_loading_date"]) if request.form.get("container_loading_date") else None
-        if "container_loading_period" in request.form:
-            period = request.form.get("container_loading_period") or None
-            if period not in {None, "AM", "PM", "UNKNOWN"}: abort(400, "Container loading period is invalid.")
-            pi.container_loading_period = period
-        for f in ("container_location","driver_name","driver_phone","vehicle_number","vessel_info","booking_number",
-                  "shipping_mark","freight_term","contract_number","freight_clause","waybill_option"):
-            if f in request.form: setattr(pi,f,request.form.get(f) or None)
-        if "package_count" in request.form:
-            pi.package_count = int(request.form["package_count"]) if request.form["package_count"] else None
-        if "package_unit" in request.form:
-            pi.package_unit = request.form.get("package_unit") or "BAGS"
-        elif "package_count" in request.form:
-            # Do not rely on the visual input default for a normal cargo save.
-            pi.package_unit = "BAGS"
-        if "gross_weight" in request.form or "gross_weight_display_unit" in request.form:
-            unit = (request.form.get("gross_weight_display_unit") or pi.gross_weight_display_unit or "KGS").upper()
-            if unit not in {"KGS", "MT"}:
-                abort(400, "Gross weight display unit must be KGS or MT.")
-            pi.gross_weight_display_unit = unit
-            if "gross_weight" in request.form:
-                pi.gross_weight_kg = normalize_weight_input(request.form.get("gross_weight"), unit)
-        if "volume" in request.form:
-            pi.volume_cbm = Decimal(request.form["volume"]) if request.form["volume"] else None
-        if "freight_forwarder_id" in request.form:
-            pi.freight_forwarder_id=int(request.form["freight_forwarder_id"]) if request.form.get("freight_forwarder_id") else None
-        schedule_etd = date.fromisoformat(request.form["etd"]) if request.form.get("etd") else (None if "etd" in request.form else pi.etd)
-        schedule_eta = date.fromisoformat(request.form["eta"]) if request.form.get("eta") else (None if "eta" in request.form else pi.eta)
-        _validate_schedule_dates(schedule_etd, schedule_eta)
-        if "etd" in request.form:
-            pi.etd = schedule_etd
-        if "eta" in request.form:
-            pi.eta = schedule_eta
-        if "usd_bill_required" in request.form or "cny_bill_required" in request.form:
-            settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id)) or FreightSettlement(pi_id=pi.id)
-            if "usd_bill_required" in request.form:
-                settlement.usd_bill_required = _tri_state(request.form.get("usd_bill_required"))
-            if "cny_bill_required" in request.form:
-                settlement.cny_bill_required = _tri_state(request.form.get("cny_bill_required"))
-            db.session.add(settlement)
-        if "notify_party_same_as_consignee" in request.form:
-            same_notify = request.form.get("notify_party_same_as_consignee") == "true"
-            pi.notify_party_same_as_consignee = same_notify
-            if not same_notify:
-                for field in (
-                    "notify_party_name_snapshot", "notify_party_address_snapshot",
-                    "notify_party_tax_code_snapshot",
-                ):
-                    if field in request.form:
-                        setattr(pi, field, request.form.get(field) or None)
-        for item in pi.items:
-            field = f"product_hs_code_snapshot_{item.id}"
-            if field in request.form:
-                item.product_hs_code_snapshot = request.form.get(field) or None
-        if request.form.get("quote_id") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
-            db.session.add(create_freight_agreement(pi,db.session.get(FreightQuote,int(request.form["quote_id"]))))
-        elif request.form.get("agreement_amount") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
-            forwarder=db.session.get(FreightForwarder,pi.freight_forwarder_id) if pi.freight_forwarder_id else None
-            db.session.add(OrderFreightAgreement(pi_id=pi.id,freight_forwarder_id=pi.freight_forwarder_id,
-                freight_forwarder_name_snapshot=forwarder.name if forwarder else "Freight forwarder not confirmed",
-                amount=Decimal(request.form["agreement_amount"]),currency=request.form["agreement_currency"].upper(),
-                agreed_at=utcnow(),note=request.form.get("agreement_note")))
+        linked_etd_edit = bool(PHYSICAL_FORM_FIELDS.intersection(request.form)) and has_trade_link(pi)
+        # Keep the entire local facts patch pending until both shared rows are claimed.
+        with db.session.no_autoflush if linked_etd_edit else nullcontext():
+            # Several distinct forms submit to this endpoint.  Patch only the
+            # fields owned by the submitting form: absent is not an instruction to
+            # clear a fact from a different PRE_SHIPMENT module.
+            if "container_type" in request.form:
+                pi.container_type = request.form.get("container_type") or None
+            if "container_count" in request.form:
+                pi.container_count = int(request.form["container_count"]) if request.form.get("container_count") else None
+            if "container_loading_date" in request.form:
+                pi.container_loading_date = date.fromisoformat(request.form["container_loading_date"]) if request.form.get("container_loading_date") else None
+            if "container_loading_period" in request.form:
+                period = request.form.get("container_loading_period") or None
+                if period not in {None, "AM", "PM", "UNKNOWN"}: abort(400, "Container loading period is invalid.")
+                pi.container_loading_period = period
+            for f in ("container_location","driver_name","driver_phone","vehicle_number","vessel_info","booking_number",
+                      "shipping_mark","freight_term","contract_number","freight_clause","waybill_option"):
+                if f in request.form: setattr(pi,f,request.form.get(f) or None)
+            if "package_count" in request.form:
+                pi.package_count = int(request.form["package_count"]) if request.form["package_count"] else None
+            if "package_unit" in request.form:
+                pi.package_unit = request.form.get("package_unit") or "BAGS"
+            elif "package_count" in request.form:
+                # Do not rely on the visual input default for a normal cargo save.
+                pi.package_unit = "BAGS"
+            if "gross_weight" in request.form or "gross_weight_display_unit" in request.form:
+                unit = (request.form.get("gross_weight_display_unit") or pi.gross_weight_display_unit or "KGS").upper()
+                if unit not in {"KGS", "MT"}:
+                    abort(400, "Gross weight display unit must be KGS or MT.")
+                pi.gross_weight_display_unit = unit
+                if "gross_weight" in request.form:
+                    pi.gross_weight_kg = normalize_weight_input(request.form.get("gross_weight"), unit)
+            if "volume" in request.form:
+                pi.volume_cbm = Decimal(request.form["volume"]) if request.form["volume"] else None
+            if "freight_forwarder_id" in request.form:
+                pi.freight_forwarder_id=int(request.form["freight_forwarder_id"]) if request.form.get("freight_forwarder_id") else None
+            schedule_etd = date.fromisoformat(request.form["etd"]) if request.form.get("etd") else (None if "etd" in request.form else pi.etd)
+            schedule_eta = date.fromisoformat(request.form["eta"]) if request.form.get("eta") else (None if "eta" in request.form else pi.eta)
+            if not linked_etd_edit:
+                _validate_schedule_dates(schedule_etd, schedule_eta)
+            if "etd" in request.form and not linked_etd_edit:
+                pi.etd = schedule_etd
+            if "eta" in request.form and not linked_etd_edit:
+                pi.eta = schedule_eta
+            if "usd_bill_required" in request.form or "cny_bill_required" in request.form:
+                settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id)) or FreightSettlement(pi_id=pi.id)
+                if "usd_bill_required" in request.form:
+                    settlement.usd_bill_required = _tri_state(request.form.get("usd_bill_required"))
+                if "cny_bill_required" in request.form:
+                    settlement.cny_bill_required = _tri_state(request.form.get("cny_bill_required"))
+                db.session.add(settlement)
+            if "notify_party_same_as_consignee" in request.form:
+                same_notify = request.form.get("notify_party_same_as_consignee") == "true"
+                pi.notify_party_same_as_consignee = same_notify
+                if not same_notify:
+                    for field in (
+                        "notify_party_name_snapshot", "notify_party_address_snapshot",
+                        "notify_party_tax_code_snapshot",
+                    ):
+                        if field in request.form:
+                            setattr(pi, field, request.form.get(field) or None)
+            for item in pi.items:
+                field = f"product_hs_code_snapshot_{item.id}"
+                if field in request.form:
+                    item.product_hs_code_snapshot = request.form.get(field) or None
+            if request.form.get("quote_id") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
+                db.session.add(create_freight_agreement(pi,db.session.get(FreightQuote,int(request.form["quote_id"]))))
+            elif request.form.get("agreement_amount") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
+                forwarder=db.session.get(FreightForwarder,pi.freight_forwarder_id) if pi.freight_forwarder_id else None
+                db.session.add(OrderFreightAgreement(pi_id=pi.id,freight_forwarder_id=pi.freight_forwarder_id,
+                    freight_forwarder_name_snapshot=forwarder.name if forwarder else "Freight forwarder not confirmed",
+                    amount=Decimal(request.form["agreement_amount"]),currency=request.form["agreement_currency"].upper(),
+                    agreed_at=utcnow(),note=request.form.get("agreement_note")))
     elif pi.status in {"SHIPPED","ARRIVED"}:
         if "actual_departure_date" in request.form:
             pi.actual_departure_date=date.fromisoformat(request.form["actual_departure_date"]) if request.form["actual_departure_date"] else None
@@ -658,7 +670,17 @@ def order_facts(pi_id):
         if "cny_bill_confirmed" in request.form: settlement.cny_bill_confirmed=_tri_state(request.form.get("cny_bill_confirmed"))
         _update_currency_payment_facts(settlement, request.form, require_enabled=True)
         db.session.add(settlement)
-    save_order_with_reconcile(pi); return redirect(url_for("v2.order_view",pi_id=pi.id))
+    if pi.status == "PRE_SHIPMENT" and linked_etd_edit:
+        try:
+            save_linked_etd(pi, schedule_etd if "etd" in request.form else ...,
+                            **({"eta": schedule_eta} if "eta" in request.form else {}))
+        except LinkedShipmentError as exc:
+            abort(409, str(exc))
+        except SQLAlchemyError:
+            abort(409, "Linked shipment could not be saved. Reload and retry.")
+    else:
+        save_order_with_reconcile(pi)
+    return redirect(url_for("v2.order_view",pi_id=pi.id))
 
 
 @blueprint.route("/orders/<int:pi_id>/document-requirements", methods=["GET", "POST"])
@@ -696,9 +718,13 @@ def booking_hs_codes(pi_id):
 @login_required
 def order_status(pi_id):
     pi=db.get_or_404(PI,pi_id); target=request.form["status"]
+    if is_export_order(pi):
+        abort(409, "Linked EXPORT_ORDER must use the atomic Actual Departure flow.")
     allowed={"NEW":"PRE_SHIPMENT","PRE_SHIPMENT":"SHIPPED","SHIPPED":"ARRIVED","ARRIVED":"COMPLETED"}
     if allowed.get(pi.status)!=target: abort(400,"Invalid lifecycle transition")
     if pi.status == "NEW" and target == "PRE_SHIPMENT":
+        if has_trade_link(pi):
+            return enter_pre_shipment(pi_id)
         gate = db.session.scalar(db.select(OrderTask).where(
             OrderTask.pi_id == pi.id,
             OrderTask.task_code == "STAGE_GATE_PRE_SHIPMENT",
@@ -719,6 +745,8 @@ def order_status(pi_id):
 @login_required
 def enter_pre_shipment(pi_id):
     pi = db.get_or_404(PI, pi_id)
+    if is_export_order(pi):
+        abort(409, "Shipment stages are managed by the linked CUSTOMER_ORDER.")
     gate = db.session.scalar(db.select(OrderTask).where(
         OrderTask.pi_id == pi.id, OrderTask.task_code == "STAGE_GATE_PRE_SHIPMENT",
         OrderTask.status == "ACTION",
@@ -726,8 +754,13 @@ def enter_pre_shipment(pi_id):
     if pi.status != "NEW" or gate is None:
         abort(409, "Pre-shipment stage gate is not available.")
     try:
-        pi.status = "PRE_SHIPMENT"
-        save_order_with_reconcile(pi)
+        if has_trade_link(pi):
+            enter_linked_pre_shipment(pi)
+        else:
+            pi.status = "PRE_SHIPMENT"
+            save_order_with_reconcile(pi)
+    except LinkedShipmentError as exc:
+        abort(409, str(exc))
     except Exception:
         db.session.rollback()
         raise
@@ -756,6 +789,34 @@ def _shipped_gate_is_ready(pi):
 @login_required
 def enter_shipped(pi_id):
     pi = db.get_or_404(PI, pi_id)
+    if is_export_order(pi) and request.method == "GET":
+        owner = shipment_owner_for(pi)
+        if owner is None:
+            abort(409, "Linked CUSTOMER_ORDER shipment controller is missing.")
+        return redirect(url_for("v2.enter_shipped", pi_id=owner.id))
+    if has_trade_link(pi):
+        if request.method == "GET":
+            try:
+                customer, export = shipment_pair(pi)
+            except LinkedShipmentError as exc:
+                abort(409, str(exc))
+            return render_template("v2/enter_shipped.html", pi=pi, ready=True,
+                                   linked_pair=(customer, export))
+        raw = (request.form.get("actual_departure_date") or "").strip()
+        try:
+            actual_departure = date.fromisoformat(raw)
+        except ValueError:
+            abort(400, "Actual Departure Date is required and must be a calendar date.")
+        try:
+            record_linked_actual_departure(
+                pi, actual_departure, carrier=(request.form.get("shipping_company") or "").strip(),
+                bill=(request.form.get("bill_of_lading_number") or "").strip(),
+            )
+        except LinkedShipmentError as exc:
+            abort(409, str(exc))
+        except SQLAlchemyError:
+            abort(409, "Linked shipment could not be saved. Reload and retry.")
+        return redirect(url_for("v2.order_view", pi_id=pi.id))
     if request.method == "GET":
         if pi.status != "PRE_SHIPMENT":
             abort(409, "Order is not in PRE_SHIPMENT.")
@@ -784,6 +845,8 @@ def enter_shipped(pi_id):
 @login_required
 def enter_arrived(pi_id):
     pi = db.get_or_404(PI, pi_id)
+    if is_export_order(pi):
+        abort(409, "Linked EXPORT_ORDER does not enter ARRIVED.")
     if pi.status != "SHIPPED":
         abort(409, "Order is not ready to enter ARRIVED.")
     if request.method == "GET":
@@ -826,6 +889,8 @@ def enter_completed(pi_id):
 def update_eta(pi_id):
     """Update only the post-sailing ETA schedule fact."""
     pi = db.get_or_404(PI, pi_id)
+    if is_export_order(pi):
+        abort(409, "ETA is managed by the linked CUSTOMER_ORDER.")
     if pi.status != "SHIPPED":
         abort(403, "ETA can be updated only while the order is SHIPPED.")
     raw = (request.form.get("eta") or "").strip()
@@ -921,6 +986,14 @@ def correction_close(session_id):
     close_correction_session(session,current_user.id,note=request.form.get("note")); return redirect(url_for("v2.order_view",pi_id=pi_id))
 
 
+def _protect_shared_correction_dates(pi):
+    if has_trade_link(pi):
+        for field in ("etd", "actual_departure_date"):
+            current = getattr(pi, field)
+            if field in request.form and request.form[field].strip() != (current.isoformat() if current else ""):
+                abort(409, "Shared shipment dates cannot be changed through a single-order correction.")
+
+
 @blueprint.route("/corrections/<int:session_id>/edit", methods=["GET", "POST"])
 @login_required
 def correction_edit(session_id):
@@ -933,6 +1006,7 @@ def correction_edit(session_id):
     if request.method=="GET":
         return render_template("v2/correction.html",pi=pi,correction=session,settlement=settlement,agreement=agreement,
                                document_facts=DOCUMENT_FACTS,**_order_choices())
+    _protect_shared_correction_dates(pi)
     correction_allowed={
         "COMMERCIAL":{"pi_no","pi_date","payment_terms","loading_port","destination_port","note","customer_id","exporter_id","bank_account_id","commission_rate","commission_currency","commission_amount_mode","commission_amount","commission_override_reason"}|{f"item_{item.id}_{field}" for item in pi.items for field in ("quantity","quantity_unit","unit_price","trade_term")},
         "PAYMENT":{"advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","advance_received_at","balance_received_amount","balance_received_at"},
@@ -973,7 +1047,10 @@ def correction_edit(session_id):
             setattr(pi,f,request.form.get(f) or None)
         pi.container_count=int(request.form["container_count"]) if request.form.get("container_count") else None
         pi.container_loading_at=datetime.fromisoformat(request.form["container_loading_at"]) if request.form.get("container_loading_at") else None
-        for f in ("etd","eta","actual_departure_date"): setattr(pi,f,date.fromisoformat(request.form[f])) if request.form.get(f) else setattr(pi,f,None)
+        for f in ("etd","eta","actual_departure_date"):
+            if has_trade_link(pi) and f in {"etd", "actual_departure_date"}:
+                continue
+            setattr(pi,f,date.fromisoformat(request.form[f])) if request.form.get(f) else setattr(pi,f,None)
     elif session.module=="FREIGHT":
         settlement=settlement or FreightSettlement(pi_id=pi.id); db.session.add(settlement)
         for f in ("usd_bill_required","cny_bill_required"): setattr(settlement,f,_tri_state(request.form.get(f)))
@@ -1000,6 +1077,8 @@ def task_action(task_id,action):
     task=db.get_or_404(OrderTask,task_id)
     if task.pi.status == "COMPLETED":
         abort(409, "Completed order tasks are read-only.")
+    if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
+        abort(409, "Physical shipment tasks are managed by the linked CUSTOMER_ORDER.")
     if is_export_order(task.pi) and task.task_code in EXPORT_FINANCIAL_TASK_CODES:
         abort(409, "Financial tasks are managed by the linked CUSTOMER_ORDER.")
     try:

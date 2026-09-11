@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 from unittest import TestCase
 from unittest.mock import patch
+from sqlalchemy import update
 
 from werkzeug.security import generate_password_hash
 
@@ -13,6 +14,8 @@ from v2.linked_trade import financial_owner_for
 from v2.models import (BankAccount, Customer, Exporter, Factory, FreightSettlement, OrderCorrectionSession, OrderFreightAgreement,
                        OrderTask, PI, PIItem, Product, ProductBatch, TaskActivity, TradeGroup, User, db)
 from v2.linked_trade_creation import create_linked_export_order
+from v2.linked_trade_creation import linked_export_creation_error, LinkedExportCreationError
+from v2.shipment_ownership import is_physical_shipment_task
 from v2.documents import render_invoice_html
 
 
@@ -249,7 +252,40 @@ class LinkedTradeCreateExportTest(TestCase):
             source = self.source(f"WU-STAGE-{status}", status=status)
             response = client.post(f"/v2/orders/{source.id}/create-linked-export", data=self.payload(source, pi_no=f"XHT-STAGE-{index}"))
             self.assertEqual(response.status_code, 302)
-            export = db.session.scalar(db.select(PI).where(PI.pi_no == f"XHT-STAGE-{index}")); self.assertEqual(export.status, "NEW")
+            export = db.session.scalar(db.select(PI).where(PI.pi_no == f"XHT-STAGE-{index}")); self.assertEqual(export.status, "PRE_SHIPMENT" if status == "PRE_SHIPMENT" else "NEW")
         commission = self.source("WU-COMMISSION"); commission.order_type = "COMMISSION"; db.session.commit()
         self.assertNotIn('create-linked-export-order', client.get(f"/v2/orders/{commission.id}").get_data(as_text=True))
         self.assertEqual(client.post(f"/v2/orders/{commission.id}/create-linked-export", data=self.payload(commission, pi_no="XHT-COMMISSION")).status_code, 400)
+
+    def test_pre_customer_creates_ready_export_without_duplicate_shipment_work(self):
+        source = self.source(status="PRE_SHIPMENT")
+        source.actual_departure_date = source.actual_arrival_date = None
+        source.package_count = 20; source.gross_weight_kg = Decimal("2200"); source.volume_cbm = Decimal("5")
+        db.session.commit()
+        export = create_linked_export_order(source.id, self.payload(source))
+        self.assertEqual(export.status, "PRE_SHIPMENT")
+        self.assertEqual(export.package_count, 20)
+        self.assertEqual(export.gross_weight_kg, Decimal("2200"))
+        self.assertEqual(export.volume_cbm, Decimal("5"))
+        tasks = list(db.session.scalars(db.select(OrderTask).where(OrderTask.pi_id == export.id)))
+        self.assertFalse(any(is_physical_shipment_task(t.task_code) and t.status not in {"DONE", "CANCELLED"} for t in tasks))
+        self.assertIsNone(next((t for t in tasks if t.task_code == "STAGE_GATE_PRE_SHIPMENT"), None))
+        self.assertEqual(source.items[0].unit_price, Decimal("999"))
+        self.assertEqual(export.items[0].unit_price, Decimal("123.45"))
+
+    def test_creation_rejects_source_transition_between_resolution_and_claim(self):
+        source = self.source(status="PRE_SHIPMENT")
+        source_id = source.id
+        payload = self.payload(source)
+        def raced(row):
+            error = linked_export_creation_error(row)
+            with db.engine.begin() as connection:
+                connection.execute(update(PI).where(PI.id == source_id).values(status="SHIPPED"))
+            return error
+        with patch("v2.linked_trade_creation.linked_export_creation_error", side_effect=raced):
+            with self.assertRaisesRegex(LinkedExportCreationError, "changed"):
+                create_linked_export_order(source_id, payload)
+        self.assertEqual(source.status, "SHIPPED")
+        self.assertIsNone(source.trade_group_id)
+        self.assertEqual(TradeGroup.query.count(), 0)
+        self.assertIsNone(db.session.scalar(db.select(PI).where(PI.pi_no == "XHT-B3")))
