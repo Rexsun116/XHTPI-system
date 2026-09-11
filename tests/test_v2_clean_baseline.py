@@ -203,7 +203,9 @@ class V2CleanBaselineTest(TestCase):
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 8, 21, 10, 0)); db.session.commit()
         driver = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "SHIPPING_DRIVER_INFO"))
         departure = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "SHIPPING_ACTUAL_DEPARTURE"))
-        self.assertEqual((driver.health, departure.health), ("EXCEPTION", "EXCEPTION"))
+        self.assertEqual((driver.health, departure.health), ("EXCEPTION", "NORMAL"))
+        self.assertEqual(departure.status, "ACTION")
+        self.assertIn("ETD 今日", departure.context_payload["message"])
         self.assertIsNotNone(db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "DOCUMENT_COO")))
 
         pi.driver_name, pi.driver_phone, pi.vehicle_number = "Li", "13800000000", "沪A12345"

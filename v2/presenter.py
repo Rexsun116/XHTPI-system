@@ -38,7 +38,8 @@ def present_task(task):
         lines.append(f"Days remaining: {days}" if days >= 0 else f"Days overdue: {abs(days)}")
     if context.get("days_overdue") is not None:
         lines.append(f"Days overdue: {context['days_overdue']}")
-    return {"lines": lines, "warning": context.get("warning"), "customer": task.pi.customer_name_snapshot,
+    return {"title": getattr(task, "_dashboard_title", task.title), "lines": lines,
+            "warning": context.get("warning"), "customer": task.pi.customer_name_snapshot,
             "actions": task_actions(task), "waiting": waiting_summary(task),
             "display_status": getattr(task, "_dashboard_status", task.status)}
 
@@ -57,13 +58,17 @@ def waiting_summary(task):
 
 def task_actions(task):
     """Return UI actions by task semantics, keeping task-code knowledge out of Jinja."""
-    context = task.context_payload or {}
+    context = getattr(task, "_dashboard_context", task.context_payload) or {}
     actions = []
     target = context.get("action_target")
     status = getattr(task, "_dashboard_status", task.status)
     health = getattr(task, "_dashboard_health", task.health)
     if status in {"ACTION", "WAITING"}:
-        if task.task_code == "STAGE_GATE_SHIPPED":
+        if task.task_code == "SHIPPING_ACTUAL_DEPARTURE" or context.get("shipment_clock") == "ETD":
+            if context.get("etd"):
+                actions.append({"kind": "enter_shipped", "label": "Record Actual Departure"})
+            actions.append({"kind": "edit_schedule", "label": "Edit ETD"})
+        elif task.task_code == "STAGE_GATE_SHIPPED":
             if context.get("missing_preparation"):
                 if "工厂装柜日期尚未确认" in context["missing_preparation"]:
                     actions.append({"kind": "edit_shipment", "label": "填写装柜信息"})
@@ -71,12 +76,11 @@ def task_actions(task):
                     actions.append({"kind": "edit_freight", "label": "查看/录入报价"})
             else:
                 actions.append({"kind": "enter_shipped", "label": "更新为已发运"})
-            actions.append({"kind": "edit_shipment", "label": "修改计划发运日期"})
         elif task.task_code in {"PAYMENT_ADVANCE_WAITING", "PAYMENT_BALANCE_FOLLOWUP"}:
             actions.append({"kind": "followup", "label": "Follow-up"})
             actions.append({"kind": "advance_receipt" if task.task_code == "PAYMENT_ADVANCE_WAITING" else "view_order",
                             "label": "登记预付款到账" if task.task_code == "PAYMENT_ADVANCE_WAITING" else "更新付款信息"})
-            if health == "EXCEPTION":
+            if health == "EXCEPTION" and task.pi.status == "NEW":
                 actions.append({"kind": "edit_shipment", "label": "修改计划发运日期"})
         elif task.task_code == "SHIPPING_ACTUAL_ARRIVAL":
             actions.append({"kind": "enter_arrived", "label": "确认货物已到港"})

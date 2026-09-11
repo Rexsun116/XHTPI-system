@@ -62,7 +62,7 @@ def dashboard():
     next_by_order = {pi.id: select_next_action([task for task in tasks if task.pi_id == pi.id]) for pi in orders}
     tasks_by_order = {pi.id: [] for pi in orders}
     for task in ordered:
-        if task.status != "CANCELLED":
+        if getattr(task, "_dashboard_status", task.status) != "CANCELLED":
             tasks_by_order.setdefault(task.pi_id, []).append(task)
     today = business_today()
     upcoming_days = [{"date": today + timedelta(days=offset), "events": []} for offset in range(7)]
@@ -75,7 +75,7 @@ def dashboard():
         if event_at and event_at.date() in days_by_date:
             days_by_date[event_at.date()]["events"].append({
                 "kind": "task", "pi_id": task.pi_id, "pi_no": task.pi.pi_no,
-                "task_id": task.id, "title": task.title,
+                "task_id": task.id, "title": getattr(task, "_dashboard_title", task.title),
             })
     for pi in orders:
         for label, event_date in (("Planned shipment", pi.planned_shipment_date), ("ETD", pi.etd), ("ETA", pi.eta)):
@@ -368,6 +368,9 @@ def advance_receipt(pi_id):
 @login_required
 def order_view(pi_id):
     pi=db.get_or_404(PI,pi_id); tasks=list(db.session.scalars(db.select(OrderTask).where(OrderTask.pi_id==pi.id)))
+    for task in tasks:
+        status, health, context = projected_details(task)
+        task._dashboard_status, task._dashboard_health, task._dashboard_context = status, health, context
     correction=db.session.scalar(db.select(OrderCorrectionSession).where(OrderCorrectionSession.pi_id==pi.id,OrderCorrectionSession.closed_at.is_(None)))
     quotes=list(db.session.scalars(db.select(FreightQuote)))
     agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
@@ -520,6 +523,15 @@ def order_facts(pi_id):
                 agreement.note="\n".join(filter(None,[agreement.note,
                     f"Correction {utcnow().isoformat()}: {old} -> {agreement.currency} {agreement.amount}. {request.form.get('agreement_note') or correction.reason}"]))
         save_order_with_reconcile(pi); return redirect(url_for("v2.order_view",pi_id=pi.id))
+    forbidden_by_stage = {
+        "NEW": {"etd", "actual_departure_date"},
+        "PRE_SHIPMENT": {"planned_shipment_date", "actual_departure_date"},
+        "SHIPPED": {"planned_shipment_date", "etd", "actual_departure_date"},
+        "ARRIVED": {"planned_shipment_date", "etd", "actual_departure_date"},
+    }
+    forbidden = forbidden_by_stage.get(pi.status, set()).intersection(request.form)
+    if forbidden:
+        abort(400, "Fields are not editable in this lifecycle stage: " + ", ".join(sorted(forbidden)))
     try:
         validate_lifecycle_submission(pi, request.form)
     except LifecyclePolicyError as exc:
@@ -723,10 +735,6 @@ def enter_pre_shipment(pi_id):
 
 
 def _shipped_gate_is_ready(pi):
-    gate = db.session.scalar(db.select(OrderTask).where(
-        OrderTask.pi_id == pi.id, OrderTask.task_code == "STAGE_GATE_SHIPPED",
-        OrderTask.status == "ACTION",
-    ))
     loading = db.session.scalar(db.select(OrderTask).where(
         OrderTask.pi_id == pi.id, OrderTask.task_code == "SHIPPING_CONTAINER_LOADING",
         OrderTask.status == "DONE",
@@ -741,17 +749,20 @@ def _shipped_gate_is_ready(pi):
     ))
     loading_date = pi.container_loading_date or (pi.container_loading_at.date() if pi.container_loading_at else None)
     agreement_ready = bool(resolution.valid and agreement) if is_export_order(pi) else bool(agreement_task and agreement)
-    return bool(gate and loading and loading_date and agreement_ready)
+    return bool(loading and loading_date and agreement_ready)
 
 
 @blueprint.route("/orders/<int:pi_id>/enter-shipped", methods=["GET", "POST"])
 @login_required
 def enter_shipped(pi_id):
     pi = db.get_or_404(PI, pi_id)
-    if pi.status != "PRE_SHIPMENT" or not _shipped_gate_is_ready(pi):
-        abort(409, "Shipment stage gate is not ready.")
     if request.method == "GET":
-        return render_template("v2/enter_shipped.html", pi=pi)
+        if pi.status != "PRE_SHIPMENT":
+            abort(409, "Order is not in PRE_SHIPMENT.")
+        return render_template("v2/enter_shipped.html", pi=pi, ready=_shipped_gate_is_ready(pi),
+                               financial_owner_resolution=financial_owner_for(pi))
+    if pi.status != "PRE_SHIPMENT" or not _shipped_gate_is_ready(pi):
+        abort(409, "Shipment preparation must be complete before recording actual departure.")
     raw = (request.form.get("actual_departure_date") or "").strip()
     carrier = (request.form.get("shipping_company") or "").strip()
     bill = (request.form.get("bill_of_lading_number") or "").strip()

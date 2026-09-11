@@ -21,7 +21,7 @@ from .models import (
     db,
     utcnow,
 )
-from .business_time import arrival_schedule_projection, business_today
+from .business_time import arrival_schedule_projection, business_today, departure_schedule_projection
 from .linked_trade import financial_owner_for, is_export_order
 from .rules import DOCUMENT_RULES
 
@@ -116,14 +116,14 @@ def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="R
     if task.status == "DONE" and task.completion_mode != "RULE_DATA" and not force_reactivate:
         return task
     old_status = task.status
-    changed = (task.status != status or task.health != health or task.context_payload != (context or {})
+    changed = (task.title != title or task.status != status or task.health != health or task.context_payload != (context or {})
                or task.activation_at != activation_at or task.due_at != due_at)
     if changed:
         event = ("REACTIVATED" if old_status == "CANCELLED"
                  else "RULE_REACTIVATED" if old_status == "DONE" and status in {"ACTION", "UPCOMING"}
                  else "RULE_DEFERRED" if old_status == "ACTION" and status == "UPCOMING"
                  else "STATUS_CHANGED")
-        task.status, task.health, task.context_payload = status, health, context or {}
+        task.title, task.status, task.health, task.context_payload = title, status, health, context or {}
         task.activation_at, task.due_at, task.priority = activation_at, due_at, priority
         if status != "DONE":
             task.completed_at = task.completed_by_id = task.resolution_code = None
@@ -319,16 +319,17 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         _cancel_task(pi, "PAYMENT_ADVANCE_WAITING", "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
     elif advance_unpaid:
         outstanding = advance_expected - advance_received
-        days_remaining = (planned_date - today).days if planned_date else None
-        overdue = bool(planned_date and today > planned_date)
-        chase_due = bool(planned_date and today >= planned_date - timedelta(days=10))
+        payment_clock = None if pi.status == OrderStage.PRE_SHIPMENT else planned_date
+        days_remaining = (payment_clock - today).days if payment_clock else None
+        overdue = bool(payment_clock and today > payment_clock)
+        chase_due = bool(payment_clock and today >= payment_clock - timedelta(days=10))
         context = {
             "currency": pi.currency,
             "customer_name": pi.customer_name_snapshot,
             "expected_amount": f"{advance_expected:.2f}",
             "received_amount": f"{advance_received:.2f}",
             "outstanding_amount": f"{outstanding:.2f}",
-            "planned_shipment_date": planned_date.isoformat() if planned_date else None,
+            "planned_shipment_date": payment_clock.isoformat() if payment_clock else None,
             "days_remaining": days_remaining,
             "action_target": "UPDATE_ADVANCE_RECEIPT",
             "shipping_preparation_blocked": True,
@@ -337,7 +338,13 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         }
         if advance_task and advance_task.status == "WAITING" and advance_task.next_follow_up_at and advance_task.next_follow_up_at > now and not overdue:
             # Preserve an explicit customer-follow-up commitment.
-            advance_task.context_payload = context
+            if pi.status == OrderStage.PRE_SHIPMENT:
+                _upsert_task(
+                    pi, "PAYMENT_ADVANCE_WAITING", "等待客户支付预付款",
+                    status="WAITING", health="NORMAL", context=context, priority=10,
+                )
+            else:
+                advance_task.context_payload = context
         else:
             _upsert_task(
                 pi, "PAYMENT_ADVANCE_WAITING",
@@ -345,8 +352,8 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                 status="ACTION" if overdue or chase_due else "WAITING",
                 health="EXCEPTION" if overdue else "NORMAL",
                 context=context,
-                activation_at=datetime.combine(planned_date - timedelta(days=10), datetime.min.time()) if planned_date else None,
-                due_at=datetime.combine(planned_date, datetime.min.time()) if planned_date else None,
+                activation_at=datetime.combine(payment_clock - timedelta(days=10), datetime.min.time()) if payment_clock else None,
+                due_at=datetime.combine(payment_clock, datetime.min.time()) if payment_clock else None,
                 priority=10,
             )
             task = _find_task(pi, "PAYMENT_ADVANCE_WAITING")
@@ -373,13 +380,12 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                      "message": "发运准备条件已具备，可以开始联系工厂和货代",
                      "action_target": "ENTER_PRE_SHIPMENT"},
         )
-    elif pi.status == OrderStage.PRE_SHIPMENT and prep_allowed and prep_reached:
+    elif pi.status == OrderStage.PRE_SHIPMENT and prep_allowed:
         _resolve_task(pi, "STAGE_GATE_PRE_SHIPMENT")
         _set_rule_data(
             pi, "SHIPPING_CONTAINER_LOADING", "确认工厂装柜日期",
             not bool(pi.container_loading_date or pi.container_loading_at),
-            context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_LOADING_INFO"},
-            activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
+            context={"action_target": "UPDATE_LOADING_INFO"}, priority=30,
         )
         if export_order:
             _cancel_task(pi, "SHIPPING_FREIGHT_AGREEMENT", "LINKED_CUSTOMER_ORDER_OWNS_FREIGHT_AGREEMENT")
@@ -387,8 +393,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             _set_rule_data(
                 pi, "SHIPPING_FREIGHT_AGREEMENT", "向货代询价并确认船期",
                 agreement is None,
-                context={"planned_shipment_date": planned_date.isoformat(), "action_target": "UPDATE_FREIGHT_AGREEMENT"},
-                activation_at=datetime.combine(planned_date - timedelta(days=15), datetime.min.time()), priority=30,
+                context={"action_target": "UPDATE_FREIGHT_AGREEMENT"}, priority=30,
             )
     elif advance_unpaid:
         # Do not present premature shipment-preparation work while the
@@ -399,57 +404,13 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     elif pi.status != OrderStage.NEW:
         _resolve_task(pi, "STAGE_GATE_PRE_SHIPMENT")
 
-    # PRE_SHIPMENT -> SHIPPED is also user-confirmed.  The two preparation
-    # rules remain the stable workflow truth, but their source facts are
-    # checked as well so an out-of-date DONE task cannot unlock the stage.
+    # PRE_SHIPMENT -> SHIPPED is also user-confirmed. Preparation remains a
+    # hard prerequisite, but Planned Shipment Date is no longer the shipment
+    # clock after an order enters PRE_SHIPMENT.
     if pi.status == OrderStage.PRE_SHIPMENT:
-        loading_task = _find_task(pi, "SHIPPING_CONTAINER_LOADING")
-        agreement_task = _find_task(pi, "SHIPPING_FREIGHT_AGREEMENT")
-        loading_ready = bool(loading_task and loading_task.status == "DONE" and loading_date)
-        stage_agreement = linked_agreement if export_order else agreement
-        agreement_ready = (bool(owner_resolution.valid and linked_agreement) if export_order
-                           else bool(agreement_task and agreement_task.status == "DONE" and agreement))
-        missing = []
-        if not loading_ready:
-            missing.append("工厂装柜日期尚未确认")
-        if not agreement_ready:
-            missing.append(
-                owner_resolution.error if export_order and not owner_resolution.valid
-                else f"Linked customer order {owner_resolution.owner.pi_no} has no final accepted freight agreement."
-                if export_order else "货代船期/最终报价尚未确认"
-            )
-        if planned_date and today >= planned_date:
-            days_late = (today - planned_date).days
-            if missing:
-                _upsert_task(
-                    pi, "STAGE_GATE_SHIPPED", "计划发运日期已到，发运准备尚未完成",
-                    status="ACTION", health="EXCEPTION", completion_mode="RULE_DATA", priority=6,
-                    context={"planned_shipment_date": planned_date.isoformat(), "days_overdue": days_late,
-                             "missing_preparation": missing,
-                             "message": "计划发运日期已到，但发运准备尚未完成。"},
-                )
-            else:
-                _upsert_task(
-                    pi, "STAGE_GATE_SHIPPED", "确认货物是否已发运", status="ACTION",
-                    health="EXCEPTION" if days_late >= 3 else "NORMAL", completion_mode="RULE_DATA", priority=15,
-                    context={"planned_shipment_date": planned_date.isoformat(),
-                             "container_loading_date": loading_date.isoformat() if loading_date else None,
-                             "freight_forwarder": stage_agreement.freight_forwarder_name_snapshot,
-                             "days_overdue": days_late if days_late >= 3 else None,
-                             "message": "计划发运日期已超过 3 天，订单仍处于待发运状态。请确认货物是否已经实际发运，或修改计划发运日期。" if days_late >= 3 else "确认货物是否已经实际发运"},
-                )
-        elif not missing and planned_date:
-            _upsert_task(
-                pi, "STAGE_GATE_SHIPPED", "发运准备已完成", status="UPCOMING",
-                completion_mode="RULE_DATA", priority=15,
-                activation_at=datetime.combine(planned_date, datetime.min.time()),
-                context={"planned_shipment_date": planned_date.isoformat(),
-                         "container_loading_date": loading_date.isoformat() if loading_date else None,
-                         "freight_forwarder": stage_agreement.freight_forwarder_name_snapshot,
-                         "message": "发运准备已完成，等待计划发运日期。"},
-            )
-        else:
-            _cancel_task(pi, "STAGE_GATE_SHIPPED", "PREPARATION_NOT_READY")
+        # Old STAGE_GATE_SHIPPED records used Planned Shipment Date. Preserve
+        # their history but never let them compete with the ETD reminder.
+        _cancel_task(pi, "STAGE_GATE_SHIPPED", "SUPERSEDED_BY_ETD_DEPARTURE_REMINDER")
     elif pi.status == OrderStage.SHIPPED:
         _resolve_task(pi, "STAGE_GATE_SHIPPED")
     else:
@@ -484,14 +445,15 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     elif pi.status in {OrderStage.SHIPPED, OrderStage.ARRIVED, OrderStage.COMPLETED}:
         _cancel_task(pi, "SHIPPING_DRIVER_INFO", "NO_LONGER_APPLICABLE_AFTER_SHIPMENT")
 
-    if pi.status == OrderStage.PRE_SHIPMENT and pi.etd and not pi.actual_departure_date:
-        reached = today >= pi.etd
-        days = max((today - pi.etd).days, 0)
+    if pi.status == OrderStage.PRE_SHIPMENT and not pi.actual_departure_date:
+        etd = pi.etd
+        schedule = departure_schedule_projection(etd, today)
         _upsert_task(
-            pi, "SHIPPING_ACTUAL_DEPARTURE", "确认船舶实际开航情况",
-            status="ACTION" if reached else "UPCOMING", health="EXCEPTION" if reached else "NORMAL",
-            context={"etd": pi.etd.isoformat(), "message": f"ETD 已过 {days} 天，尚未记录实际发运日期" if reached else None},
-            activation_at=datetime.combine(pi.etd, datetime.min.time()),
+            pi, "SHIPPING_ACTUAL_DEPARTURE", schedule["title"], status=schedule["status"], health=schedule["health"],
+            context={"etd": etd.isoformat() if etd else None,
+                     "days_overdue": schedule.get("days_overdue"),
+                     "message": schedule["message"], "action_target": "RECORD_ACTUAL_DEPARTURE"},
+            activation_at=datetime.combine(schedule["activation_at"], datetime.min.time()) if schedule["activation_at"] else None,
         )
     elif pi.actual_departure_date:
         _resolve_task(pi, "SHIPPING_ACTUAL_DEPARTURE")

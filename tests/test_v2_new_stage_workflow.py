@@ -104,27 +104,30 @@ class NewSalesReminderTest(TestCase):
         pi.container_loading_date = None; reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 11))
         self.assertEqual(loading.status, "ACTION")
 
-    def test_pre_shipment_shipped_gate_boundaries_and_incomplete_exception(self):
+    def test_pre_shipment_etd_replaces_planned_shipment_gate(self):
         planned = date(2026, 9, 20)
         pi = self.make_pi(planned=planned, advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5))
-        self.assertIsNone(self.task(pi, "STAGE_GATE_SHIPPED"))
+        departure = self.task(pi, "SHIPPING_ACTUAL_DEPARTURE")
+        self.assertEqual((departure.status, departure.health), ("ACTION", "NORMAL"))
+        self.assertIn("录入 ETD", departure.title)
         pi.container_loading_date = planned
         db.session.add(OrderFreightAgreement(pi_id=pi.id, freight_forwarder_name_snapshot="FF", amount=Decimal("100"), currency="USD"))
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 1))
         self.assertEqual(self.task(pi, "SHIPPING_CONTAINER_LOADING").status, "DONE")
         self.assertEqual(self.task(pi, "SHIPPING_FREIGHT_AGREEMENT").status, "DONE")
+        pi.etd = planned
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 19))
-        gate = self.task(pi, "STAGE_GATE_SHIPPED"); self.assertEqual(gate.status, "UPCOMING")
-        gate_id = gate.id
+        self.assertEqual((departure.status, departure.health), ("UPCOMING", "NORMAL"))
+        departure_id = departure.id
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 20))
-        self.assertEqual((gate.id, gate.status, gate.health), (gate_id, "ACTION", "NORMAL"))
+        self.assertEqual((departure.id, departure.status, departure.health), (departure_id, "ACTION", "NORMAL"))
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 23))
-        self.assertEqual((gate.status, gate.health), ("ACTION", "EXCEPTION"))
+        self.assertEqual((departure.status, departure.health), ("ACTION", "EXCEPTION"))
         pi.container_loading_date = None
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 23, 1))
-        self.assertEqual((gate.status, gate.health), ("ACTION", "EXCEPTION"))
-        self.assertIn("工厂装柜日期尚未确认", gate.context_payload["missing_preparation"])
+        self.assertEqual((departure.status, departure.health), ("ACTION", "EXCEPTION"))
+        self.assertIsNone(self.task(pi, "STAGE_GATE_SHIPPED"))
 
     def test_enter_shipped_requires_gate_departure_carrier_and_bl(self):
         planned = date(2026, 9, 20)
@@ -147,7 +150,7 @@ class NewSalesReminderTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual((pi.status, pi.actual_departure_date), ("SHIPPED", planned))
         self.assertEqual((pi.shipping_company, pi.bill_of_lading_number), ("Carrier", "BL-1"))
-        self.assertEqual(self.task(pi, "STAGE_GATE_SHIPPED").status, "DONE")
+        self.assertIsNone(self.task(pi, "STAGE_GATE_SHIPPED"))
         self.assertEqual(self.task(pi, "PAYMENT_EMAIL").status, "ACTION")
 
     def test_enter_arrived_renders_and_enforces_existing_csrf_convention(self):

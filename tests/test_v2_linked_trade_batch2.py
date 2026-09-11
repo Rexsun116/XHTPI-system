@@ -121,8 +121,8 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         db.session.add(OrderFreightAgreement(pi_id=owner.id, freight_forwarder_name_snapshot="FF", amount=Decimal("25"), currency="USD", agreed_at=datetime(2026, 9, 5)))
         db.session.commit()
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
-        gate = db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id, OrderTask.task_code == "STAGE_GATE_SHIPPED"))
-        self.assertEqual(gate.status, "ACTION")
+        departure = db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_ACTUAL_DEPARTURE"))
+        self.assertEqual((departure.status, departure.health), ("ACTION", "NORMAL"))
         self.assertTrue(_shipped_gate_is_ready(export))
         self.assertIsNone(db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == export.id)))
         self.assertIsNone(db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_FREIGHT_AGREEMENT", OrderTask.status != "CANCELLED")))
@@ -234,17 +234,16 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         db.session.commit()
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
         self.assertFalse(_shipped_gate_is_ready(export))
-        gate = db.session.scalar(db.select(OrderTask).where(
-            OrderTask.pi_id == export.id, OrderTask.task_code == "STAGE_GATE_SHIPPED"))
-        self.assertIn("no final accepted freight agreement", " ".join(gate.context_payload["missing_preparation"]))
+        departure = db.session.scalar(db.select(OrderTask).where(
+            OrderTask.pi_id == export.id, OrderTask.task_code == "SHIPPING_ACTUAL_DEPARTURE"))
+        self.assertEqual((departure.status, departure.health), ("ACTION", "NORMAL"))
+        self.assertEqual(self.client().post(f"/v2/orders/{export.id}/enter-shipped", data={}).status_code, 409)
         orphan_group = TradeGroup(group_no="TRI-GATE-ORPHAN"); db.session.add(orphan_group); db.session.flush()
         orphan = self.pi("XHT-GATE-ORPHAN", group=orphan_group, role="EXPORT_ORDER")
         self.prepare_gate(orphan); db.session.flush()
         reconcile_order_tasks_for_pi(orphan, now=datetime(2026, 9, 20, 12))
         self.assertFalse(_shipped_gate_is_ready(orphan))
-        orphan_gate = db.session.scalar(db.select(OrderTask).where(
-            OrderTask.pi_id == orphan.id, OrderTask.task_code == "STAGE_GATE_SHIPPED"))
-        self.assertIn("no CUSTOMER_ORDER", " ".join(orphan_gate.context_payload["missing_preparation"]))
+        self.assertIn("no CUSTOMER_ORDER", self.client().get(f"/v2/orders/{orphan.id}/enter-shipped").get_data(as_text=True))
 
     def test_normal_and_customer_gate_still_require_own_done_task_and_agreement(self):
         normal = self.pi("NORMAL-GATE")

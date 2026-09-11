@@ -37,3 +37,19 @@ def arrival_schedule_projection(eta, today):
             if reached_eta else None
         ),
     }
+
+
+def departure_schedule_projection(etd, today):
+    """Return the ETD-based state for an unresolved actual-departure task."""
+    if etd is None:
+        return {"title": "录入 ETD", "status": "ACTION", "health": "NORMAL",
+                "message": "尚未确认 ETD，请向货代确认预计开航日期。", "activation_at": None}
+    if today < etd:
+        return {"title": "确认船舶实际开航情况", "status": "UPCOMING", "health": "NORMAL",
+                "message": "ETD 尚未到期，等待货代确认实际发运。", "activation_at": etd}
+    if today == etd:
+        return {"title": "确认船舶实际开航情况", "status": "ACTION", "health": "NORMAL",
+                "message": "ETD 今日，尚未确认实际发运。", "activation_at": etd}
+    return {"title": "确认船舶实际开航情况", "status": "ACTION", "health": "EXCEPTION",
+            "message": "ETD 已过，尚未确认实际发运。", "activation_at": etd,
+            "days_overdue": (today - etd).days}
