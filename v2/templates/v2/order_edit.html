@@ -1,0 +1,64 @@
+{% extends 'v2/base.html' %}
+{% block content %}
+{% macro input(name, label, type='text', required=false, value=none) %}
+<div class="col-md-4"><label class="form-label" for="{{ name }}">{{ label }}{% if required %} *{% endif %}</label><input class="form-control" id="{{ name }}" name="{{ name }}" type="{{ type }}" {% if type=='number' %}step="any"{% endif %} {% if required %}required{% endif %} value="{{ data.get(name, '') if value is none else value }}"></div>
+{% endmacro %}
+{% macro select(name, label, rows, required=false, model=false) %}
+<div class="col-md-4"><label class="form-label" for="{{ name }}">{{ label }}{% if required %} *{% endif %}</label><select class="form-select" id="{{ name }}" name="{{ name }}" {% if required %}required{% endif %}><option value="">—</option>{% for row in rows %}<option value="{{ row.id }}" {% if data.get(name)==row.id|string %}selected{% endif %}>{{ row.model if model else row.name }}{% if not row.active %} (inactive){% endif %}</option>{% endfor %}</select></div>
+{% endmacro %}
+{% macro item(index) %}
+<fieldset class="border rounded p-3 mb-3 edit-item" data-index="{{ index }}"><legend class="float-none w-auto fs-6">PI Item</legend>
+<input type="hidden" name="item_id_{{ index }}" value="{{ data.get('item_id_' ~ index, '') }}">
+<div class="row g-3">
+{{ select('product_' ~ index, 'Product', products, true, true) }}
+{{ select('factory_' ~ index, 'Factory', factories) }}
+{{ input('trade_term_' ~ index, 'Incoterm') }}
+{{ input('quantity_' ~ index, 'Quantity', 'number', true) }}
+{{ input('quantity_unit_' ~ index, 'Unit', required=true) }}
+{{ input('unit_price_' ~ index, 'Unit Price', 'number', true) }}
+</div>
+<details class="mt-3"><summary>Order-local product facts</summary><p class="text-muted small">Changing Product refreshes these facts from the selected master. With the same product, you can correct this order's snapshots.</p><div class="row g-3">{% for field,label in [('model','Model'),('category','Category'),('brand','Brand'),('packaging','Packaging'),('hs_code','HS Code')] %}{{ input('product_' ~ field ~ '_snapshot_' ~ index, label) }}{% endfor %}</div></details>
+<button class="btn btn-outline-danger mt-3 remove-edit-item" type="button">Remove Item</button>
+</fieldset>
+{% endmacro %}
+<h2>Edit Order · {{ pi.pi_no }}</h2><p class="text-muted">Full draft editing is available while NEW. Changes are saved together.</p>
+{% if error %}<div class="alert alert-danger" role="alert" tabindex="-1" id="edit-error">{{ error }}</div>{% endif %}
+<form method="post" id="new-order-editor">
+<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="edit_version" value="{{ data.get('edit_version','') }}">
+<section class="card p-4 mb-3"><h5>Order Identity &amp; Commercial Core</h5><div class="row g-3">
+{{ input('pi_no','PI Number', required=true) }}{{ input('pi_date','PI Date','date',true) }}{{ input('currency','Currency',required=true) }}
+<div class="col-md-4"><label for="order_type" class="form-label">Order Type</label><select class="form-select" name="order_type" id="order_type">{% for kind in ['SALES','COMMISSION'] %}<option {% if data.get('order_type')==kind %}selected{% endif %}>{{ kind }}</option>{% endfor %}</select></div>
+{{ select('customer_id','Customer / Buyer',customers,true) }}{{ select('exporter_id','Exporter / Seller',exporters,true) }}
+{{ select('bank_account_id','Bank Account',banks,pi.is_export_order) }}{{ input('payment_terms','Payment Terms',required=true) }}
+{% if not pi.is_export_order %}{{ input('planned_shipment_date','Planned Shipment Date','date') }}{{ input('loading_port','Loading Port') }}{{ input('destination_port','Destination Port') }}{% endif %}
+{% for field,label in [('contract_number','Contract Number'),('shipping_mark','Shipping Mark'),('freight_term','Freight Term'),('freight_clause','Freight Clause'),('waybill_option','Waybill Option'),('note','Notes')] %}{{ input(field,label) }}{% endfor %}
+</div>{% if pi.is_export_order %}<p class="text-muted mt-3">Shipment dates and ports remain managed by the linked customer order. This editor saves commercial facts only.</p>{% endif %}</section>
+<section class="card p-4 mb-3"><h5>Items</h5><div id="edit-items">{% for index in indexes %}{{ item(index) }}{% endfor %}</div><button class="btn btn-outline-primary" type="button" id="add-edit-item">Add Item</button><p class="form-text">Removal takes effect only on Save. Items with recorded batches cannot be removed.</p></section>
+<section class="card p-4 mb-3" id="payment-plan"><h5>Payment Plan</h5><p>Current saved total: {{ pi.currency }} {{ '%.2f'|format(pi.contract_total) }}. When quantities, prices, items, total, currency or Advance % change, select a choice for this save.</p>
+<div class="row g-3">{{ input('advance_payment_percent','Advance %','number') }}
+<div class="col-md-8"><label for="payment_plan_choice" class="form-label">Payment-plan choice for this save</label><select id="payment_plan_choice" class="form-select" name="payment_plan_choice"><option value="">No payment-plan change</option><option value="recalculate" {% if data.get('payment_plan_choice')=='recalculate' %}selected{% endif %}>Recalculate from Advance %</option><option value="keep" {% if data.get('payment_plan_choice')=='keep' %}selected{% endif %}>Keep / Edit Planned Amounts</option></select></div>
+{{ input('advance_payment_amount','Planned Advance','number') }}{{ input('balance_payment_amount','Planned Balance','number') }}</div>
+<p class="form-text">Recalculate uses the new saved total and Advance %. Keep / Edit requires the two amounts to equal the new total. No choice is needed when payment-plan inputs and amounts are unchanged. Receipts are not edited here.</p></section>
+<section class="card p-4 mb-3"><h5>Commission (COMMISSION orders)</h5><div class="row g-3">{{ select('commission_factory_id','Commission Factory',factories) }}{{ input('commission_rate','Commission Rate %','number') }}{{ input('commission_currency','Commission Currency') }}<div class="col-md-4"><label for="commission_amount_mode">Commission Mode</label><select class="form-select" name="commission_amount_mode" id="commission_amount_mode"><option value="">—</option>{% for mode in ['DERIVED','EXPLICIT_OVERRIDE'] %}<option {% if data.get('commission_amount_mode')==mode %}selected{% endif %}>{{ mode }}</option>{% endfor %}</select></div>{{ input('commission_amount','Commission Amount','number') }}{{ input('commission_override_reason','Override Reason') }}</div></section>
+<section class="card p-4 mb-3"><h5>Document Requirements</h5><div class="row g-3">{% for field in document_facts %}<div class="col-md-4"><label for="{{ field }}">{{ field|replace('_',' ')|title }}</label><select id="{{ field }}" name="{{ field }}" class="form-select">{% for value,label in [('', 'Not confirmed'),('true','Required'),('false','Not required')] %}<option value="{{ value }}" {% if data.get(field)==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>{% endfor %}{{ input('other_document_notes','Other Document Notes') }}</div></section>
+<details class="card p-4 mb-3"><summary>Order-local party facts</summary><p class="text-muted mt-2">Changing Customer or Seller refreshes its snapshots from the selected master. Otherwise, edits below apply to this order only.</p><div class="row g-3">{% for field in party_snapshots %}{{ input(field,field|replace('_snapshot','')|replace('_',' ')|title) }}{% endfor %}</div>
+<h6 class="mt-3">Notify Party</h6><div class="row g-3"><div class="col-md-4"><label for="notify_party_same_as_consignee">Same as Consignee</label><select class="form-select" id="notify_party_same_as_consignee" name="notify_party_same_as_consignee"><option value="true" {% if data.get('notify_party_same_as_consignee')=='true' %}selected{% endif %}>Yes</option><option value="false" {% if data.get('notify_party_same_as_consignee')=='false' %}selected{% endif %}>No</option></select></div>{% for field in ['name','address','tax_code'] %}{{ input('notify_party_' ~ field ~ '_snapshot','Notify Party ' ~ field|replace('_',' ')|title) }}{% endfor %}</div></details>
+<button class="btn btn-primary" type="submit">Save Order</button> <a class="btn btn-outline-secondary" href="{{ url_for('v2.order_view',pi_id=pi.id) }}">Cancel</a>
+</form>
+<template id="new-edit-item">{{ item('__INDEX__') }}</template>
+<script>
+(() => {
+const container = document.getElementById('edit-items');
+let next = Math.max(-1, ...[...container.querySelectorAll('.edit-item')].map(row => Number(row.dataset.index))) + 1;
+document.getElementById('add-edit-item').addEventListener('click', () => {
+const html = document.getElementById('new-edit-item').innerHTML.replaceAll('__INDEX__', String(next++));
+container.insertAdjacentHTML('beforeend', html);
+container.lastElementChild.querySelector('select').focus();
+});
+container.addEventListener('click', event => {
+if (event.target.classList.contains('remove-edit-item')) event.target.closest('.edit-item').remove();
+});
+document.getElementById('edit-error')?.focus();
+})();
+</script>
+{% endblock %}

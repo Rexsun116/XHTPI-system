@@ -343,7 +343,7 @@ class NewSalesReminderTest(TestCase):
         self.assertTrue(reopened.headers["Location"].endswith(f"#task-{task.id}"))
         waiting = self.client().post(f"/v2/tasks/{task.id}/waiting", data={"waiting_on": "CUSTOMER"})
         self.assertTrue(waiting.headers["Location"].endswith(f"#task-{task.id}"))
-        self.assertEqual(format_task_datetime(datetime(2026, 9, 1, 7, 5)), "2026-09-01 07:05")
+        self.assertEqual(format_task_datetime(datetime(2026, 9, 1, 7, 5)), "2026-09-01 15:05")
 
     def test_expired_no_advance_has_one_general_exception(self):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0"))

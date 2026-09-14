@@ -19,6 +19,8 @@ from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
 from .shipment_ownership import PHYSICAL_FORM_FIELDS, is_physical_shipment_task, shipment_owner_for
 from .rules import CUSTOMER_DOCUMENT_TASK_CODES
+from .new_order_edit import (NewOrderEditError, save_new_order, validate_new_order, edit_form_data,
+                             item_indexes, PARTY_SNAPSHOTS)
 from .linked_trade_creation import (
     LinkedExportCreationError,
     create_linked_export_order,
@@ -53,7 +55,15 @@ MASTER = {
 @login_required
 def dashboard():
     tasks = list(db.session.scalars(db.select(OrderTask)))
-    orders = list(db.session.scalars(db.select(PI).order_by(PI.updated_at.desc())))
+    orderings = {
+        "updated": (PI.updated_at.desc(), PI.id.desc()),
+        "pi_date_desc": (PI.pi_date.desc().nulls_last(), PI.id.desc()),
+        "pi_date_asc": (PI.pi_date.asc().nulls_last(), PI.id.asc()),
+    }
+    selected_sort = request.args.get("sort", "updated")
+    if selected_sort not in orderings:
+        selected_sort = "updated"
+    orders = list(db.session.scalars(db.select(PI).order_by(*orderings[selected_sort])))
     ordered = sorted(tasks, key=sort_key)
     grouped = {key: [] for key in ("ACTION","WAITING","UPCOMING","DONE")}
     grouped["EXCEPTION"] = []
@@ -99,7 +109,7 @@ def dashboard():
     return render_template("v2/dashboard.html", grouped=grouped, orders=orders,
                            tasks_by_order=tasks_by_order, next_by_order=next_by_order,
                            upcoming_days=upcoming_days, summary=summary, present_task=present_task,
-                           format_decimal_compact=format_decimal_compact)
+                           format_decimal_compact=format_decimal_compact, selected_sort=selected_sort)
 
 
 @blueprint.route("/master/<kind>", methods=["GET", "POST"])
@@ -342,6 +352,38 @@ def order_new():
         message = "PI Number already exists." if isinstance(exc, IntegrityError) else str(exc)
         return _render_create_form(form_data=request.form, error=message, status=400)
     return redirect(url_for("v2.order_view", pi_id=pi.id))
+
+
+@blueprint.route("/orders/<int:pi_id>/edit", methods=["GET", "POST"])
+@login_required
+def order_edit(pi_id):
+    pi = db.get_or_404(PI, pi_id)
+    try:
+        validate_new_order(pi)
+    except NewOrderEditError as exc:
+        abort(409, str(exc))
+    error, status = None, 200
+    if request.method == "POST":
+        try:
+            save_new_order(pi, request.form)
+        except (ValueError, ArithmeticError) as exc:
+            error, status = str(exc), 400
+        except IntegrityError:
+            error, status = "The order could not be saved. Check PI Number and selections, then reload.", 409
+        except SQLAlchemyError:
+            error, status = "The order changed or is busy. Reload the editor and retry.", 409
+        else:
+            return redirect(url_for("v2.order_view", pi_id=pi.id))
+    data = request.form if error else edit_form_data(pi)
+    choices = {name: list(db.session.scalars(db.select(model).order_by(model.id))) for name, model in (
+        ("customers", Customer), ("exporters", Exporter), ("products", Product),
+        ("factories", Factory), ("banks", BankAccount))}
+    if pi.trade_role == "EXPORT_ORDER":
+        return render_template("v2/create_linked_export_order.html", source=pi, editing=True,
+                               form_data=data, error=error, document_facts=DOCUMENT_FACTS, **_order_choices()), status
+    return render_template("v2/order_edit.html", pi=pi, data=data, error=error,
+                           indexes=item_indexes(data), document_facts=DOCUMENT_FACTS,
+                           party_snapshots=PARTY_SNAPSHOTS, **choices), status
 
 
 @blueprint.post("/orders/<int:pi_id>/advance-receipt")

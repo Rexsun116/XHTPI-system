@@ -1,10 +1,11 @@
 """User-facing task/activity presentation without exposing raw JSON."""
 
 from decimal import Decimal, InvalidOperation
+from .business_time import business_event_time
 
 
 def format_task_datetime(value):
-    return value.strftime("%Y-%m-%d %H:%M") if value else "—"
+    return business_event_time(value).strftime("%Y-%m-%d %H:%M") if value else "—"
 
 
 def money(currency, amount):

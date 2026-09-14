@@ -7,6 +7,15 @@ from zoneinfo import ZoneInfo
 BUSINESS_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
+def business_event_time(value):
+    """Display an event instant locally; never use for business-calendar facts."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(BUSINESS_TIMEZONE)
+
+
 def business_today(now=None):
     """Return today's date in the V2 Asia/Shanghai business calendar.
 
