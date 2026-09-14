@@ -15,9 +15,10 @@ from .services import (apply_bank_snapshot, apply_product_snapshot, close_correc
     completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     EXPORT_FINANCIAL_TASK_CODES)
 from .linked_trade import financial_owner_for, is_export_order
-from .linked_shipment import (LinkedShipmentError, has_trade_link, shipment_pair,
+from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
 from .shipment_ownership import PHYSICAL_FORM_FIELDS, is_physical_shipment_task, shipment_owner_for
+from .rules import CUSTOMER_DOCUMENT_TASK_CODES
 from .linked_trade_creation import (
     LinkedExportCreationError,
     create_linked_export_order,
@@ -812,6 +813,11 @@ def enter_shipped(pi_id):
                 pi, actual_departure, carrier=(request.form.get("shipping_company") or "").strip(),
                 bill=(request.form.get("bill_of_lading_number") or "").strip(),
             )
+        except LinkedShipmentDocumentsError as exc:
+            # The command has rolled back; render the existing usable form.
+            customer, export = shipment_pair(pi)
+            return render_template("v2/enter_shipped.html", pi=pi, ready=True,
+                                   linked_pair=(customer, export), departure_error=str(exc)), 409
         except LinkedShipmentError as exc:
             abort(409, str(exc))
         except SQLAlchemyError:
@@ -1079,6 +1085,8 @@ def task_action(task_id,action):
         abort(409, "Completed order tasks are read-only.")
     if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
         abort(409, "Physical shipment tasks are managed by the linked CUSTOMER_ORDER.")
+    if is_export_order(task.pi) and task.task_code in CUSTOMER_DOCUMENT_TASK_CODES:
+        abort(409, "Customer document workflow is managed by the linked CUSTOMER_ORDER.")
     if is_export_order(task.pi) and task.task_code in EXPORT_FINANCIAL_TASK_CODES:
         abort(409, "Financial tasks are managed by the linked CUSTOMER_ORDER.")
     try:

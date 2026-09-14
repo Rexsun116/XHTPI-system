@@ -2,6 +2,7 @@
 {% block content %}
 <section class="card p-4" style="max-width:560px">
   <h3>更新订单为已发运</h3>
+  {% if departure_error %}<div class="alert alert-warning" role="alert">{{ departure_error }} <a href="{{ url_for('v2.order_view', pi_id=linked_pair[1].id) }}">Open {{ linked_pair[1].pi_no }} to complete required documents</a></div>{% endif %}
   {% if linked_pair %}<p class="text-muted">确认一次实际发运日期：{{ linked_pair[1].pi_no }} 将进入 COMPLETED，{{ linked_pair[0].pi_no }} 将进入 SHIPPED，两张订单保存相同实际发运日期。</p>
   {% else %}<p class="text-muted">{{ pi.pi_no }}：确认实际发运日期、承运人和提单号后，订单将进入 SHIPPED。</p>{% endif %}
   {% if not ready %}<div class="alert alert-warning">发运准备尚未完成。请先补全装柜信息和货代最终报价，再提交实际发运。</div><p><a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}#shipment-preparation">填写装柜信息</a>{% if pi.is_export_order and financial_owner_resolution.valid %} <a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=financial_owner_resolution.owner.id) }}#freight-agreement">查看客户订单报价</a>{% elif pi.is_export_order %} <span class="text-danger">{{ financial_owner_resolution.error }}</span>{% else %} <a class="btn btn-outline-primary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}#freight-agreement">查看/录入报价</a>{% endif %}</p>{% endif %}

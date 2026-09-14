@@ -6,6 +6,7 @@ from .business_time import arrival_schedule_projection, business_today, departur
 from .models import OrderTask, db, utcnow
 from .linked_trade import is_export_order
 from .shipment_ownership import is_physical_shipment_task
+from .rules import CUSTOMER_DOCUMENT_TASK_CODES
 
 
 def projected_details(task, now=None):
@@ -17,6 +18,8 @@ def projected_details(task, now=None):
     if status in {"DONE", "CANCELLED"}:
         return status, health, task.context_payload or {}
     if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
+        return "CANCELLED", "NORMAL", task.context_payload or {}
+    if is_export_order(task.pi) and task.task_code in CUSTOMER_DOCUMENT_TASK_CODES:
         return "CANCELLED", "NORMAL", task.context_payload or {}
     context = task.context_payload or {}
     if status == "UPCOMING" and task.activation_at and task.activation_at.date() <= today:

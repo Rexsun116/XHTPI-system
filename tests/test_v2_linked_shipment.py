@@ -481,7 +481,7 @@ class LinkedShipmentTest(TestCase):
                              health="NORMAL", completion_mode="RULE_DATA", dedupe_key=f"v2:order:{export.id}:{code.lower()}")
             db.session.add(task); db.session.flush()
             db.session.add(TaskActivity(task_id=task.id, event_type="CREATED", actor_type="SYSTEM"))
-        export.export_license_required = True; export.container_loading_date = date(2099, 1, 1)
+        export.export_license_required = True; customer.container_loading_date = date(2099, 1, 1)
         db.session.commit()
         original_history = {row.id for row in TaskActivity.query.all()}
         physical = db.session.scalar(db.select(OrderTask).where(OrderTask.pi_id == export.id,
@@ -493,7 +493,7 @@ class LinkedShipmentTest(TestCase):
         self.assertFalse(any(is_physical_shipment_task(t.task_code) and t.status not in {"DONE", "CANCELLED"} for t in tasks))
         self.assertTrue(original_history <= {row.id for row in TaskActivity.query.all()})
         license_task = next(t for t in tasks if t.task_code == "DOCUMENT_EXPORT_LICENSE")
-        self.assertEqual(license_task.status, "UPCOMING")  # Existing calendar rule, not Batch 3B.
+        self.assertEqual(license_task.status, "ACTION")  # Customer Loading Date presence activates Batch 3B.
 
     def test_new_pair_uses_customer_preparation_gate_only(self):
         for generic in (False, True):

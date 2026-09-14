@@ -11,3 +11,14 @@ DOCUMENT_RULES = (
     ("DOCUMENT_INSURANCE_ORIGINAL", "insurance_original_required", "取得保单原件", "SHIPPED"),
     ("DOCUMENT_INSURANCE_ELECTRONIC", "insurance_electronic_required", "取得保单电子版", "SHIPPED"),
 )
+
+# Linked export preparation uses customer Loading Date presence, not a date window.
+LINKED_EXPORT_DOCUMENT_GATES = (
+    ("DOCUMENT_EXPORT_LICENSE", "export_license_required", "Export License"),
+    ("DOCUMENT_CUSTOMS", "customs_docs_required", "Customs Documents"),
+)
+LINKED_EXPORT_SETTLEMENT = "DOCUMENT_EXPORT_SETTLEMENT"
+CUSTOMER_DOCUMENT_TASK_CODES = frozenset({
+    "DOCUMENT_ORIGINAL_BL", "DOCUMENT_OBD_BL", "DOCUMENT_INSURANCE_ORIGINAL",
+    "DOCUMENT_INSURANCE_ELECTRONIC", "ORIGINAL_DOCUMENTS_MAIL", "DOCUMENT_TELEX_RELEASE",
+})

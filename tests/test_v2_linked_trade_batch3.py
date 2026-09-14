@@ -289,3 +289,19 @@ class LinkedTradeCreateExportTest(TestCase):
         self.assertIsNone(source.trade_group_id)
         self.assertEqual(TradeGroup.query.count(), 0)
         self.assertIsNone(db.session.scalar(db.select(PI).where(PI.pi_no == "XHT-B3")))
+
+    def test_creation_with_customer_loading_date_activates_own_document_flags(self):
+        source = self.source(status="PRE_SHIPMENT")
+        source.container_loading_date = date(2099, 12, 1)
+        source.actual_departure_date = source.actual_arrival_date = None
+        source.export_license_required = source.customs_docs_required = source.settlement_documents_required = False
+        db.session.commit()
+        export = create_linked_export_order(source.id, self.payload(source,
+            export_license_required="true", customs_docs_required="true", settlement_documents_required="true"))
+        for code in ("DOCUMENT_EXPORT_LICENSE", "DOCUMENT_CUSTOMS", "DOCUMENT_EXPORT_SETTLEMENT"):
+            tasks = OrderTask.query.filter_by(pi_id=export.id, task_code=code).all()
+            self.assertEqual(len(tasks), 1)
+            self.assertEqual(tasks[0].status, "ACTION")
+        self.assertIs(source.export_license_required, False)
+        self.assertIs(source.customs_docs_required, False)
+        self.assertIs(source.settlement_documents_required, False)

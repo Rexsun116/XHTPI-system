@@ -259,7 +259,7 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
             reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 20, 12)); db.session.flush()
             self.assertTrue(_shipped_gate_is_ready(pi))
 
-    def test_telex_uses_peer_payment_and_orphan_fails_visibly(self):
+    def test_customer_delivery_tasks_stay_off_export_regardless_of_peer_payment(self):
         owner, export = self.pair(export_status="SHIPPED")
         export.telex_release_required = True
         export.original_documents_mail_required = True
@@ -268,22 +268,23 @@ class LinkedTradeRoleAwareWorkflowTest(TestCase):
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
         telex = db.session.scalar(db.select(OrderTask).where(
             OrderTask.pi_id == export.id, OrderTask.task_code == "DOCUMENT_TELEX_RELEASE"))
-        self.assertEqual(telex.status, "UPCOMING")
+        self.assertIsNone(telex)
         mail = db.session.scalar(db.select(OrderTask).where(
             OrderTask.pi_id == export.id, OrderTask.task_code == "ORIGINAL_DOCUMENTS_MAIL"))
-        self.assertEqual(mail.status, "UPCOMING")
+        self.assertIsNone(mail)
         owner.advance_received_amount = Decimal("100")
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20, 12))
-        self.assertEqual(telex.status, "ACTION")
-        self.assertEqual(mail.status, "UPCOMING")
+        self.assertIsNone(db.session.scalar(db.select(OrderTask).where(
+            OrderTask.pi_id == export.id, OrderTask.task_code == "DOCUMENT_TELEX_RELEASE")))
+        self.assertIsNone(db.session.scalar(db.select(OrderTask).where(
+            OrderTask.pi_id == export.id, OrderTask.task_code == "ORIGINAL_DOCUMENTS_MAIL")))
         orphan_group = TradeGroup(group_no="TRI-TELEX-ORPHAN"); db.session.add(orphan_group); db.session.flush()
         orphan = self.pi("XHT-TELEX-ORPHAN", group=orphan_group, role="EXPORT_ORDER", status="SHIPPED")
         orphan.telex_release_required = True; orphan.advance_received_amount = Decimal("100")
         reconcile_order_tasks_for_pi(orphan, now=datetime(2026, 9, 20, 12))
         orphan_telex = db.session.scalar(db.select(OrderTask).where(
             OrderTask.pi_id == orphan.id, OrderTask.task_code == "DOCUMENT_TELEX_RELEASE"))
-        self.assertEqual((orphan_telex.status, orphan_telex.health), ("ACTION", "EXCEPTION"))
-        self.assertIn("no CUSTOMER_ORDER", orphan_telex.context_payload["message"])
+        self.assertIsNone(orphan_telex)
 
     def test_completion_documents_and_post_recompute_cannot_be_bypassed(self):
         owner, export = self.pair(export_status="ARRIVED")

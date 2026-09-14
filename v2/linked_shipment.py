@@ -4,13 +4,37 @@ from datetime import date
 
 from sqlalchemy import inspect, select, update
 
-from .models import PI, TradeGroup, db
+from .models import OrderTask, PI, TradeGroup, db
+from .rules import LINKED_EXPORT_DOCUMENT_GATES
 from .services import reconcile_order_tasks_for_pi
 from .shipment_ownership import SHARED_PHYSICAL_FIELDS, copy_physical_facts
 
 
 class LinkedShipmentError(ValueError):
     """Invalid or stale linked shipment; the command leaves no partial writes."""
+
+
+class LinkedShipmentDocumentsError(LinkedShipmentError):
+    """Required export documents are outstanding; return to the departure form."""
+
+
+def _validate_export_documents(export):
+    # Refresh preloaded task state as well as reading the gate authoritatively:
+    # later reconciliation must also see a concurrently completed task as DONE.
+    # Keep task locks until pair commit on row-locking backends; missing fails closed.
+    required = [(code, label) for code, fact, label in LINKED_EXPORT_DOCUMENT_GATES
+                if getattr(export, fact) is True]
+    keys = {f"v2:order:{export.id}:{code.lower()}": (code, label) for code, label in required}
+    rows = db.session.scalars(select(OrderTask).where(
+        OrderTask.pi_id == export.id, OrderTask.dedupe_key.in_(keys),
+    ).order_by(OrderTask.id).with_for_update().execution_options(populate_existing=True)).all()
+    completed = {task.dedupe_key for task in rows if task.status == "DONE"
+                 and keys[task.dedupe_key][0] == task.task_code}
+    missing = [label for key, (_, label) in keys.items() if key not in completed]
+    if missing:
+        raise LinkedShipmentDocumentsError(
+            f"Cannot confirm departure: linked export order {export.pi_no} still has required "
+            + " and ".join(missing) + " work outstanding.")
 
 
 def has_trade_link(pi):
@@ -65,16 +89,25 @@ def record_linked_actual_departure(pi, actual_departure, *, carrier=None, bill=N
     try:
         if type(actual_departure) is not date:
             raise LinkedShipmentError("Actual Departure Date is required.")
-        customer, export = shipment_pair(pi)
-        _claim_pair(customer, export)
-        customer.actual_departure_date = export.actual_departure_date = actual_departure
-        customer.status, export.status = "SHIPPED", "COMPLETED"
-        # Optional document details stay local; only the approved physical
-        # dates are shared. Empty inputs do not clear existing details.
-        if carrier:
-            pi.shipping_company = carrier
-        if bill:
-            pi.bill_of_lading_number = bill
+        with db.session.no_autoflush:
+            customer, export = shipment_pair(pi)
+            _claim_pair(customer, export)
+            for row in sorted((customer, export), key=lambda row: row.id):
+                db.session.refresh(row, attribute_names=[
+                    "status", "trade_group_id", "trade_role", "actual_departure_date",
+                    "export_license_required", "customs_docs_required", "pi_no",
+                ], with_for_update=True)
+            refreshed = shipment_pair(pi)
+            if tuple(row.id for row in refreshed) != (customer.id, export.id):
+                raise LinkedShipmentError("Linked shipment membership changed; reload before submitting again.")
+            _validate_export_documents(export)
+            customer.actual_departure_date = export.actual_departure_date = actual_departure
+            customer.status, export.status = "SHIPPED", "COMPLETED"
+            # Optional document details remain local to the submitting order.
+            if carrier:
+                pi.shipping_company = carrier
+            if bill:
+                pi.bill_of_lading_number = bill
         _save_pair(customer, export)
     except Exception:
         db.session.rollback()

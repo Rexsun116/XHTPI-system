@@ -23,8 +23,9 @@ from .models import (
 )
 from .business_time import arrival_schedule_projection, business_today, departure_schedule_projection
 from .linked_trade import financial_owner_for, is_export_order
-from .rules import DOCUMENT_RULES
-from .shipment_ownership import is_physical_shipment_task
+from .rules import (DOCUMENT_RULES, LINKED_EXPORT_DOCUMENT_GATES,
+                    LINKED_EXPORT_SETTLEMENT, CUSTOMER_DOCUMENT_TASK_CODES)
+from .shipment_ownership import is_physical_shipment_task, shipment_owner_for
 
 
 CORRECTION_TO_POLICY_MODULE = {
@@ -104,6 +105,8 @@ def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="R
                  activation_at=None, due_at=None, priority=100, force_reactivate=False):
     if is_export_order(pi) and is_physical_shipment_task(code):
         return _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_PHYSICAL_SHIPMENT")
+    if is_export_order(pi) and code in CUSTOMER_DOCUMENT_TASK_CODES:
+        return _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_DOCUMENT_WORKFLOW")
     key = f"v2:order:{pi.id}:{code.lower()}"
     task = db.session.scalar(select(OrderTask).where(OrderTask.dedupe_key == key))
     if task is None:
@@ -305,6 +308,8 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     )) if export_order and owner_resolution.valid else None)
     if export_order:
         _cancel_export_financial_tasks(pi)
+        for code in CUSTOMER_DOCUMENT_TASK_CODES:
+            _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_DOCUMENT_WORKFLOW")
         for task in db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)):
             if is_physical_shipment_task(task.task_code):
                 _cancel_task(pi, task.task_code, "LINKED_CUSTOMER_OWNS_PHYSICAL_SHIPMENT")
@@ -494,9 +499,24 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     else:
         _cancel_task(pi, "SHIPPING_ACTUAL_ARRIVAL", "NOT_APPLICABLE_OUTSIDE_SHIPPED")
 
+    shipment_owner = shipment_owner_for(pi) if export_order else None
+    linked_loading_present = bool(shipment_owner and shipment_owner.container_loading_date)
+    linked_gate_codes = {code for code, _, _ in LINKED_EXPORT_DOCUMENT_GATES}
     for code, fact, title, trigger in DOCUMENT_RULES:
+        if export_order and code in CUSTOMER_DOCUMENT_TASK_CODES:
+            continue
         if getattr(pi, fact) is not True:
             _cancel_task(pi, code)
+            continue
+        if export_order and code in linked_gate_codes:
+            # Completion never silently cancels an outstanding hard prerequisite.
+            # Normal departure already verified DONE inside the pair transaction.
+            if pi.status == "COMPLETED":
+                continue
+            if linked_loading_present:
+                _upsert_task(pi, code, title, status="ACTION", completion_mode="MANUAL")
+            else:
+                _cancel_task(pi, code, "CUSTOMER_LOADING_DATE_MISSING")
             continue
         active = (
             trigger == "PRE_SHIPMENT" and pi.status in {"PRE_SHIPMENT","SHIPPED","ARRIVED","COMPLETED"}
@@ -506,6 +526,15 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         )
         context = {"message": "APTA 日期需在提单开船日期三日内"} if code == "DOCUMENT_APTA" else None
         _upsert_task(pi, code, title, status="ACTION" if active else "UPCOMING", completion_mode="MANUAL", context=context)
+
+    if export_order:
+        if pi.status == "COMPLETED":
+            _cancel_task(pi, LINKED_EXPORT_SETTLEMENT, "LINKED_EXPORT_EXECUTION_COMPLETED")
+        elif pi.settlement_documents_required is True and linked_loading_present:
+            _upsert_task(pi, LINKED_EXPORT_SETTLEMENT, "准备结汇文件 · Settlement Documents",
+                         status="ACTION", completion_mode="MANUAL")
+        else:
+            _cancel_task(pi, LINKED_EXPORT_SETTLEMENT, "REQUIREMENT_OR_LOADING_DATE_REMOVED")
 
     originals = [code for code, fact in (("DOCUMENT_ORIGINAL_BL", "original_bl_required"),
                                           ("DOCUMENT_INSURANCE_ORIGINAL", "insurance_original_required"))

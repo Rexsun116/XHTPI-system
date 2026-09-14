@@ -60,6 +60,9 @@ def task_actions(task):
     """Return UI actions by task semantics, keeping task-code knowledge out of Jinja."""
     from .linked_trade import is_export_order
     from .shipment_ownership import is_physical_shipment_task
+    from .rules import CUSTOMER_DOCUMENT_TASK_CODES
+    if is_export_order(task.pi) and task.task_code in CUSTOMER_DOCUMENT_TASK_CODES:
+        return [{"kind": "history", "label": "History"}]
     if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
         return [{"kind": "history", "label": "History"}]
     context = getattr(task, "_dashboard_context", task.context_payload) or {}
