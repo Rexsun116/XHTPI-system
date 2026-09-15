@@ -4,6 +4,7 @@ from datetime import date
 
 from sqlalchemy import inspect, select, update
 
+from .business_time import validate_schedule_dates
 from .models import OrderTask, PI, TradeGroup, db
 from .rules import LINKED_EXPORT_DOCUMENT_GATES
 from .services import reconcile_order_tasks_for_pi
@@ -85,22 +86,30 @@ def _save_pair(customer, export):
     db.session.commit()
 
 
-def record_linked_actual_departure(pi, actual_departure, *, carrier=None, bill=None):
+def record_linked_actual_departure(pi, actual_departure, *, carrier=None, bill=None, eta=None):
     try:
         if type(actual_departure) is not date:
             raise LinkedShipmentError("Actual Departure Date is required.")
+        if eta is not None and type(eta) is not date:
+            raise LinkedShipmentError("ETA must be a calendar date.")
         with db.session.no_autoflush:
             customer, export = shipment_pair(pi)
             _claim_pair(customer, export)
             for row in sorted((customer, export), key=lambda row: row.id):
                 db.session.refresh(row, attribute_names=[
                     "status", "trade_group_id", "trade_role", "actual_departure_date",
-                    "export_license_required", "customs_docs_required", "pi_no",
+                    "export_license_required", "customs_docs_required", "pi_no", "etd", "eta",
                 ], with_for_update=True)
             refreshed = shipment_pair(pi)
             if tuple(row.id for row in refreshed) != (customer.id, export.id):
                 raise LinkedShipmentError("Linked shipment membership changed; reload before submitting again.")
             _validate_export_documents(export)
+            try:
+                validate_schedule_dates(customer.etd, eta if eta is not None else customer.eta)
+            except ValueError as exc:
+                raise LinkedShipmentError(str(exc)) from exc
+            if eta is not None:
+                customer.eta = eta
             customer.actual_departure_date = export.actual_departure_date = actual_departure
             customer.status, export.status = "SHIPPED", "COMPLETED"
             # Optional document details remain local to the submitting order.

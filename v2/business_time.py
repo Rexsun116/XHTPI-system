@@ -62,3 +62,9 @@ def departure_schedule_projection(etd, today):
     return {"title": "确认船舶实际开航情况", "status": "ACTION", "health": "EXCEPTION",
             "message": "ETD 已过，尚未确认实际发运。", "activation_at": etd,
             "days_overdue": (today - etd).days}
+
+
+def validate_schedule_dates(etd, eta):
+    """Shared calendar-date policy for ETA entry, including departure capture."""
+    if etd and eta and eta < etd:
+        raise ValueError("ETA must not be earlier than ETD.")

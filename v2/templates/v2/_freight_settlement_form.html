@@ -1,6 +1,14 @@
 <form id="freight-settlement" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="card p-4 mb-3">{{ csrf() }}
   <input type="hidden" name="_form_scope" value="FREIGHT_SETTLEMENT">
   <h5>Freight Settlement</h5>
+  <div class="border rounded p-3 mt-2">
+    <div class="text-muted small">Agreed Freight</div>
+    {% if financial_agreement %}
+      <div class="fw-semibold">{{ financial_agreement.currency }} {{ '{:,.2f}'.format(financial_agreement.amount) }}</div>
+    {% else %}
+      <div class="text-muted">Agreed freight not available</div>
+    {% endif %}
+  </div>
   {% for currency, required, amount, invoice, status, paid_at in [('USD', settlement.usd_bill_required if settlement else none, settlement.usd_bill_amount if settlement else none, settlement.usd_invoice_issued if settlement else none, settlement.usd_payment_status if settlement else none, settlement.usd_paid_at if settlement else none), ('CNY', settlement.cny_bill_required if settlement else none, settlement.cny_bill_amount if settlement else none, settlement.cny_invoice_issued if settlement else none, settlement.cny_payment_status if settlement else none, settlement.cny_paid_at if settlement else none)] %}
     {% if required is sameas true %}
       <fieldset class="border rounded p-3 mt-3"><legend class="float-none w-auto px-2 h6">{{ currency }} Settlement</legend><div class="row g-3">

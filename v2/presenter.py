@@ -90,6 +90,8 @@ def task_actions(task):
                             "label": "登记预付款到账" if task.task_code == "PAYMENT_ADVANCE_WAITING" else "更新付款信息"})
             if health == "EXCEPTION" and task.pi.status == "NEW":
                 actions.append({"kind": "edit_shipment", "label": "修改计划发运日期"})
+        elif task.task_code == "SHIPPING_ETA_MISSING":
+            actions.append({"kind": "edit_schedule", "label": "Update ETA"})
         elif task.task_code == "SHIPPING_ACTUAL_ARRIVAL":
             actions.append({"kind": "enter_arrived", "label": "确认货物已到港"})
             actions.append({"kind": "followup", "label": "Follow-up"})

@@ -28,7 +28,7 @@ from .linked_trade_creation import (
 )
 from .presenter import present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
-from .business_time import business_today
+from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
                            move_to_waiting, parse_datetime, reopen)
 from .documents import format_decimal_compact, normalize_weight_input
@@ -203,8 +203,10 @@ def _tri_state(value):
 
 
 def _validate_schedule_dates(etd, eta):
-    if etd and eta and eta < etd:
-        abort(400, "ETA must not be earlier than ETD.")
+    try:
+        validate_schedule_dates(etd, eta)
+    except ValueError as exc:
+        abort(400, str(exc))
 
 
 def _parse_calendar_date(value):
@@ -848,12 +850,14 @@ def enter_shipped(pi_id):
         raw = (request.form.get("actual_departure_date") or "").strip()
         try:
             actual_departure = date.fromisoformat(raw)
+            raw_eta = (request.form.get("eta") or "").strip()
+            eta = date.fromisoformat(raw_eta) if raw_eta else None
         except ValueError:
-            abort(400, "Actual Departure Date is required and must be a calendar date.")
+            abort(400, "Actual Departure Date and optional ETA must be valid calendar dates.")
         try:
             record_linked_actual_departure(
                 pi, actual_departure, carrier=(request.form.get("shipping_company") or "").strip(),
-                bill=(request.form.get("bill_of_lading_number") or "").strip(),
+                bill=(request.form.get("bill_of_lading_number") or "").strip(), eta=eta,
             )
         except LinkedShipmentDocumentsError as exc:
             # The command has rolled back; render the existing usable form.
@@ -878,7 +882,13 @@ def enter_shipped(pi_id):
     if not raw or not carrier or not bill:
         abort(400, "Actual Departure Date, Shipping Line / Carrier, and B/L No. are required.")
     try:
-        pi.actual_departure_date = date.fromisoformat(raw)
+        actual_departure = date.fromisoformat(raw)
+        raw_eta = (request.form.get("eta") or "").strip()
+        eta = date.fromisoformat(raw_eta) if raw_eta else None
+        validate_schedule_dates(pi.etd, eta if eta is not None else pi.eta)
+        if eta is not None:
+            pi.eta = eta
+        pi.actual_departure_date = actual_departure
         pi.shipping_company = carrier
         pi.bill_of_lading_number = bill
         pi.status = "SHIPPED"

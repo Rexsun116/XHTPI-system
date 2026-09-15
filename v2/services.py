@@ -299,6 +299,9 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     """V2-only targeted rules. No legacy import or dashboard side effects."""
     now = now or utcnow()
     today = business_today(now)
+    if pi.status == OrderStage.COMPLETED:
+        _cancel_task(pi, "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE",
+                     "ORDER_COMPLETED_FREIGHT_VARIANCE_RETIRED")
     settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
     agreement = db.session.scalar(select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
     export_order = is_export_order(pi)
@@ -470,6 +473,15 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
         _resolve_task(pi, "SHIPPING_ACTUAL_DEPARTURE")
     else:
         _cancel_task(pi, "SHIPPING_ACTUAL_DEPARTURE", "NOT_APPLICABLE_OUTSIDE_PRE_SHIPMENT")
+
+    if not export_order and (pi.order_type == "SALES" or pi.trade_role == "CUSTOMER_ORDER") and pi.status == OrderStage.SHIPPED:
+        if pi.eta is None:
+            _upsert_task(pi, "SHIPPING_ETA_MISSING", "ETA missing — update shipment schedule",
+                         status="ACTION", context={"action_target": "UPDATE_ETA"})
+        else:
+            _resolve_task(pi, "SHIPPING_ETA_MISSING")
+    else:
+        _cancel_task(pi, "SHIPPING_ETA_MISSING", "NOT_APPLICABLE_OUTSIDE_CUSTOMER_SHIPPED")
 
     arrival_task = _find_task(pi, "SHIPPING_ACTUAL_ARRIVAL")
     if pi.status == OrderStage.SHIPPED and pi.eta and not pi.actual_arrival_date:
@@ -664,7 +676,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                              status="ACTION", completion_mode="RULE_DATA",
                              context={"currency": currency, "action_target": f"UPDATE_{currency}_FREIGHT_PAYMENT"})
 
-    if not export_order and settlement and agreement:
+    if pi.status != OrderStage.COMPLETED and not export_order and settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)
         if comparison.get("reason") == "AMOUNT_DIFFERENCE":
             _upsert_task(

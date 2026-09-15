@@ -10,6 +10,9 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="form-label">Actual Departure Date *</label>
     <input class="form-control" type="date" name="actual_departure_date" required value="{{ pi.actual_departure_date or '' }}">
+    <label class="form-label mt-3" for="departure-eta">ETA (optional)</label>
+    <input class="form-control" id="departure-eta" type="date" name="eta" value="{{ request.form.get('eta', '') }}">
+    <div class="form-text">留空保留现有 ETA{{ '：' ~ pi.eta if pi.eta else '' }}；尚未确认 ETA 也可记录实际发运。</div>
     <label class="form-label mt-3">Shipping Line / Carrier {{ '(optional)' if linked_pair else '*' }}</label>
     <input class="form-control" name="shipping_company" {% if not linked_pair %}required{% endif %} value="{{ pi.shipping_company or '' }}">
     <label class="form-label mt-3">B/L No. {{ '(optional)' if linked_pair else '*' }}</label>
