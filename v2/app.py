@@ -88,7 +88,7 @@ def create_app(database_uri, *, testing=False, secret_key=None):
             product = db.session.get(Product, row["product_id"])
             quantity, price = Decimal(str(row["quantity"])), Decimal(str(row["unit_price"]))
             item = PIItem(product_id=product.id, unit_price=price, quantity=quantity,
-                quantity_unit=row.get("quantity_unit", "MT"), line_total=(price * quantity).quantize(Decimal("0.01")))
+                quantity_unit=row.get("quantity_unit", "KGS"), line_total=(price * quantity).quantize(Decimal("0.01")))
             apply_product_snapshot(item, product)
             pi.items.append(item)
         db.session.add(pi); save_order_with_reconcile(pi)

@@ -137,6 +137,11 @@ class ProformaDocumentTest(TestCase):
         item.trade_term = "cfr"; pi.destination_port = "JEBEL ALI"; self.assertEqual(format_trade_term_for_document(item.trade_term, pi), "CFR JEBEL ALI")
         pi.loading_port = None; item.trade_term = "FOB"; self.assertEqual(format_trade_term_for_document(item.trade_term, pi), "FOB")
         self.assertEqual(format_trade_term_for_document("DAP", pi), "DAP")
+        pi.loading_port = "SHANGHAI"
+        for term, port in (("CIF", "JEBEL ALI"), ("CFR", "JEBEL ALI"), ("FOB", "SHANGHAI"), ("EXW", "SHANGHAI")):
+            item.trade_term = term
+            self.assertEqual(format_trade_term_for_document(term, pi), f"{term} {port}")
+            self.assertIn(f"{term} {port}", render_invoice_html(pi, "pi"))
 
     def test_seal_extension_whitelist_and_priority(self):
         pi = self.pi(); root = Path(self.app.config["DOCUMENT_ASSET_DIR"]); root.mkdir(parents=True)

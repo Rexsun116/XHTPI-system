@@ -308,7 +308,7 @@ class PIItem(TimestampMixin, db.Model):
     trade_term = db.Column(db.String(20))
     unit_price = db.Column(db.Numeric(18, 4), nullable=False)
     quantity = db.Column(db.Numeric(18, 3), nullable=False)
-    quantity_unit = db.Column(db.String(20), nullable=False, default="MT")
+    quantity_unit = db.Column(db.String(20), nullable=False, default="KGS")
     line_total = db.Column(db.Numeric(18, 2), nullable=False)
     product_category_snapshot = db.Column(db.String(100))
     product_brand_snapshot = db.Column(db.String(100))

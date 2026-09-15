@@ -341,7 +341,7 @@ def order_new():
             item = PIItem(product_id=product.id,
                 factory_id=int(request.form[f"factory_{index}"]) if request.form.get(f"factory_{index}") else None,
                 trade_term=request.form.get(f"trade_term_{index}"), unit_price=price, quantity=qty,
-                quantity_unit=request.form.get(f"quantity_unit_{index}") or "MT",
+                quantity_unit=request.form.get(f"quantity_unit_{index}") or "KGS",
                 line_total=(price * qty).quantize(Decimal("0.01")))
             apply_product_snapshot(item, product)
             pi.items.append(item)

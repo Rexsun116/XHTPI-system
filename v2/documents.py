@@ -59,7 +59,7 @@ def resolve_exporter_seal_uri(pi):
 def format_trade_term_for_document(trade_term, pi):
     """Add the relevant existing PI port for the narrowly defined PI terms."""
     term = (trade_term or "").strip().upper()
-    port = pi.loading_port if term == "FOB" else pi.destination_port if term in {"CIF", "CFR"} else None
+    port = pi.loading_port if term in {"FOB", "EXW"} else pi.destination_port if term in {"CIF", "CFR"} else None
     return f"{term} {port}".strip() if port else term
 
 
