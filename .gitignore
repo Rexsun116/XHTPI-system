@@ -4,10 +4,7 @@
 
 # SQLite databases
 instance/*.db
-instance_v2/*.db
-instance_v2/*.db-*
-instance_v2/*.db.*
-instance_v2/document_assets/
+instance_v2/
 static_v2/generated/
 instance/*.db-*
 
