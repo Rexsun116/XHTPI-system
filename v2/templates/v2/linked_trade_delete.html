@@ -1,0 +1,18 @@
+{% extends 'v2/base.html' %}
+{% block content %}
+<div class="card border border-danger p-4 mx-auto" style="max-width:680px">
+  <h2 class="text-danger">Delete Linked Trade</h2>
+  <p>This will permanently delete both linked orders: <strong>{{pair[0].pi_no}}</strong> and <strong>{{pair[1].pi_no}}</strong>, and all their order-owned records.</p>
+  <p>Master data and generated document files will remain. This action cannot be undone.</p>
+  {% if error %}<div class="alert alert-danger">{{error}}</div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
+    <label class="form-label" for="customer-confirmation">Customer Order: {{pair[0].pi_no}}</label>
+    <input class="form-control" id="customer-confirmation" name="customer_confirmation" autocomplete="off" required>
+    <label class="form-label mt-3" for="export-confirmation">Export Order: {{pair[1].pi_no}}</label>
+    <input class="form-control" id="export-confirmation" name="export_confirmation" autocomplete="off" required>
+    <button class="btn btn-danger mt-4">Permanently Delete Linked Trade</button>
+    <a class="btn btn-outline-secondary mt-4" href="{{url_for('v2.order_view',pi_id=pair[0].id)}}">Cancel</a>
+  </form>
+</div>
+{% endblock %}

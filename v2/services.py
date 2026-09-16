@@ -202,6 +202,7 @@ def required_freight_settlements_paid(settlement):
 EXPORT_FINANCIAL_TASK_CODES = (
     "PAYMENT_ADVANCE_WAITING", "PAYMENT_EMAIL", "PAYMENT_BALANCE_FOLLOWUP",
     "SETTLEMENT_DOCUMENT_ADVANCE", "SETTLEMENT_DOCUMENT_BALANCE",
+    "FREIGHT_FORWARDER_PAYMENT",
     "FREIGHT_INVOICE_ISSUED", "FREIGHT_PAYMENT_CONFIRM", "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE",
     "FREIGHT_USD_AMOUNT_CAPTURE", "FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_USD_INVOICE_ISSUED",
     "FREIGHT_USD_PAYMENT_CONFIRM", "FREIGHT_CNY_AMOUNT_CAPTURE", "FREIGHT_CNY_AMOUNT_CONFIRM",
@@ -226,6 +227,39 @@ def _latest_completed_activity(task):
         TaskActivity.task_id == task.id,
         TaskActivity.event_type == "COMPLETED",
     ).order_by(TaskActivity.created_at.desc(), TaskActivity.id.desc()))
+
+
+def _reconcile_forwarder_payment(pi, settlement, today):
+    code = "FREIGHT_FORWARDER_PAYMENT"
+    if is_export_order(pi) or pi.status == OrderStage.COMPLETED:
+        _cancel_task(pi, code, "FREIGHT_PAYMENT_NOT_APPLICABLE")
+        return
+    anchors = []
+    for bl_code in ("DOCUMENT_OBD_BL", "DOCUMENT_ORIGINAL_BL"):
+        task = _task_done(pi, bl_code)
+        if task is None:
+            continue
+        activity = _latest_completed_activity(task)
+        completed_at = activity.created_at if activity else task.completed_at
+        if completed_at is not None:
+            anchors.append((business_today(completed_at), bl_code))
+    issued = [currency for currency in ("USD", "CNY") if settlement is not None
+              and getattr(settlement, f"{currency.lower()}_bill_required") is True
+              and getattr(settlement, f"{currency.lower()}_invoice_issued") is True]
+    if not anchors or not issued:
+        _cancel_task(pi, code, "BL_COMPLETION_OR_FORWARDER_INVOICE_MISSING")
+        return
+    anchor = min(day for day, _ in anchors)
+    due = anchor + timedelta(days=25)
+    existing = _find_task(pi, code)
+    if existing and existing.status == "WAITING" and existing.next_follow_up_at and existing.next_follow_up_at.date() > today:
+        return
+    _upsert_task(pi, code, "向货代付款", status="ACTION" if today >= due else "UPCOMING",
+                 completion_mode="MANUAL", activation_at=datetime.combine(due, datetime.min.time()),
+                 due_at=datetime.combine(due, datetime.min.time()),
+                 context={"bl_done_date": anchor.isoformat(), "payment_due_date": due.isoformat(),
+                          "issued_invoice_currencies": issued,
+                          "anchor_task_codes": [code for day, code in anchors if day == anchor]})
 
 
 def completion_check(pi):
@@ -675,6 +709,8 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                 _upsert_task(pi, payment_code, f"确认 {currency} 货代付款",
                              status="ACTION", completion_mode="RULE_DATA",
                              context={"currency": currency, "action_target": f"UPDATE_{currency}_FREIGHT_PAYMENT"})
+
+    _reconcile_forwarder_payment(pi, settlement, today)
 
     if pi.status != OrderStage.COMPLETED and not export_order and settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)

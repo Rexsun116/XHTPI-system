@@ -35,7 +35,7 @@ from .documents import format_decimal_compact, normalize_weight_input
 from .order_deletion import (
     OrderDeletionConfirmationError,
     OrderDeletionNotAllowed,
-    delete_new_order,
+    delete_new_order, delete_linked_trade, linked_delete_pair, linked_delete_available,
 )
 from .master_codes import MasterCodeAllocationError, create_master_record
 
@@ -433,6 +433,7 @@ def order_view(pi_id):
         financial_settlement = db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id == owner_id))
     open_task = request.args.get("open_task", type=int)
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
+        can_delete_linked_trade=linked_delete_available(pi),
         agreement=agreement,settlement=settlement,financial_agreement=financial_agreement,
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
         shipment_owner=shipment_owner_for(pi),
@@ -470,6 +471,30 @@ def create_linked_export(pi_id):
                                             error="Linked export order could not be created.", status=400)
     flash(f"Linked export order {export.pi_no} created.", "success")
     return redirect(url_for("v2.order_view", pi_id=export.id))
+
+
+@blueprint.route("/orders/<int:pi_id>/delete-linked-trade", methods=["GET", "POST"])
+@login_required
+def linked_trade_delete(pi_id):
+    pi = db.get_or_404(PI, pi_id)
+    try:
+        pair = linked_delete_pair(pi)
+    except OrderDeletionNotAllowed as exc:
+        abort(409, str(exc))
+    if request.method == "POST":
+        try:
+            names = delete_linked_trade(pi, request.form.get("customer_confirmation", ""),
+                                        request.form.get("export_confirmation", ""))
+        except OrderDeletionConfirmationError as exc:
+            return render_template("v2/linked_trade_delete.html", pair=linked_delete_pair(pi), error=str(exc)), 400
+        except OrderDeletionNotAllowed as exc:
+            abort(409, str(exc))
+        except SQLAlchemyError:
+            abort(409, "Linked trade could not be deleted. Reload and retry.")
+        else:
+            flash(f"Linked trade {names[0]} + {names[1]} permanently deleted.", "success")
+            return redirect(url_for("v2.dashboard"))
+    return render_template("v2/linked_trade_delete.html", pair=pair, error=None)
 
 
 @blueprint.route("/orders/<int:pi_id>/delete", methods=["GET", "POST"])
