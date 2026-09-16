@@ -488,3 +488,26 @@ class NewSalesReminderTest(TestCase):
         response = self.client().post("/orders", json={"pi_no": "NO-PLAN", "pi_date": "2026-08-01", "order_type": "SALES"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("Planned Shipment Date", response.get_json()["error"])
+
+    def test_controlled_stage_links_and_role_boundaries(self):
+        from v2.models import TradeGroup
+        pi = self.make_pi(planned=date(2026, 9, 20))
+        group = TradeGroup(group_no="STAGE-LINKS")
+        db.session.add(group)
+        for role in (None, "CUSTOMER_ORDER", "EXPORT_ORDER"):
+            pi.trade_group = group if role else None
+            pi.trade_role = role
+            for stage in ("NEW", "PRE_SHIPMENT", "SHIPPED", "ARRIVED", "COMPLETED"):
+                with self.subTest(role=role, stage=stage):
+                    pi.status = stage
+                    db.session.commit()
+                    response = self.client().get(f"/v2/orders/{pi.id}")
+                    self.assertEqual(response.status_code, 200)
+                    html = response.get_data(as_text=True)
+                    self.assertNotIn(f'action="/v2/orders/{pi.id}/status"', html)
+                    for target, expected_stage in (("enter-shipped", "PRE_SHIPMENT"), ("enter-arrived", "SHIPPED")):
+                        link = f'href="/v2/orders/{pi.id}/{target}"'
+                        if role != "EXPORT_ORDER" and stage == expected_stage:
+                            self.assertIn(link, html)
+                        else:
+                            self.assertNotIn(link, html)
