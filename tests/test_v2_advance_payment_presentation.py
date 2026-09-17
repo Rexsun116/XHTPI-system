@@ -146,3 +146,35 @@ class AdvancePaymentPresentationTest(TestCase):
 
         self.assertIn("无需预付款", page)
         self.assertIn("到账日期</small><div>—</div>", page)
+
+    def test_order_detail_shell_uses_real_identity_overview_and_unique_anchor_targets(self):
+        pi = self.pi("A-VERY-LONG-PI-NUMBER-FOR-RESPONSIVE-CHECK", status="PRE_SHIPMENT")
+        pi.customer_name_snapshot = "A very long customer name used to exercise the shrinkable page header"
+        pi.loading_port, pi.destination_port = "Shanghai", "Mombasa"
+        pi.items.append(PIItem(unit_price=Decimal("10"), quantity=Decimal("3"), quantity_unit="MT",
+                               line_total=Decimal("30"), product_model_snapshot="R-2195"))
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        for text in ("Order details", pi.pi_no, "Order type", "Sales order", "Receiving company",
+                     "Order date", "Current stage: PRE_SHIPMENT", "Contract amount",
+                     "Products & quantity", "R-996", "R-2195", "Total · 13.000 MT",
+                     "Shanghai → Mombasa"):
+            self.assertIn(text, page)
+        self.assertEqual(page.count('id="order-overview"'), 1)
+        self.assertEqual(page.count('id="document-requirements"'), 1)
+        self.assertIn('href="#shipping-schedule"', page)
+        self.assertNotIn('action="/v2/orders/%s/status"' % pi.id, page)
+
+    def test_mixed_units_do_not_create_a_misleading_combined_total(self):
+        pi = self.pi("SUMMARY-MIXED-UNITS")
+        pi.items.append(PIItem(unit_price=Decimal("10"), quantity=Decimal("4"), quantity_unit="KGS",
+                               line_total=Decimal("40"), product_model_snapshot="R-2195"))
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        self.assertIn("Multiple units — shown per item", page)
+        self.assertIn("R-996 · 10.000 MT", page)
+        self.assertIn("R-2195 · 4.000 KGS", page)
