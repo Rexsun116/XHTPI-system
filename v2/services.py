@@ -743,7 +743,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     return list(db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)))
 
 
-def save_order_with_reconcile(pi, *, now=None):
+def save_order_with_reconcile(pi, *, now=None, before_commit=None):
     try:
         db.session.flush()
         if pi.advance_payment_percent is not None and pi.advance_payment_amount is None:
@@ -754,6 +754,8 @@ def save_order_with_reconcile(pi, *, now=None):
             pi.balance_payment_amount = (pi.contract_total - (pi.advance_payment_amount or Decimal("0"))).quantize(Decimal("0.01"))
         pi.derive_commission()
         reconcile_order_tasks_for_pi(pi, now=now)
+        if before_commit:
+            before_commit()
         db.session.commit()
     except Exception:
         db.session.rollback()

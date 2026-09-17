@@ -404,13 +404,51 @@ def advance_receipt(pi_id):
         received_at = _parse_calendar_date((request.form.get("advance_received_at") or "").strip())
         if amount < 0 or received_at is None:
             raise ValueError("Advance received amount and date are required.")
+        previous_amount = pi.advance_received_amount
+        previous_received_at = pi.advance_received_at
         pi.advance_received_amount = amount
         pi.advance_received_at = received_at
-        save_order_with_reconcile(pi)
+        save_order_with_reconcile(
+            pi,
+            before_commit=lambda: _record_advance_receipt_activity(
+                pi, previous_amount=previous_amount, previous_received_at=previous_received_at,
+                confirmed_amount=amount, received_at=received_at,
+            ),
+        )
     except (ValueError, ArithmeticError) as exc:
         db.session.rollback()
         abort(400, str(exc))
     return redirect(url_for("v2.order_view", pi_id=pi.id))
+
+
+def _record_advance_receipt_activity(pi, *, previous_amount, previous_received_at,
+                                     confirmed_amount, received_at):
+    """Append an audit event for a user-confirmed cumulative PI advance value."""
+    task = db.session.scalar(db.select(OrderTask).where(
+        OrderTask.pi_id == pi.id,
+        OrderTask.task_code == "PAYMENT_ADVANCE_WAITING",
+    ))
+    if task is None:
+        # The normal entry point is a payment task action.  Without its task,
+        # TaskActivity has no safe, existing aggregate-payment owner.
+        return
+    previous_date = previous_received_at.date() if previous_received_at else None
+    db.session.add(TaskActivity(
+        task_id=task.id,
+        event_type="ADVANCE_RECEIPT_RECORDED",
+        from_status=task.status,
+        to_status=task.status,
+        actor_type="USER",
+        actor_id=current_user.id,
+        note="Confirmed cumulative advance-payment receipt on this PI.",
+        payload={
+            "currency": pi.currency,
+            "previous_amount": f"{previous_amount or Decimal('0'):.2f}",
+            "confirmed_amount": f"{confirmed_amount:.2f}",
+            "previous_received_at": previous_date.isoformat() if previous_date else None,
+            "received_at": received_at.date().isoformat(),
+        },
+    ))
 
 
 @blueprint.get("/orders/<int:pi_id>")

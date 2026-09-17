@@ -1,4 +1,4 @@
-{% extends 'v2/base.html' %}{% block content %}
+{% extends 'v2/base.html' %}{% block head_extra %}<style>@media (max-width:575.98px){.side{position:static;inset:auto;width:100%;box-sizing:border-box;padding:16px 24px}.main{margin-left:0;padding:16px}}</style>{% endblock %}{% block content %}
 {% if pi.status == 'NEW' %}<p><a class="btn btn-primary" href="{{ url_for('v2.order_edit', pi_id=pi.id) }}">Edit Order</a></p>{% endif %}
 {% macro csrf() %}<input type="hidden" name="csrf_token" value="{{csrf_token()}}">{% endmacro %}
 {% if pi.is_export_order %}<script>document.addEventListener('DOMContentLoaded',function(){const form=document.getElementById('shipment-preparation');if(!form)return;for(const field of form.querySelectorAll('[name=usd_bill_required],[name=cny_bill_required],[name=quote_id],[name=agreement_amount],[name=agreement_currency],[name=agreement_note]')){field.disabled=true;const card=field.closest('.col-md-3, .col-md-6, .col-12');if(card)card.hidden=true;}});</script>{% endif %}

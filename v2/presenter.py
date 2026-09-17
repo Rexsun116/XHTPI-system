@@ -159,6 +159,7 @@ EVENT_LABELS = {
     "WAITING_STARTED": "Waiting started", "FOLLOW_UP": "Follow-up", "REOPENED": "Reopened",
     "CANCELLED": "Cancelled", "REACTIVATED": "Reactivated", "RULE_REACTIVATED": "Rule reactivated",
     "RULE_DEFERRED": "Deferred", "STATUS_CHANGED": "Status changed",
+    "ADVANCE_RECEIPT_RECORDED": "Advance receipt confirmation",
 }
 
 
@@ -170,7 +171,13 @@ def present_activity(activity):
     if payload.get("carrier"):
         details.append(f"Carrier: {payload['carrier']}")
     if payload.get("confirmed_amount"):
-        details.append(f"Confirmed: {money(payload.get('currency'), payload['confirmed_amount'])}")
+        details.append(f"Confirmed cumulative advance: {money(payload.get('currency'), payload['confirmed_amount'])}")
+    if payload.get("previous_amount") is not None:
+        details.append(f"Previous cumulative advance: {money(payload.get('currency'), payload['previous_amount'])}")
+    if payload.get("received_at"):
+        details.append(f"Receipt date: {payload['received_at']}")
+    if payload.get("previous_received_at"):
+        details.append(f"Previous receipt date: {payload['previous_received_at']}")
     if payload.get("waiting_on"):
         details.append(f"Waiting on: {payload['waiting_on']}")
     if payload.get("next_follow_up_at"):

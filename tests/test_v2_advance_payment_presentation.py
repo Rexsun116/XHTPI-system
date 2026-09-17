@@ -122,6 +122,7 @@ class AdvancePaymentPresentationTest(TestCase):
             self.assertIn("应收预付款", page)
             self.assertIn("USD 100.00", page)
             self.assertIn(status, page)
+            self.assertIn("@media (max-width:575.98px)", page)
         shipped_page = self.client().get(f"/v2/orders/{shipped.id}").get_data(as_text=True)
         self.assertIn('id="payment-receipts"', shipped_page)
 
