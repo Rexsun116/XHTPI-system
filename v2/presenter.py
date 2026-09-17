@@ -19,6 +19,31 @@ def money(currency, amount):
     return f"{currency} {rendered}" if currency else f"{rendered} · Currency not confirmed"
 
 
+def advance_payment_summary(pi):
+    """Read-only projection of the PI's aggregate advance-payment facts."""
+    expected = pi.advance_payment_amount or Decimal("0")
+    received = pi.advance_received_amount or Decimal("0")
+    outstanding = max(expected - received, Decimal("0"))
+    if expected <= 0:
+        status = "无需预付款"
+    elif outstanding == 0:
+        status = "已足额到账"
+    elif received > 0:
+        status = "部分到账"
+    else:
+        status = "待到账"
+    received_at = pi.advance_received_at
+    if received_at and hasattr(received_at, "date"):
+        received_at = received_at.date()
+    return {
+        "expected": money(pi.currency, expected),
+        "received": money(pi.currency, received),
+        "outstanding": money(pi.currency, outstanding),
+        "received_at": received_at.isoformat() if received_at else "—",
+        "status": status,
+    }
+
+
 def present_task(task):
     context = getattr(task, "_dashboard_context", task.context_payload) or {}
     lines = []
@@ -29,7 +54,8 @@ def present_task(task):
         if context.get(key) is not None:
             lines.append(f"{label}: {money(context.get('currency'), context[key])}")
     for key, label in (("container_loading_at", "Loading"), ("planned_shipment_date", "Planned shipment"),
-                       ("etd", "ETD"), ("eta", "ETA"), ("trigger_date", "Trigger")):
+                       ("etd", "ETD"), ("eta", "ETA"), ("trigger_date", "Trigger"),
+                       ("advance_received_at", "Advance received")):
         if context.get(key):
             lines.append(f"{label}: {context[key]}")
     if context.get("message"):

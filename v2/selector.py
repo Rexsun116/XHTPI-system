@@ -1,6 +1,7 @@
 """Read-only task projection and Next Action ordering."""
 
 from datetime import date, datetime
+from decimal import Decimal
 
 from .business_time import arrival_schedule_projection, business_today, departure_schedule_projection
 from .models import OrderTask, db, utcnow
@@ -15,6 +16,13 @@ def projected_details(task, now=None):
     today = business_today(now)
     status, health = task.status, task.health
     task._dashboard_title = task.title
+    if (status == "DONE" and task.task_code == "PAYMENT_ADVANCE_WAITING"
+            and _advance_payment_is_settled(task.pi)):
+        # Historical task context records the outstanding amount at the time the
+        # task was created.  Do not rewrite that append-only snapshot: use the
+        # PI's current aggregate payment facts for this settled, read-only view.
+        task._dashboard_title = "预付款已确认到账"
+        return status, health, _settled_advance_payment_context(task.pi)
     if status in {"DONE", "CANCELLED"}:
         return status, health, task.context_payload or {}
     if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
@@ -83,6 +91,25 @@ def projected_details(task, now=None):
             status, health = schedule["status"], schedule["health"]
             task._dashboard_title = schedule["title"]
     return status, health, context
+
+
+def _advance_payment_is_settled(pi):
+    expected = pi.advance_payment_amount or Decimal("0")
+    received = pi.advance_received_amount or Decimal("0")
+    return expected > 0 and received >= expected
+
+
+def _settled_advance_payment_context(pi):
+    """Build a current, presentation-only context for a settled advance task."""
+    expected = pi.advance_payment_amount or Decimal("0")
+    received = pi.advance_received_amount or Decimal("0")
+    return {
+        "currency": pi.currency,
+        "expected_amount": f"{expected:.2f}",
+        "received_amount": f"{received:.2f}",
+        "outstanding_amount": f"{max(expected - received, Decimal('0')):.2f}",
+        "advance_received_at": pi.advance_received_at.date().isoformat() if pi.advance_received_at else None,
+    }
 
 
 def projected(task, now=None):

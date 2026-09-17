@@ -26,7 +26,7 @@ from .linked_trade_creation import (
     create_linked_export_order,
     linked_export_creation_error,
 )
-from .presenter import present_activity, present_task
+from .presenter import advance_payment_summary, present_activity, present_task
 from .selector import projected, projected_details, select_next_action, sort_key
 from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -439,6 +439,7 @@ def order_view(pi_id):
         shipment_owner=shipment_owner_for(pi),
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
+        advance_payment=advance_payment_summary(pi) if pi.order_type == "SALES" and not pi.is_export_order else None,
         completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None,
         can_create_linked_export=linked_export_creation_error(pi) is None)
 
