@@ -60,6 +60,13 @@ def apply_product_snapshot(item, product):
     item.product_hs_code_snapshot = product.hs_code
 
 
+def apply_factory_snapshot(item, factory):
+    """Copy the established Factory facts to an order-local PIItem snapshot."""
+    for field in ("name", "address", "tax_code", "country", "contact", "phone"):
+        source = "contact_person" if field == "contact" else field
+        setattr(item, f"factory_{field}_snapshot", getattr(factory, source, None) if factory else None)
+
+
 def create_freight_agreement(pi, quote, *, agreed_at=None, note=None):
     return OrderFreightAgreement(
         pi_id=pi.id,

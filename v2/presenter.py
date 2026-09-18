@@ -2,6 +2,26 @@
 
 from decimal import Decimal, InvalidOperation
 from .business_time import business_event_time
+from .selector import sort_key
+
+
+DOCUMENT_PRESENTATION = (
+    ("coo_required", "COO / Certificate of Origin", ("DOCUMENT_COO",)),
+    ("apta_required", "APTA Certificate", ("DOCUMENT_APTA",)),
+    ("export_license_required", "Export License", ("DOCUMENT_EXPORT_LICENSE",)),
+    ("customs_docs_required", "Customs Documents", ("DOCUMENT_CUSTOMS",)),
+    ("coc_required", "COC", ("DOCUMENT_COC",)),
+    ("coa_required", "COA", ("DOCUMENT_COA",)),
+    ("original_bl_required", "Original B/L", ("DOCUMENT_ORIGINAL_BL",)),
+    ("obd_electronic_required", "OBD Electronic B/L", ("DOCUMENT_OBD_BL",)),
+    ("insurance_original_required", "Original Insurance Policy", ("DOCUMENT_INSURANCE_ORIGINAL",)),
+    ("insurance_electronic_required", "Electronic Insurance Policy", ("DOCUMENT_INSURANCE_ELECTRONIC",)),
+    ("original_documents_mail_required", "Original Documents Mail", ("DOCUMENT_ORIGINALS_MAIL",)),
+    ("telex_release_required", "Telex Release", ("DOCUMENT_TELEX_RELEASE",)),
+    ("settlement_documents_required", "Settlement Documents", (
+        "DOCUMENT_EXPORT_SETTLEMENT", "SETTLEMENT_DOCUMENT_ADVANCE", "SETTLEMENT_DOCUMENT_BALANCE",
+    )),
+)
 
 
 def format_task_datetime(value):
@@ -184,3 +204,79 @@ def present_activity(activity):
         details.append(f"Next follow-up: {payload['next_follow_up_at']}")
     return {"label": EVENT_LABELS.get(activity.event_type, activity.event_type.replace("_", " ").title()),
             "details": details, "when": format_task_datetime(activity.created_at)}
+
+
+def order_action_summary(tasks):
+    """Build the read-only order focus panel from already projected tasks."""
+    if tasks and tasks[0].pi.status == "COMPLETED":
+        return {
+            "items": [], "primary": None, "secondary": [], "active_count": 0,
+            "exception_count": 0, "action_count": 0, "waiting_count": 0,
+        }
+    active = [task for task in tasks
+              if getattr(task, "_dashboard_status", task.status) not in {"DONE", "CANCELLED"}]
+    active.sort(key=sort_key)
+    items = []
+    for task in active:
+        presentation = present_task(task)
+        primary_action = next(
+            (action for action in presentation["actions"] if action["kind"] != "history"),
+            None,
+        )
+        items.append({"task": task, "presentation": presentation, "primary_action": primary_action})
+    return {
+        "items": items,
+        "primary": items[0] if items else None,
+        "secondary": items[1:],
+        "active_count": len(items),
+        "exception_count": sum(
+            getattr(task, "_dashboard_health", task.health) == "EXCEPTION" for task in active
+        ),
+        "action_count": sum(
+            getattr(task, "_dashboard_status", task.status) == "ACTION"
+            and getattr(task, "_dashboard_health", task.health) != "EXCEPTION"
+            for task in active
+        ),
+        "waiting_count": sum(
+            getattr(task, "_dashboard_status", task.status) == "WAITING" for task in active
+        ),
+    }
+
+
+def order_activity_feed(tasks):
+    """Return one chronological presentation feed across the order's tasks."""
+    rows = [
+        {"task": task, "activity": activity, "presentation": present_activity(activity)}
+        for task in tasks
+        for activity in task.activities
+    ]
+    rows.sort(key=lambda row: (row["activity"].created_at, row["activity"].id or 0), reverse=True)
+    return rows
+
+
+def order_document_rows(pi, tasks):
+    """Keep requirement facts separate from the task-based processing state."""
+    by_code = {}
+    for task in tasks:
+        by_code.setdefault(task.task_code, []).append(task)
+    rows = []
+    for field, label, task_codes in DOCUMENT_PRESENTATION:
+        required = getattr(pi, field)
+        related = [task for code in task_codes for task in by_code.get(code, ())]
+        related.sort(key=sort_key)
+        if related:
+            statuses = []
+            for task in related:
+                status = getattr(task, "_dashboard_status", task.status)
+                if status not in statuses:
+                    statuses.append(status)
+            processing = " / ".join(statuses)
+        else:
+            processing = "尚未启动" if required is True else "—"
+        rows.append({
+            "field": field,
+            "label": label,
+            "requirement": "需要" if required is True else "不需要" if required is False else "尚未确认",
+            "processing": processing,
+        })
+    return rows

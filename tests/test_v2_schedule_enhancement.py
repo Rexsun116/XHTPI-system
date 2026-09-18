@@ -124,7 +124,8 @@ class ScheduleEnhancementTest(TestCase):
                     for html in (dashboard, detail):
                         self.assertIn(message, html)
                         self.assertRegex(html, rf'href="/v2/orders/{pi.id}/enter-shipped">Record Actual Departure</a>')
-                        self.assertRegex(html, r'href="[^"]*#shipping-schedule">Edit ETD</a>')
+                    self.assertRegex(dashboard, r'href="[^"]*#shipping-schedule">Edit ETD</a>')
+                    self.assertRegex(detail, r'href="[^"]*#shipping-plan">Edit ETD</a>')
                     self.assertIn('id="shipping-schedule"', detail)
                     self.assertIn('name="etd"', detail)
                     departure_page = self.client().get(f"/v2/orders/{pi.id}/enter-shipped")

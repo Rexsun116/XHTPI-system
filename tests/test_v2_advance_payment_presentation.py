@@ -9,7 +9,8 @@ from unittest import TestCase
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.models import Customer, Exporter, OrderTask, PI, PIItem, TradeGroup, User, db
+from v2.models import (Customer, Exporter, FreightForwarder, OrderFreightAgreement,
+                       OrderTask, PI, PIItem, TradeGroup, User, db)
 from v2.presenter import present_task
 from v2.selector import projected_details
 from v2.services import reconcile_order_tasks_for_pi
@@ -122,7 +123,7 @@ class AdvancePaymentPresentationTest(TestCase):
             self.assertIn("应收预付款", page)
             self.assertIn("USD 100.00", page)
             self.assertIn(status, page)
-            self.assertIn("@media (max-width:575.98px)", page)
+            self.assertIn("@media(max-width:575.98px)", page)
         shipped_page = self.client().get(f"/v2/orders/{shipped.id}").get_data(as_text=True)
         self.assertIn('id="payment-receipts"', shipped_page)
 
@@ -145,7 +146,7 @@ class AdvancePaymentPresentationTest(TestCase):
         page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
         self.assertIn("无需预付款", page)
-        self.assertIn("到账日期</small><div>—</div>", page)
+        self.assertIn("到账日期</span><strong>—</strong>", page)
 
     def test_order_detail_shell_uses_real_identity_overview_and_unique_anchor_targets(self):
         pi = self.pi("A-VERY-LONG-PI-NUMBER-FOR-RESPONSIVE-CHECK", status="PRE_SHIPMENT")
@@ -157,14 +158,14 @@ class AdvancePaymentPresentationTest(TestCase):
 
         page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
-        for text in ("Order details", pi.pi_no, "Order type", "Sales order", "Receiving company",
-                     "Order date", "Current stage: PRE_SHIPMENT", "Contract amount",
-                     "Products & quantity", "R-996", "R-2195", "Total · 13.000 MT",
+        for text in ("Order workspace", pi.pi_no, "Order type", "Sales order", "Receiving company",
+                     "Order date", "Current stage: PRE_SHIPMENT", "合同金额",
+                     "产品与数量", "R-996", "R-2195", "Total · 13.000 MT",
                      "Shanghai → Mombasa"):
             self.assertIn(text, page)
         self.assertEqual(page.count('id="order-overview"'), 1)
-        self.assertEqual(page.count('id="document-requirements"'), 1)
-        self.assertIn('href="#shipping-schedule"', page)
+        self.assertEqual(page.count('id="documents"'), 1)
+        self.assertIn('href="#shipping"', page)
         self.assertNotIn('action="/v2/orders/%s/status"' % pi.id, page)
 
     def test_mixed_units_do_not_create_a_misleading_combined_total(self):
@@ -178,3 +179,201 @@ class AdvancePaymentPresentationTest(TestCase):
         self.assertIn("Multiple units — shown per item", page)
         self.assertIn("R-996 · 10.000 MT", page)
         self.assertIn("R-2195 · 4.000 KGS", page)
+
+    def test_current_action_uses_existing_task_actions_and_module_anchors(self):
+        pi = self.pi("CURRENT-ACTION", status="SHIPPED", received="0")
+        task = OrderTask(
+            pi_id=pi.id, task_code="PAYMENT_ADVANCE_WAITING", title="等待客户支付预付款",
+            source="AUTO", status="ACTION", health="NORMAL", completion_mode="RULE_DATA",
+            priority=10, context_payload={"currency": "USD", "expected_amount": "100.00"},
+            dedupe_key="current-action",
+        )
+        arrival = OrderTask(
+            pi_id=pi.id, task_code="SHIPPING_ACTUAL_ARRIVAL", title="确认货物已到港",
+            source="AUTO", status="ACTION", health="NORMAL", completion_mode="RULE_DATA",
+            priority=20, context_payload={"action_target": "ENTER_ARRIVED"},
+            dedupe_key="current-arrival",
+        )
+        db.session.add_all((task, arrival)); db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        self.assertIn('id="current-action"', page)
+        self.assertIn('/advance-receipt', page)
+        self.assertIn('/enter-arrived', page)
+        for anchor in ("#shipping", "#customer-payment", "#freight", "#documents",
+                       "#generated-files", "#tasks", "#activity"):
+            self.assertIn(f'href="{anchor}"', page)
+
+    def test_raw_server_html_has_prototype_module_order_without_relocation_architecture(self):
+        pi = self.pi("STRUCTURE", status="PRE_SHIPMENT")
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        markers = [
+            'id="order-identity"', 'id="order-lifecycle"', 'class="order-nav"',
+            'id="current-action"', 'id="order-overview"', 'id="shipping"',
+            'id="customer-payment"', 'id="freight"', 'id="documents"',
+            'id="generated-files"', 'id="tasks"', 'id="activity"',
+        ]
+        positions = [page.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        for legacy in ("order-module-flow", "data-order-module", "Tasks & Activity",
+                       "Post-shipment Reference", "Commercial details", "PI item execution details"):
+            self.assertNotIn(legacy, page)
+        script = (Path(__file__).parents[1] / "v2/static/v2_batch1.js").read_text()
+        for relocation in ("appendChild", ".append(", "insertAdjacentElement", "data-order-module"):
+            self.assertNotIn(relocation, script)
+
+    def test_current_action_uses_selector_priority_and_hides_secondary_projection(self):
+        pi = self.pi("FOCUSED-ACTIONS", status="SHIPPED")
+        exception = OrderTask(
+            pi_id=pi.id, task_code="MANUAL-EXCEPTION", title="Exception first",
+            source="MANUAL", status="ACTION", health="EXCEPTION", completion_mode="MANUAL",
+            priority=90, context_payload={"message": "Critical fact"}, dedupe_key="focus-exception",
+        )
+        routine = OrderTask(
+            pi_id=pi.id, task_code="MANUAL-ACTION", title="Routine second",
+            source="MANUAL", status="ACTION", health="NORMAL", completion_mode="MANUAL",
+            priority=1, context_payload={}, dedupe_key="focus-routine",
+        )
+        waiting = OrderTask(
+            pi_id=pi.id, task_code="MANUAL-WAITING", title="Waiting third",
+            source="MANUAL", status="WAITING", health="NORMAL", completion_mode="MANUAL",
+            priority=1, waiting_on="CUSTOMER", next_follow_up_at=datetime(2026, 9, 20),
+            context_payload={}, dedupe_key="focus-waiting",
+        )
+        db.session.add_all((routine, waiting, exception)); db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        primary = page.split('data-current-action-primary', 1)[1].split('</article>', 1)[0]
+        self.assertIn("Exception first", primary)
+        self.assertNotIn("Routine second", primary)
+        self.assertEqual(page.count("data-current-action-primary"), 1)
+        self.assertIn('id="current-action-secondary" hidden', page)
+        self.assertIn('aria-expanded="false"', page)
+        self.assertIn("Exception 1", page)
+        self.assertIn("Action 1", page)
+        self.assertIn("Waiting 1", page)
+        self.assertIn("Waiting On: CUSTOMER", page)
+        self.assertIn("Next Follow-up:", page)
+
+    def test_shipping_has_exactly_five_groups_and_preserves_form_boundaries(self):
+        pi = self.pi("SHIPPING-GROUPS", status="PRE_SHIPMENT")
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        self.assertEqual(page.count("data-shipping-group"), 5)
+        for title in ("装运计划", "货物与集装箱", "订舱与船务", "司机与装柜执行", "路线与单证资料"):
+            self.assertIn(title, page)
+        summary = page.split('class="order-shipping-summary"', 1)[1].split('</dl>', 1)[0]
+        for label in ("计划装柜时间", "ETD / ETA", "实际发运", "实际到达"):
+            self.assertIn(label, summary)
+        self.assertNotIn("Container Type", summary)
+        self.assertIn(f'<form id="shipment-preparation" method="post" action="/v2/orders/{pi.id}/facts"', page)
+        self.assertIn('form="shipment-preparation" class="form-control" name="container_type"', page)
+        self.assertIn(f'<form id="booking-cargo-information" method="post" action="/v2/orders/{pi.id}/facts"', page)
+        self.assertIn(f'<form id="shipping-schedule" method="post" action="/v2/orders/{pi.id}/facts"', page)
+
+    def test_cargo_edit_on_demand_keeps_the_existing_scoped_form_and_csrf_contract(self):
+        pi = self.pi("CARGO-EDIT", status="PRE_SHIPMENT")
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        self.assertIn('data-cargo-edit aria-controls="cargo-edit-workspace" aria-expanded="false"', page)
+        self.assertIn(f'<form id="booking-cargo-information" method="post" action="/v2/orders/{pi.id}/facts" class="order-control-block" data-cargo-form>', page)
+        cargo = page.split('id="booking-cargo-information"', 1)[1].split('</form>', 1)[0]
+        self.assertIn('name="csrf_token"', cargo)
+        for name in ('package_count', 'package_unit', 'gross_weight', 'gross_weight_display_unit', 'volume'):
+            self.assertIn(f'name="{name}"', cargo)
+        script = (Path(__file__).parents[1] / "v2/static/v2_batch1.js").read_text()
+        self.assertIn('const expanded = cargoEdit.getAttribute("aria-expanded") === "true"', script)
+        self.assertIn('cargoWorkspace.hidden = expanded', script)
+        self.assertIn('cargoEdit.textContent = expanded ? "编辑 / Edit" : "收起 / Collapse"', script)
+        self.assertNotIn('cargoForm.reset()', script)
+
+    def test_activity_is_collapsed_native_disclosure_with_hash_reveal_hook(self):
+        pi = self.pi("ACTIVITY-DISCLOSURE")
+        task = self.legacy_advance_task(pi)
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        activity = page.split('<details id="activity"', 1)[1].split('</details>', 1)[0]
+        self.assertNotIn(' open', activity.split('>', 1)[0])
+        self.assertIn('<summary class="order-activity-summary">', activity)
+        self.assertIn('任务活动 · 0 项', activity)
+        script = (Path(__file__).parents[1] / "v2/static/v2_batch1.js").read_text()
+        self.assertIn('window.location.hash !== "#activity"', script)
+        self.assertIn('window.addEventListener("hashchange", revealActivityFromHash)', script)
+
+    def test_freight_shows_historical_agreement_and_current_shipment_forwarder_when_they_differ(self):
+        historical = FreightForwarder(code="AGREEMENT", name="Agreement Forwarder")
+        current = FreightForwarder(code="CURRENT", name="Current Forwarder")
+        group = TradeGroup(group_no="TRI-FORWARDER-PRESENTATION")
+        db.session.add_all((historical, current, group)); db.session.flush()
+        customer = self.pi("FORWARDER-CUSTOMER", status="PRE_SHIPMENT", group=group, role="CUSTOMER_ORDER")
+        export = self.pi("FORWARDER-EXPORT", status="PRE_SHIPMENT", group=group, role="EXPORT_ORDER")
+        customer.freight_forwarder_id = current.id
+        db.session.add(OrderFreightAgreement(pi_id=customer.id, freight_forwarder_id=historical.id,
+                                             freight_forwarder_name_snapshot=historical.name,
+                                             amount=Decimal("100.00"), currency="USD"))
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{export.id}").get_data(as_text=True)
+
+        self.assertIn('Freight Forwarder</span><strong>Current Forwarder</strong>', page)
+        self.assertNotIn('Agreement Forwarder</span>', page)
+
+    def test_order_detail_consumes_dashboard_v35_tokens_instead_of_od_tokens(self):
+        pi = self.pi("DASHBOARD-TOKENS")
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        for token in ('--v35-primary:#14b8a6', '--v35-border:#e2e9ed', '--v35-muted:#667085',
+                      'border-radius:16px', 'padding:17px 20px', 'border-radius:9px'):
+            self.assertIn(token, page)
+        self.assertNotIn('--od-', page)
+
+    def test_documents_generated_files_tasks_and_activity_are_distinct_modules(self):
+        pi = self.pi("OPERATIONS", status="SHIPPED")
+        pi.coo_required = True
+        task = OrderTask(
+            pi_id=pi.id, task_code="DOCUMENT_COO", title="办理 COO", source="AUTO",
+            status="ACTION", health="NORMAL", completion_mode="MANUAL", priority=20,
+            context_payload={}, dedupe_key="document-coo",
+        )
+        db.session.add(task); db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        self.assertIn("COO / Certificate of Origin", page)
+        self.assertIn("需要", page)
+        self.assertIn("ACTION", page)
+        for backend_name in ("coo_required", "apta_required", "export_license_required", "customs_docs_required"):
+            self.assertNotIn(backend_name, page)
+        self.assertEqual(page.count('id="tasks"'), 1)
+        self.assertEqual(page.count('id="activity"'), 1)
+        self.assertNotIn("Tasks & Activity", page)
+        self.assertIn(f'/v2/orders/{pi.id}/documents/pi', page)
+
+    def test_completed_order_has_no_current_action_control(self):
+        pi = self.pi("COMPLETED-READ-ONLY", status="COMPLETED")
+        task = OrderTask(
+            pi_id=pi.id, task_code="MANUAL-LEFTOVER", title="Historical active task",
+            source="MANUAL", status="ACTION", health="NORMAL", completion_mode="MANUAL",
+            priority=1, context_payload={}, dedupe_key="completed-read-only",
+        )
+        db.session.add(task); db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+
+        current_action = page.split('id="current-action"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("当前待处理 · 0项", current_action)
+        self.assertNotIn(f'/v2/tasks/{task.id}/done', current_action)
+        self.assertIn('id="correction-workflow"', page)

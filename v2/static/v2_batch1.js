@@ -1,37 +1,70 @@
 document.addEventListener("DOMContentLoaded", () => {
-  const match = window.location.pathname.match(/^\/v2\/orders\/(\d+)$/);
-  if (!match) return;
-  const orderPath = `/v2/orders/${match[1]}`;
-  document.querySelectorAll('a[href="#document-requirements"]').forEach((link) => {
-    link.href = `${orderPath}/document-requirements`;
-    link.textContent = "修改文件需求";
+  const currentToggle = document.querySelector("[data-current-action-toggle]");
+  const secondaryActions = document.querySelector("#current-action-secondary");
+  const currentLabel = currentToggle?.querySelector("[data-current-action-label]");
+  if (currentToggle && secondaryActions && currentLabel) {
+    currentToggle.addEventListener("click", () => {
+      const expanded = currentToggle.getAttribute("aria-expanded") === "true";
+      currentToggle.setAttribute("aria-expanded", String(!expanded));
+      secondaryActions.hidden = expanded;
+      currentLabel.textContent = expanded ? "查看全部" : "收起";
+    });
+  }
+
+  const notifyToggle = document.querySelector("#notify-different");
+  const notifyFields = document.querySelector("#notify-fields");
+  const notifyValue = document.querySelector('input[name="notify_party_same_as_consignee"]');
+  const updateNotifyParty = () => {
+    if (!notifyToggle || !notifyFields || !notifyValue) return;
+    notifyFields.classList.toggle("d-none", !notifyToggle.checked);
+    notifyValue.value = notifyToggle.checked ? "false" : "true";
+  };
+  notifyToggle?.addEventListener("change", updateNotifyParty);
+
+  const navigation = document.querySelector(".order-nav");
+  const navigationLinks = navigation ? [...navigation.querySelectorAll('a[href^="#"]')] : [];
+  const sections = navigationLinks
+    .map((link) => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+  if ("IntersectionObserver" in window && sections.length) {
+    const linkById = new Map(navigationLinks.map((link) => [link.hash.slice(1), link]));
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+      if (!visible) return;
+      navigationLinks.forEach((link) => link.removeAttribute("aria-current"));
+      linkById.get(visible.target.id)?.setAttribute("aria-current", "true");
+    }, { rootMargin: "-15% 0px -70%", threshold: [0.05, 0.25, 0.5] });
+    sections.forEach((section) => observer.observe(section));
+  }
+
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const revealActivityFromHash = () => {
+    if (window.location.hash !== "#activity") return;
+    document.querySelector("#activity")?.setAttribute("open", "");
+  };
+  revealActivityFromHash();
+  window.addEventListener("hashchange", revealActivityFromHash);
+
+  const cargoEdit = document.querySelector("[data-cargo-edit]");
+  const cargoWorkspace = document.querySelector("[data-cargo-workspace]");
+  cargoEdit?.addEventListener("click", () => {
+    if (!cargoWorkspace) return;
+    const expanded = cargoEdit.getAttribute("aria-expanded") === "true";
+    cargoWorkspace.hidden = expanded;
+    cargoEdit.setAttribute("aria-expanded", String(!expanded));
+    cargoEdit.textContent = expanded ? "编辑 / Edit" : "收起 / Collapse";
+    if (!expanded) cargoWorkspace.querySelector("input, select, textarea")?.focus();
   });
-  const preparation = document.querySelector("#shipment-preparation");
-  if (preparation) {
-    const button = preparation.querySelector("button[type=submit]");
-    if (button) button.textContent = "Save Shipment Preparation";
-    if (!preparation.querySelector(".independent-save-note")) {
-      const note = document.createElement("p");
-      note.className = "text-muted small mb-0 independent-save-note";
-      note.textContent = "This section saves independently. Saving another section does not save changes here.";
-      button?.insertAdjacentElement("beforebegin", note);
-    }
-  }
-  if (preparation && !document.querySelector("#booking-hs-codes-link")) {
-    const link = document.createElement("a");
-    link.id = "booking-hs-codes-link";
-    link.className = "btn btn-outline-secondary ms-2";
-    link.href = `${orderPath}/booking-hs-codes`;
-    link.textContent = "填写 PIItem HS Code";
-    preparation.querySelector("button[type=submit]")?.insertAdjacentElement("afterend", link);
-  }
-  const activity = [...document.querySelectorAll("section.card")]
-    .find((section) => section.querySelector("h5")?.textContent.trim() === "Tasks & Activity");
-  if (activity) {
-    activity.id = "tasks-activity";
-    if (window.location.hash === "#tasks-activity") activity.scrollIntoView();
-  }
-  // ARRIVED → COMPLETED is intentionally outside this batch; do not expose
-  // the legacy generic transition while the server-side guard remains strict.
-  document.querySelector('input[name="status"][value="COMPLETED"]')?.closest("form")?.remove();
+
+  navigationLinks.forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const target = document.querySelector(link.getAttribute("href"));
+      if (!target) return;
+      event.preventDefault();
+      target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
+      window.history.replaceState(null, "", link.hash);
+    });
+  });
 });

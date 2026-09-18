@@ -173,9 +173,12 @@ class NewSalesReminderTest(TestCase):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
         html = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
         self.assertEqual(html.count(f"/v2/orders/{pi.id}/freight-agreement"), 1)
-        self.assertLess(html.index("Shipment Preparation · Freight"), html.index("Booking Cargo Information"))
+        self.assertLess(html.index('id="shipping"'), html.index('id="freight"'))
+        self.assertIn("Accepted Freight Agreement", html)
+        self.assertIn("Booking cargo information", html)
+        self.assertIn("独立保存", html)
         script = self.client().get("/v2/static/v2_batch1.js").get_data(as_text=True)
-        self.assertIn("This section saves independently", script)
+        self.assertNotIn("append(", script)
 
     def test_enter_arrived_requires_only_actual_arrival_and_creates_pickup_reminder(self):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
@@ -393,10 +396,11 @@ class NewSalesReminderTest(TestCase):
         self.assertIn("First call", history)
         self.assertIn("Bank pending", history)
         detail = self.client().get(f"/v2/orders/{pi.id}?open_task={task.id}").get_data(as_text=True)
-        self.assertIn(f'id="history-{task.id}"', detail)
+        self.assertIn('id="activity"', detail)
+        self.assertIn(f'id="task-{task.id}"', detail)
         self.assertIn("First call", detail)
         self.assertIn("Bank pending", detail)
-        self.assertIn("collapse mt-2 show", detail)
+        self.assertIn(f'id="task-{task.id}" class="order-task" open', detail)
 
     def test_new_reconcile_cancels_premature_prep_tasks_without_duplicates(self):
         pi = self.make_pi(planned=date.today(), advance=Decimal("0"))

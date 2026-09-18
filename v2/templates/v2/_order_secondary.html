@@ -1,0 +1,42 @@
+<div class="order-secondary-surface" aria-label="Controlled secondary actions">
+  <div class="order-secondary-actions">
+    <div>{% if can_create_linked_export %}<a class="btn btn-outline-secondary" id="create-linked-export-order" href="{{ url_for('v2.create_linked_export', pi_id=pi.id) }}">Create Linked Export Order</a>{% endif %}</div>
+    {% if can_delete_linked_trade %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('v2.linked_trade_delete', pi_id=pi.id) }}">Delete Linked Trade</a>{% elif pi.status == 'NEW' and not pi.is_linked_trade %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('v2.order_delete', pi_id=pi.id) }}">Delete Order</a>{% endif %}
+  </div>
+
+  {% if pi.status == 'ARRIVED' and completion %}
+    <section id="completion-check" class="order-panel order-correction">
+      <header class="order-panel-head"><div><span class="order-eyebrow">Controlled completion</span><h2>Completion Check</h2></div></header>
+      <div class="order-panel-body"><div class="order-summary-grid">
+        {% if completion.payment.managed_by is defined %}{{ summary_cell('Customer Payment', 'Managed by ' ~ completion.payment.managed_by.pi_no) }}{% elif completion.payment.configuration_error is defined %}{{ summary_cell('Customer Payment', completion.payment.configuration_error) }}{% else %}{{ summary_cell('Customer Payment', ('Complete' if completion.payment.complete else 'Incomplete') ~ ' · Outstanding ' ~ pi.currency ~ ' ' ~ completion.payment.outstanding) }}{% endif %}
+        {% if completion.freight.managed_by is defined %}{{ summary_cell('Freight Settlement', 'Managed by ' ~ completion.freight.managed_by.pi_no) }}{% elif completion.freight.configuration_error is defined %}{{ summary_cell('Freight Settlement', completion.freight.configuration_error) }}{% else %}{{ summary_cell('Freight Settlement', 'Complete' if completion.freight.complete else 'Incomplete') }}{% endif %}
+        {{ summary_cell('Document Delivery', 'Complete' if completion.documents.complete else 'Incomplete') }}
+      </div>{% if completion.overall_complete %}<a class="btn btn-success mt-3" href="{{ url_for('v2.enter_completed', pi_id=pi.id) }}">确认订单完成</a>{% else %}<p class="order-readonly-note">Complete the required closure facts before confirming this order.</p>{% endif %}</div>
+    </section>
+  {% endif %}
+
+  {% if pi.status == 'COMPLETED' %}
+    <section id="correction-workflow" class="order-panel order-correction">
+      <header class="order-panel-head"><div><span class="order-eyebrow">Controlled correction</span><h2>Completed order correction</h2><p>完成态保持只读；修改必须使用更正会话。</p></div></header>
+      <div class="order-panel-body">
+        {% if correction %}
+          <div class="alert alert-warning">Correction open: {{ correction.module }} — {{ correction.reason }}</div>
+          <form method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block">
+            {{ csrf() }}
+            {% if correction.module == 'COMMERCIAL' %}{% for field in ['payment_terms','note','loading_port','destination_port','shipping_mark','freight_term','contract_number','freight_clause','waybill_option'] %}<label>{{ field }}</label><input class="form-control mb-2" name="{{ field }}" value="{{ pi|attr(field) or '' }}">{% endfor %}
+            {% elif correction.module == 'PAYMENT' %}{% for field in ['advance_payment_percent','advance_payment_amount','balance_payment_amount','advance_received_amount','advance_received_at','balance_received_amount','balance_received_at'] %}<label>{{ field }}</label><input class="form-control mb-2" name="{{ field }}" value="{{ pi|attr(field) or '' }}">{% endfor %}
+            {% elif correction.module == 'SHIPPING' %}{% for field in ['container_type','container_location','container_loading_date','container_loading_period','driver_name','driver_phone','vehicle_number','etd','eta','actual_departure_date'] %}<label>{{ field }}</label><input class="form-control mb-2" name="{{ field }}" value="{{ pi|attr(field) or '' }}">{% endfor %}
+            {% elif correction.module == 'FREIGHT' %}{% for field in ['usd_bill_required','cny_bill_required','usd_bill_amount','cny_bill_amount','usd_bill_confirmed','cny_bill_confirmed','usd_invoice_issued','usd_invoice_issued_at','usd_payment_status','usd_paid_at','cny_invoice_issued','cny_invoice_issued_at','cny_payment_status','cny_paid_at'] %}<label>{{ field }}</label><input class="form-control mb-2" name="{{ field }}" value="{{ settlement|attr(field) if settlement else '' }}">{% endfor %}
+            {% elif correction.module == 'ARRIVAL' %}<label>Actual Arrival Date</label><input class="form-control" type="date" name="actual_arrival_date" value="{{ pi.actual_arrival_date or '' }}">
+            {% elif correction.module == 'DOCUMENTS' %}{% for row in document_rows %}<label>{{ row.label }}</label>{{ tri(row.field, pi|attr(row.field)) }}{% endfor %}{% endif %}
+            <button type="submit" class="btn btn-primary mt-2">Save Correction</button>
+          </form>
+          <form method="post" action="{{ url_for('v2.correction_close', session_id=correction.id) }}" class="order-inline-form">{{ csrf() }}<label for="correction-close-note">Close note</label><input id="correction-close-note" class="form-control" name="note"><button type="submit" class="btn btn-success mt-2">Close Correction</button></form>
+          <a class="btn btn-primary" href="{{ url_for('v2.correction_edit', session_id=correction.id) }}">Open full {{ correction.module }} correction form</a>
+        {% else %}
+          <form method="post" action="{{ url_for('v2.correction_open', pi_id=pi.id) }}" class="order-control-block">{{ csrf() }}<label for="correction-module">Correction module</label><select id="correction-module" name="module" class="form-select mb-2">{% for option in ['COMMERCIAL','PAYMENT','DOCUMENTS','SHIPPING','FREIGHT','ARRIVAL'] %}<option>{{ option }}</option>{% endfor %}</select><label for="correction-reason">Reason</label><input id="correction-reason" name="reason" class="form-control mb-2" required><button type="submit" class="btn btn-outline-danger">Reopen for Correction</button></form>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+</div>

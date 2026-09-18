@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 
 from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, ProductBatch, TradeGroup, db, utcnow
 from .linked_trade_creation import DOCUMENT_FACTS
-from .services import apply_bank_snapshot, apply_product_snapshot, reconcile_order_tasks_for_pi
+from .services import apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, reconcile_order_tasks_for_pi
 
 
 class NewOrderEditError(ValueError):
@@ -305,8 +305,7 @@ def save_new_order(pi, form):
                         for field, value in snapshots.items():
                             setattr(item, field, value)
                     if old is None or old.factory_id != (factory.id if factory else None):
-                        for field in ("name", "address", "tax_code", "country", "contact", "phone"):
-                            setattr(item, f"factory_{field}_snapshot", getattr(factory, "contact_person" if field == "contact" else field, None))
+                        apply_factory_snapshot(item, factory)
                     item.product_id, item.factory_id = product.id, factory.id if factory else None
                     item.quantity, item.unit_price, item.quantity_unit, item.trade_term, item.line_total = qty, price, unit, term, line
                     if old is None:

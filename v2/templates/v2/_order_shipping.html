@@ -1,0 +1,133 @@
+{% macro fact(label, value, extra='') -%}
+  <div class="order-fact"><dt>{{ label }}</dt><dd>{{ value if value is not none and value != '' else '—' }}{% if extra %} {{ extra }}{% endif %}</dd></div>
+{%- endmacro %}
+{% set shipping = shipment_owner if pi.is_export_order and shipment_owner else pi %}
+
+<section id="shipping" class="order-panel order-shipping" aria-labelledby="shipping-title">
+  <header class="order-panel-head">
+    <div><span class="order-eyebrow">Shipment workspace</span><h2 id="shipping-title">运输</h2><p>默认显示关键节点；展开五组查看完整资料与现有受控操作。</p></div>
+    {% if pi.is_export_order %}<span class="order-owner-note">关联 CUSTOMER_ORDER 管理共享运输资料</span>{% else %}<span class="order-panel-tag">独立保存区域</span>{% endif %}
+  </header>
+
+  {% if pi.is_export_order and not shipment_owner %}
+    <div class="alert alert-danger m-3">Linked CUSTOMER_ORDER shipment controller is missing or invalid.</div>
+  {% else %}
+    {% if pi.is_export_order %}<div id="shared-shipment" class="order-readonly-note mx-3">Shipment Controller: <a href="{{ url_for('v2.order_view', pi_id=shipping.id) }}">{{ shipping.pi_no }}</a>. Shared physical shipment facts are read-only on this EXPORT_ORDER.</div>{% endif %}
+    <dl class="order-shipping-summary" aria-label="Shipping summary">
+      {{ fact('计划装柜时间', shipping.container_loading_date or (shipping.container_loading_at.date() if shipping.container_loading_at else none), '· ' ~ (shipping.container_loading_period or '待确认')) }}
+      {{ fact('ETD / ETA', (shipping.etd or '—') ~ ' / ' ~ (shipping.eta or '—')) }}
+      {{ fact('实际发运', shipping.actual_departure_date) }}
+      {{ fact('实际到达', shipping.actual_arrival_date) }}
+    </dl>
+
+    {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}
+      <form id="shipment-preparation" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-detached-form">{{ csrf() }}</form>
+    {% endif %}
+
+    <div id="shipping-details" class="order-shipping-groups">
+      <details id="shipping-plan" class="order-shipping-group" data-shipping-group>
+        <summary><span><strong>装运计划</strong><small>7 项 · 日期与实际节点</small></span><span class="order-summary-action">展开</span></summary>
+        <div class="order-shipping-content">
+          <dl class="order-fact-grid">
+            {{ fact('Planned Shipment Date', shipping.planned_shipment_date) }}
+            {{ fact('Container Loading Date', shipping.container_loading_date or (shipping.container_loading_at.date() if shipping.container_loading_at else none)) }}
+            {{ fact('Loading Period', shipping.container_loading_period) }}
+            {{ fact('ETD', shipping.etd) }}
+            {{ fact('ETA', shipping.eta) }}
+            {{ fact('Actual Departure', shipping.actual_departure_date) }}
+            {{ fact('Actual Arrival', shipping.actual_arrival_date) }}
+          </dl>
+          {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}
+            <div class="order-control-block">
+              <div class="order-control-heading"><div><strong>装柜安排</strong><span>本区域沿用装运准备的独立保存范围。</span></div><span class="order-panel-tag">独立保存</span></div>
+              <div class="order-form-grid">
+                <div><label for="loading-date">Container Loading Date</label><input id="loading-date" form="shipment-preparation" class="form-control" type="date" name="container_loading_date" value="{{ pi.container_loading_date or '' }}"></div>
+                <div><label for="loading-period">Loading Period</label><select id="loading-period" form="shipment-preparation" class="form-select" name="container_loading_period"><option value="">Date unknown</option>{% for value, label in [('AM','AM'),('PM','PM'),('UNKNOWN','Unknown / All day')] %}<option value="{{ value }}" {% if pi.container_loading_period == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+              </div>
+              <button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button>
+            </div>
+            <form id="shipping-schedule" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block">
+              {{ csrf() }}
+              <div class="order-control-heading"><div><strong>ETD / ETA</strong><span>Planned Shipment Date is historical after entering PRE_SHIPMENT.</span></div><span class="order-panel-tag">独立保存</span></div>
+              <div class="order-form-grid"><div><label>Planned Shipment Date</label><div class="order-readonly-value">{{ pi.planned_shipment_date or '—' }}</div></div><div><label for="schedule-etd">ETD</label><input id="schedule-etd" class="form-control" type="date" name="etd" value="{{ pi.etd or '' }}"></div><div><label for="schedule-eta">ETA</label><input id="schedule-eta" class="form-control" type="date" name="eta" value="{{ pi.eta or '' }}"></div></div>
+              <button type="submit" class="btn btn-sm btn-primary">Save Shipping Schedule</button>
+            </form>
+            <a class="btn btn-sm btn-warning" href="{{ url_for('v2.enter_shipped', pi_id=pi.id) }}">确认实际发运</a>
+          {% elif pi.status == 'SHIPPED' and not pi.is_export_order %}
+            <form id="shipping-schedule" method="post" action="{{ url_for('v2.update_eta', pi_id=pi.id) }}" class="order-control-block">
+              {{ csrf() }}<div class="order-control-heading"><div><strong>Update ETA</strong><span>实际发运事实保持只读。</span></div><span class="order-panel-tag">独立保存</span></div>
+              <div class="order-form-grid"><div><label for="post-ship-eta">ETA</label><input id="post-ship-eta" class="form-control" type="date" name="eta" required value="{{ pi.eta or '' }}"></div></div>
+              <button type="submit" class="btn btn-sm btn-outline-primary">Save ETA</button>
+            </form>
+            <a class="btn btn-sm btn-primary" href="{{ url_for('v2.enter_arrived', pi_id=pi.id) }}">确认货物已到港</a>
+          {% endif %}
+        </div>
+      </details>
+
+      <details class="order-shipping-group" data-shipping-group>
+        <summary><span><strong>货物与集装箱</strong><small>包装、重量、体积及柜信息</small></span><span class="order-summary-action">展开</span></summary>
+        <div class="order-shipping-content">
+          <dl class="order-fact-grid">
+            {{ fact('Package Count', shipping.package_count) }}{{ fact('Package Unit', shipping.package_unit) }}
+            {{ fact('Gross Weight', shipping.gross_weight_kg) }}{{ fact('Gross Weight Display Unit', shipping.gross_weight_display_unit or 'KGS') }}
+            {{ fact('Volume', shipping.volume_cbm) }}{{ fact('Volume Unit', 'CBM') }}
+            {{ fact('Container Type', shipping.container_type) }}{{ fact('Container Count', shipping.container_count) }}
+            {{ fact('Container Number', shipping.container_number) }}{{ fact('Seal Number', shipping.seal_number) }}
+            {{ fact('VGM', shipping.vgm_kg, shipping.vgm_display_unit or 'KGS') }}
+          </dl>
+          {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}
+            <div class="order-link-row"><button type="button" class="btn btn-sm btn-outline-primary" data-cargo-edit aria-controls="cargo-edit-workspace" aria-expanded="false">编辑 / Edit</button></div>
+            <div id="cargo-edit-workspace" hidden data-cargo-workspace>
+            <div class="order-control-block">
+              <div class="order-control-heading"><div><strong>Container setup</strong><span>与装运准备资料使用同一现有保存范围。</span></div><span class="order-panel-tag">独立保存</span></div>
+              <div class="order-form-grid"><div><label for="container-type">Container Type</label><input id="container-type" form="shipment-preparation" class="form-control" name="container_type" value="{{ pi.container_type or '' }}"></div><div><label for="container-count">Container Count</label><input id="container-count" form="shipment-preparation" class="form-control" type="number" name="container_count" value="{{ pi.container_count or '' }}"></div></div>
+              <button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button>
+            </div>
+            <form id="booking-cargo-information" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block" data-cargo-form>
+              {{ csrf() }}
+              <div class="order-control-heading"><div><strong>Booking cargo information</strong><span>Gross weight is stored canonically in KGS.</span></div><span class="order-panel-tag">独立保存</span></div>
+              <div class="order-form-grid"><div><label for="package-count">Package Count</label><input id="package-count" class="form-control" type="number" name="package_count" value="{{ pi.package_count or '' }}"></div><div><label for="package-unit">Package Unit</label><input id="package-unit" class="form-control" name="package_unit" value="{{ pi.package_unit or 'BAGS' }}"></div><div><label for="gross-weight">Gross Weight</label><input id="gross-weight" class="form-control" type="number" step=".001" name="gross_weight" value="{{ (pi.gross_weight_kg / 1000 if pi.gross_weight_kg and (pi.gross_weight_display_unit or 'KGS') == 'MT' else pi.gross_weight_kg) or '' }}"></div><div><label for="gross-unit">Gross Weight Unit</label><select id="gross-unit" class="form-select" name="gross_weight_display_unit"><option value="KGS" {% if (pi.gross_weight_display_unit or 'KGS') == 'KGS' %}selected{% endif %}>KGS</option><option value="MT" {% if pi.gross_weight_display_unit == 'MT' %}selected{% endif %}>MT</option></select></div><div><label for="cargo-volume">Volume</label><input id="cargo-volume" class="form-control" type="number" step=".001" name="volume" value="{{ pi.volume_cbm or '' }}"></div><div><label>Volume Unit</label><div class="order-readonly-value">CBM</div></div></div>
+              <div class="order-task-controls"><button type="submit" class="btn btn-sm btn-primary">Save Booking Cargo Information</button></div>
+            </form></div>
+          {% endif %}
+        </div>
+      </details>
+
+      <details class="order-shipping-group" data-shipping-group>
+        <summary><span><strong>订舱与船务</strong><small>船期、订舱、承运人与货代</small></span><span class="order-summary-action">展开</span></summary>
+        <div class="order-shipping-content">
+          <dl class="order-fact-grid">
+            {{ fact('Vessel / Voyage', shipping.vessel_info) }}{{ fact('Booking Number', shipping.booking_number) }}
+            {{ fact('Shipping Company / Carrier', shipping.shipping_company) }}{{ fact('Bill of Lading Number', shipping.bill_of_lading_number) }}
+            {{ fact('Freight Forwarder', shipping.freight_forwarder.name if shipping.freight_forwarder else none) }}
+            {{ fact('Accepted Freight Quote', (financial_agreement.currency ~ ' ' ~ financial_agreement.amount) if pi.is_export_order and financial_agreement else (agreement.currency ~ ' ' ~ agreement.amount) if agreement else none) }}
+            {{ fact('Agreement Currency', financial_agreement.currency if pi.is_export_order and financial_agreement else agreement.currency if agreement else none) }}
+            {{ fact('Agreement Amount', financial_agreement.amount if pi.is_export_order and financial_agreement else agreement.amount if agreement else none) }}
+            {{ fact('Agreement Note', financial_agreement.note if pi.is_export_order and financial_agreement else agreement.note if agreement else none) }}
+          </dl>
+          {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}<div class="order-control-block"><div class="order-control-heading"><div><strong>Booking facts</strong><span>与装运准备资料使用同一现有保存范围。</span></div><span class="order-panel-tag">独立保存</span></div><div class="order-form-grid"><div><label for="vessel-info">Vessel / Voyage</label><input id="vessel-info" form="shipment-preparation" class="form-control" name="vessel_info" value="{{ pi.vessel_info or '' }}"></div><div><label for="booking-number">Booking Number</label><input id="booking-number" form="shipment-preparation" class="form-control" name="booking_number" value="{{ pi.booking_number or '' }}"></div><div><label for="forwarder">Freight Forwarder</label><select id="forwarder" form="shipment-preparation" name="freight_forwarder_id" class="form-select"><option value="">—</option>{% for row in forwarders %}<option value="{{ row.id }}" {% if row.id == pi.freight_forwarder_id %}selected{% endif %}>{{ row.name }}</option>{% endfor %}</select></div></div><button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button></div>{% endif %}
+        </div>
+      </details>
+
+      <details class="order-shipping-group" data-shipping-group>
+        <summary><span><strong>司机与装柜执行</strong><small>装柜地点、司机与车辆</small></span><span class="order-summary-action">展开</span></summary>
+        <div class="order-shipping-content">
+          <dl class="order-fact-grid">{{ fact('Factory', factory_names|join(' / ')) }}{{ fact('Loading Location', shipping.container_location) }}{{ fact('Driver Name', shipping.driver_name) }}{{ fact('Driver Phone', shipping.driver_phone) }}{{ fact('Vehicle Number', shipping.vehicle_number) }}</dl>
+          {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}<div class="order-control-block"><div class="order-control-heading"><div><strong>Loading execution</strong><span>与装运准备资料使用同一现有保存范围。</span></div><span class="order-panel-tag">独立保存</span></div><div class="order-form-grid"><div><label for="loading-location">Loading Location</label><input id="loading-location" form="shipment-preparation" class="form-control" name="container_location" value="{{ pi.container_location or '' }}"></div><div><label for="driver-name">Driver Name</label><input id="driver-name" form="shipment-preparation" class="form-control" name="driver_name" value="{{ pi.driver_name or '' }}"></div><div><label for="driver-phone">Driver Phone</label><input id="driver-phone" form="shipment-preparation" class="form-control" name="driver_phone" value="{{ pi.driver_phone or '' }}"></div><div><label for="vehicle-number">Vehicle Number</label><input id="vehicle-number" form="shipment-preparation" class="form-control" name="vehicle_number" value="{{ pi.vehicle_number or '' }}"></div></div><button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button></div>{% endif %}
+        </div>
+      </details>
+
+      <details class="order-shipping-group" data-shipping-group>
+        <summary><span><strong>路线与单证资料</strong><small>港口、运输条款、Notify Party 与产品执行资料</small></span><span class="order-summary-action">展开</span></summary>
+        <div class="order-shipping-content">
+          <dl class="order-fact-grid">{{ fact('Loading Port', shipping.loading_port) }}{{ fact('Destination Port', shipping.destination_port) }}{{ fact('Freight Term', shipping.freight_term) }}{{ fact('Freight Clause', shipping.freight_clause) }}{{ fact('Waybill Option', shipping.waybill_option) }}{{ fact('Shipping Mark', shipping.shipping_mark) }}{{ fact('Same as Consignee', 'Yes' if shipping.notify_party_same_as_consignee is not false else 'No') }}{{ fact('Notify Party Name', shipping.notify_party_name_snapshot) }}{{ fact('Notify Party Address', shipping.notify_party_address_snapshot) }}{{ fact('Notify Party Tax Code', shipping.notify_party_tax_code_snapshot) }}</dl>
+          {% if pi.status == 'PRE_SHIPMENT' and not pi.is_export_order %}<div class="order-control-block"><div class="order-control-heading"><div><strong>Route documentation facts</strong><span>与装运准备资料使用同一现有保存范围。</span></div><span class="order-panel-tag">独立保存</span></div><div class="order-form-grid"><div><label for="freight-term">Freight Term</label><input id="freight-term" form="shipment-preparation" class="form-control" name="freight_term" value="{{ pi.freight_term or '' }}"></div><div><label for="freight-clause">Freight Clause</label><input id="freight-clause" form="shipment-preparation" class="form-control" name="freight_clause" value="{{ pi.freight_clause or '' }}"></div><div><label for="waybill-option">Waybill Option</label><input id="waybill-option" form="shipment-preparation" class="form-control" name="waybill_option" value="{{ pi.waybill_option or '' }}"></div><div><label for="shipping-mark">Shipping Mark</label><input id="shipping-mark" form="shipment-preparation" class="form-control" name="shipping_mark" value="{{ pi.shipping_mark or '' }}"></div></div><label class="order-check"><input form="shipment-preparation" type="checkbox" id="notify-different" {% if pi.notify_party_same_as_consignee is false %}checked{% endif %}> Notify Party differs from Consignee</label><input form="shipment-preparation" type="hidden" name="notify_party_same_as_consignee" value="{{ 'false' if pi.notify_party_same_as_consignee is false else 'true' }}"><div id="notify-fields" class="order-form-grid {% if pi.notify_party_same_as_consignee is not false %}d-none{% endif %}"><div><label for="notify-name">Notify Party Name</label><input id="notify-name" form="shipment-preparation" class="form-control" name="notify_party_name_snapshot" value="{{ pi.notify_party_name_snapshot or '' }}"></div><div><label for="notify-address">Notify Party Address</label><input id="notify-address" form="shipment-preparation" class="form-control" name="notify_party_address_snapshot" value="{{ pi.notify_party_address_snapshot or '' }}"></div><div><label for="notify-tax">Notify Party Tax Code</label><input id="notify-tax" form="shipment-preparation" class="form-control" name="notify_party_tax_code_snapshot" value="{{ pi.notify_party_tax_code_snapshot or '' }}"></div></div><button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button></div>{% endif %}
+
+          <div class="order-table-wrap"><table class="table order-items-table"><thead><tr><th>产品类别</th><th>品牌</th><th>型号</th><th>数量</th><th>单位</th><th>Trade Term</th><th>包装</th><th>HS Code</th><th>批次</th></tr></thead><tbody>{% for item in pi.items %}<tr><td>{{ item.product_category_snapshot or '—' }}</td><td>{{ item.product_brand_snapshot or '—' }}</td><td>{{ item.product_model_snapshot or '—' }}</td><td>{{ item.quantity }}</td><td>{{ item.quantity_unit }}</td><td>{{ item.trade_term or '—' }}</td><td>{{ item.product_packaging_snapshot or '—' }}</td><td>{{ item.product_hs_code_snapshot or '—' }}</td><td>{{ item.batches|map(attribute='batch_number')|join(' / ') or '—' }}</td></tr>{% else %}<tr><td colspan="9">No PI items</td></tr>{% endfor %}</tbody></table></div>
+          {% if pi.status == 'PRE_SHIPMENT' %}<div class="order-link-row"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('v2.document_requirements_editor', pi_id=pi.id) }}">修改文件需求</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('v2.booking_hs_codes', pi_id=pi.id) }}">填写 PIItem HS Code</a></div>{% endif %}
+          {% if pi.status in ['SHIPPED','ARRIVED'] and not pi.is_export_order %}{% for item in pi.items %}<div id="batch-item-{{ item.id }}" class="order-control-block"><div class="order-control-heading"><strong>{{ item.product_model_snapshot or 'PI Item' }} batches</strong><span class="order-panel-tag">独立保存</span></div><form method="post" action="{{ url_for('v2.batches', pi_id=pi.id) }}" class="order-inline-form order-action-form">{{ csrf() }}<input type="hidden" name="pi_item_id" value="{{ item.id }}"><label class="visually-hidden" for="batch-new-{{ item.id }}">Batch number</label><input id="batch-new-{{ item.id }}" class="form-control form-control-sm" name="batch_number" required placeholder="Batch number"><button type="submit" class="btn btn-sm btn-outline-primary">Add Batch</button></form>{% for batch in item.batches %}<div class="order-task-controls"><form method="post" action="{{ url_for('v2.batch_edit', pi_id=pi.id, batch_id=batch.id) }}" class="order-inline-form order-action-form">{{ csrf() }}<label class="visually-hidden" for="batch-{{ batch.id }}">Batch number</label><input id="batch-{{ batch.id }}" class="form-control form-control-sm" name="batch_number" value="{{ batch.batch_number }}"><button type="submit" class="btn btn-sm btn-outline-primary">Save Batch</button></form><form method="post" action="{{ url_for('v2.batch_delete', pi_id=pi.id, batch_id=batch.id) }}" class="order-inline-form">{{ csrf() }}<button type="submit" class="btn btn-sm btn-outline-danger">Delete Batch</button></form></div>{% endfor %}</div>{% endfor %}{% endif %}
+        </div>
+      </details>
+    </div>
+  {% endif %}
+</section>

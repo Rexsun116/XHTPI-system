@@ -1,0 +1,71 @@
+<div class="order-two-column">
+  <section id="customer-payment" class="order-panel" aria-labelledby="customer-payment-title">
+    <header class="order-panel-head"><div><span class="order-eyebrow">Receivables</span><h2 id="customer-payment-title">客户付款</h2><p>累计确认金额摘要，不表示独立付款流水。</p></div>{% if pi.is_export_order %}<span class="order-owner-note">关联客户订单管理</span>{% else %}<span class="order-panel-tag">{{ pi.currency }}</span>{% endif %}</header>
+    <div class="order-panel-body">
+      {% if pi.is_export_order %}
+        {% if financial_owner_resolution.valid %}<div id="linked-financial-owner" class="order-readonly-note">Customer Payment 由关联客户订单 <a href="{{ url_for('v2.order_view', pi_id=financial_owner_resolution.owner.id) }}">{{ financial_owner_resolution.owner.pi_no }}</a> 管理。</div><div class="order-summary-grid mt-3">{{ summary_cell('Document Bank', pi.bank_name_snapshot) }}{{ summary_cell('Document Bank Account', pi.bank_account_number_snapshot) }}</div>{% else %}<div id="linked-financial-owner" class="alert alert-danger mb-0">Linked trade configuration problem: {{ financial_owner_resolution.error }}</div>{% endif %}
+      {% else %}
+        <div id="advance-payment-summary" class="order-summary-grid">
+          {% if advance_payment %}{{ summary_cell('应收预付款', advance_payment.expected) }}{{ summary_cell('已收预付款', advance_payment.received) }}{{ summary_cell('未收预付款', advance_payment.outstanding) }}{{ summary_cell('到账日期', advance_payment.received_at) }}{{ summary_cell('当前状态', advance_payment.status) }}{% endif %}
+          {{ summary_cell('Payment Terms', pi.payment_terms) }}
+          {{ summary_cell('Balance Planned', (pi.currency ~ ' ' ~ pi.balance_payment_amount) if pi.balance_payment_amount is not none else none) }}
+          {{ summary_cell('Balance Received', (pi.currency ~ ' ' ~ pi.balance_received_amount) if pi.balance_received_amount is not none else none) }}
+          {{ summary_cell('Balance Received Date', pi.balance_received_at.date().isoformat() if pi.balance_received_at else none) }}
+          {% if completion and completion.payment.managed_by is not defined and completion.payment.configuration_error is not defined %}
+            {{ summary_cell('Final Payment State', ('PAID' if completion.payment.complete else 'OUTSTANDING') ~ ' · Received ' ~ pi.currency ~ ' ' ~ completion.payment.received ~ ' · Outstanding ' ~ pi.currency ~ ' ' ~ completion.payment.outstanding) }}
+          {% endif %}
+        </div>
+        {% if pi.status in ['SHIPPED','ARRIVED'] %}
+          <form id="payment-receipts" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block">
+            {{ csrf() }}
+            <div class="order-control-heading"><div><strong>Customer Payment Receipts</strong><span>保存累计确认金额与日期。</span></div><span class="order-panel-tag">独立保存</span></div>
+            <div class="order-form-grid">
+              <div><label for="advance-received-amount">Advance Received Amount</label><input id="advance-received-amount" class="form-control" name="advance_received_amount" type="number" min="0" step=".01" value="{{ pi.advance_received_amount or '' }}"></div>
+              <div><label for="advance-received-date">Advance Received Date</label><input id="advance-received-date" class="form-control" name="advance_received_at" type="date" value="{{ pi.advance_received_at.date().isoformat() if pi.advance_received_at else '' }}"></div>
+              <div><label for="balance-received-amount">Balance Received Amount</label><input id="balance-received-amount" class="form-control" name="balance_received_amount" type="number" min="0" step=".01" value="{{ pi.balance_received_amount or '' }}"></div>
+              <div><label for="balance-received-date">Balance Received Date</label><input id="balance-received-date" class="form-control" name="balance_received_at" type="date" value="{{ pi.balance_received_at.date().isoformat() if pi.balance_received_at else '' }}"></div>
+            </div><button class="btn btn-sm btn-primary">Save Payment Receipts</button>
+          </form>
+        {% endif %}
+        {% if pi.order_type == 'COMMISSION' %}<div class="order-readonly-note">Commission: {{ pi.commission_currency or pi.currency }} {{ pi.commission_amount or '—' }} · {{ pi.commission_rate or '—' }}% · {{ pi.commission_amount_mode or '—' }}</div>{% endif %}
+      {% endif %}
+    </div>
+  </section>
+
+  <section id="freight" class="order-panel" aria-labelledby="freight-title">
+    <header class="order-panel-head"><div><span class="order-eyebrow">Forwarder finance</span><h2 id="freight-title">运费</h2><p>协议与结算状态分开显示。</p></div>{% if pi.is_export_order %}<span class="order-owner-note">关联客户订单管理</span>{% else %}<span class="order-panel-tag">财务资料</span>{% endif %}</header>
+    <div class="order-panel-body">
+      {% set shown_agreement = financial_agreement if pi.is_export_order else agreement %}{% set shown_settlement = financial_settlement if pi.is_export_order else settlement %}{% set operational_owner = shipment_owner if pi.is_export_order and shipment_owner else pi %}{% set operational_forwarder = operational_owner.freight_forwarder.name if operational_owner.freight_forwarder else none %}{% set displayed_forwarder = shown_agreement.freight_forwarder_name_snapshot if pi.status == 'COMPLETED' and shown_agreement else operational_forwarder %}
+      <div class="order-summary-grid">
+        {{ summary_cell('Freight Forwarder', displayed_forwarder) }}
+        {{ summary_cell('Accepted Agreement', (shown_agreement.currency ~ ' ' ~ shown_agreement.amount) if shown_agreement else none) }}
+        {{ summary_cell('Agreement Date', shown_agreement.agreed_at.date().isoformat() if shown_agreement and shown_agreement.agreed_at else none) }}
+        {% for code, required, amount, confirmed, invoice, status, paid_at in [('USD',shown_settlement.usd_bill_required if shown_settlement else none,shown_settlement.usd_bill_amount if shown_settlement else none,shown_settlement.usd_bill_confirmed if shown_settlement else none,shown_settlement.usd_invoice_issued if shown_settlement else none,shown_settlement.usd_payment_status if shown_settlement else none,shown_settlement.usd_paid_at if shown_settlement else none),('CNY',shown_settlement.cny_bill_required if shown_settlement else none,shown_settlement.cny_bill_amount if shown_settlement else none,shown_settlement.cny_bill_confirmed if shown_settlement else none,shown_settlement.cny_invoice_issued if shown_settlement else none,shown_settlement.cny_payment_status if shown_settlement else none,shown_settlement.cny_paid_at if shown_settlement else none)] %}
+          <div class="order-summary-cell"><span>{{ code }} Settlement</span><strong>{% if required is sameas false %}Not required{% elif required is sameas true %}{{ amount if amount is not none else 'Amount pending' }} · {{ status or 'Status pending' }}<span class="order-summary-detail">Amount confirmed: {{ 'Yes' if confirmed is sameas true else 'No' if confirmed is sameas false else '—' }} · Invoice issued: {{ 'Yes' if invoice is sameas true else 'No' if invoice is sameas false else '—' }} · Paid at: {{ paid_at.date().isoformat() if paid_at else '—' }}</span>{% else %}—{% endif %}</strong></div>
+        {% endfor %}
+      </div>
+      {% if pi.is_export_order %}
+        {% if financial_owner_resolution.valid %}<div class="order-readonly-note">Freight Finance 由关联客户订单 <a href="{{ url_for('v2.order_view', pi_id=financial_owner_resolution.owner.id) }}">{{ financial_owner_resolution.owner.pi_no }}</a> 管理。</div>{% else %}<div class="alert alert-danger mt-3 mb-0">{{ financial_owner_resolution.error }}</div>{% endif %}
+      {% else %}
+        {% if pi.status == 'PRE_SHIPMENT' %}
+          {% if not agreement %}<form id="freight-agreement" method="post" action="{{ url_for('v2.freight_agreement_manual', pi_id=pi.id) }}" class="order-control-block">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="order-control-heading"><div><strong>Accepted Freight Agreement</strong><span>Enter the final accepted freight agreement.</span></div><span class="order-panel-tag">独立保存</span></div>
+            <div class="order-form-grid"><div><label for="agreement-amount">Amount</label><input id="agreement-amount" class="form-control" name="amount" type="number" step=".01" required></div><div><label for="agreement-currency">Currency</label><input id="agreement-currency" class="form-control" name="currency" required></div><div><label for="agreement-note">Note</label><input id="agreement-note" class="form-control" name="note"></div></div>
+            <button class="btn btn-sm btn-outline-primary">Accept Snapshot</button>
+          </form>{% endif %}
+          <div class="order-control-block"><div class="order-control-heading"><div><strong>Quote and bill requirements</strong><span>与装运准备资料使用同一现有保存范围。</span></div><span class="order-panel-tag">装运准备保存</span></div><div class="order-form-grid">{% if not agreement %}<div><label for="quote-id">Accept Freight Quote</label><select id="quote-id" form="shipment-preparation" class="form-select" name="quote_id"><option value="">—</option>{% for quote in quotes %}<option value="{{ quote.id }}">{{ quote.freight_forwarder.name }} · {{ quote.currency }} {{ quote.amount }}</option>{% endfor %}</select></div>{% endif %}<div><label>美元海运费账单</label>{{ tri('usd_bill_required', settlement.usd_bill_required if settlement else none, 'shipment-preparation') }}</div><div><label>人民币本地费用账单</label>{{ tri('cny_bill_required', settlement.cny_bill_required if settlement else none, 'shipment-preparation') }}</div></div><button form="shipment-preparation" type="submit" class="btn btn-sm btn-primary">Save Shipment Preparation</button></div>
+        {% endif %}
+        {% if pi.status in ['SHIPPED','ARRIVED'] %}
+          <form id="freight-settlement" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block">
+            {{ csrf() }}<input type="hidden" name="_form_scope" value="FREIGHT_SETTLEMENT">
+            <div class="order-control-heading"><div><strong>Freight Settlement</strong><span>{% if agreement %}Agreed Freight: {{ agreement.currency }} {{ '{:,.2f}'.format(agreement.amount) }}{% else %}Agreed freight not available{% endif %}</span></div><span class="order-panel-tag">独立保存</span></div>
+            {% for currency, required, amount, invoice, status, paid_at in [('USD',settlement.usd_bill_required if settlement else none,settlement.usd_bill_amount if settlement else none,settlement.usd_invoice_issued if settlement else none,settlement.usd_payment_status if settlement else none,settlement.usd_paid_at if settlement else none),('CNY',settlement.cny_bill_required if settlement else none,settlement.cny_bill_amount if settlement else none,settlement.cny_invoice_issued if settlement else none,settlement.cny_payment_status if settlement else none,settlement.cny_paid_at if settlement else none)] %}
+              {% if required is sameas true %}<fieldset class="border rounded p-3 mb-3"><legend class="float-none w-auto px-2 h6">{{ currency }} Settlement</legend><div class="order-form-grid"><div><label>Bill Amount</label><input class="form-control" name="{{ currency|lower }}_bill_amount" type="number" min="0" step=".01" value="{{ amount or '' }}"></div><div><label>Invoice Issued</label><div class="order-readonly-value">{{ 'Yes' if invoice is sameas true else 'No' }}</div></div>{% if invoice is sameas true %}<div><label>Payment Status</label><select class="form-select" name="{{ currency|lower }}_payment_status"><option value="">Not set</option><option value="UNPAID" {% if status=='UNPAID' %}selected{% endif %}>Unpaid</option><option value="PAID" {% if status=='PAID' %}selected{% endif %}>Paid</option></select></div><div><label>Paid At</label><input class="form-control" name="{{ currency|lower }}_paid_at" type="date" value="{{ paid_at.date().isoformat() if paid_at else '' }}"></div>{% endif %}</div></fieldset>{% endif %}
+            {% endfor %}<button class="btn btn-sm btn-primary">Save Freight Settlement</button>
+          </form>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+</div>

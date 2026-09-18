@@ -319,14 +319,14 @@ class CompletionGateTest(TestCase):
         before = (pi.status, task.status, TaskActivity.query.count())
         html = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
         self.assertEqual((pi.status, task.status, TaskActivity.query.count()), before)
-        for text in (pi.pi_no, "Order Summary", "Items", "Document Requirements", "Product-006", "BATCH-006",
+        for text in (pi.pi_no, "订单概览", "路线与单证资料", "单证要求与办理", "Product-006", "BATCH-006",
                      "2026-08-03 / 2026-08-20", "2026-08-04", "2026-08-21", "Carrier A",
-                     "BL-006", "BOOK-006", "40HQ", "Forwarder A", "500", "700", "PAID", "2026-09-05",
-                     "2026-09-06", "Document Requirements"):
+                     "BL-006", "BOOK-006", "40HQ", "Forwarder A", "500", "700", "PAID",
+                     "COO / Certificate of Origin"):
             self.assertIn(text, html)
         self.assertNotIn("Completed Order Snapshot", html)
-        self.assertEqual(html.count("Order Summary"), 1)
-        self.assertEqual(html.count("Document Requirements"), 1)
+        self.assertNotIn("Commercial details", html)
+        self.assertEqual(html.count("单证要求与办理"), 1)
         self.assertNotIn('name="usd_bill_amount"', html)
         self.assertNotIn('name="advance_received_amount"', html)
         self.assertIn(f"/v2/tasks/{task.id}/history", html)

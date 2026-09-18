@@ -1,0 +1,60 @@
+{% from 'v2/_order_task_controls.html' import render_action with context %}
+<section id="current-action" class="order-panel order-current-action" aria-labelledby="current-action-title">
+  <header class="order-panel-head order-current-head">
+    <div>
+      <span class="order-eyebrow">Operational focus</span>
+      <h2 id="current-action-title">当前待处理 · {{ current_action.active_count }}项</h2>
+    </div>
+    <div class="order-action-counts" aria-label="Task category counts">
+      <span class="order-count is-exception"><span aria-hidden="true">●</span> Exception {{ current_action.exception_count }}</span>
+      <span class="order-count is-action"><span aria-hidden="true">●</span> Action {{ current_action.action_count }}</span>
+      <span class="order-count is-waiting"><span aria-hidden="true">●</span> Waiting {{ current_action.waiting_count }}</span>
+    </div>
+  </header>
+  {% if current_action.primary %}
+    {% set item = current_action.primary %}
+    {% set task = item.task %}
+    {% set presentation = item.presentation %}
+    <article class="order-focus-task" data-current-action-primary>
+      <div class="order-focus-main">
+        <div class="order-task-kicker">
+          <span class="order-status-badge is-{{ presentation.display_status|lower }}">{{ presentation.display_status }}</span>
+          {% if task._dashboard_health != 'NORMAL' %}<span class="order-health-text">{{ task._dashboard_health }}</span>{% endif %}
+          <span class="order-priority-label">最高优先项</span>
+        </div>
+        <h3>{{ presentation.title }}</h3>
+        {% if presentation.lines %}<ul class="order-fact-lines">{% for line in presentation.lines %}<li>{{ line }}</li>{% endfor %}</ul>{% endif %}
+        {% if presentation.warning %}<p class="order-task-warning">{{ presentation.warning }}</p>{% endif %}
+        {% if presentation.waiting.waiting_on or presentation.waiting.next_follow_up_at %}
+          <dl class="order-waiting-meta">
+            <div><dt>Waiting On</dt><dd>{{ presentation.waiting.waiting_on or '—' }}</dd></div>
+            <div><dt>Next Follow-up</dt><dd>{{ presentation.waiting.next_follow_up_at or '—' }}</dd></div>
+          </dl>
+        {% endif %}
+      </div>
+      <div class="order-focus-actions">
+        {% if item.primary_action %}{{ render_action(pi, task, item.primary_action, true) }}{% endif %}
+        <a class="btn btn-sm btn-link" href="#task-{{ task.id }}">查看任务详情</a>
+      </div>
+    </article>
+    {% if current_action.secondary %}
+      <div id="current-action-secondary" hidden>
+        {% for item in current_action.secondary %}
+          {% set task = item.task %}{% set presentation = item.presentation %}
+          <article class="order-secondary-task">
+            <div>
+              <div class="order-task-kicker"><span class="order-status-badge is-{{ presentation.display_status|lower }}">{{ presentation.display_status }}</span>{% if task._dashboard_health != 'NORMAL' %}<span class="order-health-text">{{ task._dashboard_health }}</span>{% endif %}</div>
+              <h3>{{ presentation.title }}</h3>
+              {% if presentation.lines %}<p class="order-compact-facts">{{ presentation.lines|join(' · ') }}</p>{% endif %}
+              {% if presentation.waiting.waiting_on or presentation.waiting.next_follow_up_at %}<p class="order-compact-facts">Waiting On: {{ presentation.waiting.waiting_on or '—' }} · Next Follow-up: {{ presentation.waiting.next_follow_up_at or '—' }}</p>{% endif %}
+            </div>
+            <div class="order-focus-actions">{% if item.primary_action %}{{ render_action(pi, task, item.primary_action) }}{% endif %}<a class="btn btn-sm btn-link" href="#task-{{ task.id }}">任务详情</a></div>
+          </article>
+        {% endfor %}
+      </div>
+      <div class="order-current-footer"><button type="button" class="btn btn-sm btn-link" data-current-action-toggle aria-expanded="false" aria-controls="current-action-secondary"><span data-current-action-label>查看全部</span></button></div>
+    {% endif %}
+  {% else %}
+    <div class="order-empty-state"><strong>当前没有待处理任务</strong><span>可继续查看完整任务与活动记录。</span></div>
+  {% endif %}
+</section>

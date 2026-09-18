@@ -10,7 +10,7 @@ from order_lifecycle import LifecyclePolicyError, validate_lifecycle_submission
 from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
     FreightQuote, FreightSettlement, OrderCorrectionSession, OrderFreightAgreement, OrderTask, PI, PIItem,
     Product, ProductBatch, TaskActivity, db, utcnow)
-from .services import (apply_bank_snapshot, apply_product_snapshot, close_correction_session,
+from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
     completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     EXPORT_FINANCIAL_TASK_CODES)
@@ -26,7 +26,8 @@ from .linked_trade_creation import (
     create_linked_export_order,
     linked_export_creation_error,
 )
-from .presenter import advance_payment_summary, present_activity, present_task
+from .presenter import (advance_payment_summary, order_action_summary, order_activity_feed,
+                        order_document_rows, present_activity, present_task)
 from .selector import projected, projected_details, select_next_action, sort_key
 from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -338,12 +339,15 @@ def order_new():
             price, qty = Decimal(request.form[f"unit_price_{index}"]), Decimal(request.form[f"quantity_{index}"])
             if price < 0 or qty <= 0:
                 raise ValueError("PI Item price must be non-negative and quantity must be positive.")
+            factory_id = int(request.form[f"factory_{index}"]) if request.form.get(f"factory_{index}") else None
+            factory = db.session.get(Factory, factory_id) if factory_id else None
             item = PIItem(product_id=product.id,
-                factory_id=int(request.form[f"factory_{index}"]) if request.form.get(f"factory_{index}") else None,
+                factory_id=factory_id,
                 trade_term=request.form.get(f"trade_term_{index}"), unit_price=price, quantity=qty,
                 quantity_unit=request.form.get(f"quantity_unit_{index}") or "KGS",
                 line_total=(price * qty).quantize(Decimal("0.01")))
             apply_product_snapshot(item, product)
+            apply_factory_snapshot(item, factory)
             pi.items.append(item)
         if not pi.items:
             raise ValueError("At least one PI item is required.")
@@ -469,14 +473,31 @@ def order_view(pi_id):
         owner_id = financial_owner_resolution.owner.id
         financial_agreement = db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == owner_id))
         financial_settlement = db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id == owner_id))
+    missing_factory_ids = {
+        item.factory_id for item in pi.items
+        if not (item.factory_name_snapshot or "").strip() and item.factory_id is not None
+    }
+    factory_names_by_id = {
+        row.id: row.name for row in db.session.scalars(
+            db.select(Factory).where(Factory.id.in_(missing_factory_ids))
+        )
+    } if missing_factory_ids else {}
+    factory_names = []
+    for item in pi.items:
+        name = (item.factory_name_snapshot or "").strip() or factory_names_by_id.get(item.factory_id)
+        if name and name not in factory_names:
+            factory_names.append(name)
     open_task = request.args.get("open_task", type=int)
     return render_template("v2/order_view.html",pi=pi,tasks=tasks,correction=correction,quotes=quotes,open_task=open_task,
         can_delete_linked_trade=linked_delete_available(pi),
         agreement=agreement,settlement=settlement,financial_agreement=financial_agreement,
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
         shipment_owner=shipment_owner_for(pi),
+        factory_names=factory_names,
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
+        current_action=order_action_summary(tasks), activity_feed=order_activity_feed(tasks),
+        document_rows=order_document_rows(pi, tasks),
         advance_payment=advance_payment_summary(pi) if pi.order_type == "SALES" and not pi.is_export_order else None,
         completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None,
         can_create_linked_export=linked_export_creation_error(pi) is None)

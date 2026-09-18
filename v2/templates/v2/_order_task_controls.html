@@ -1,0 +1,103 @@
+{% macro csrf() -%}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+{%- endmacro %}
+
+{% macro render_action(pi, task, action, compact=false) -%}
+  {% set button_class = 'btn btn-sm btn-primary' if compact else 'btn btn-sm btn-outline-primary' %}
+  {% if action.kind == 'enter_pre_shipment' %}
+    <form method="post" action="{{ url_for('v2.enter_pre_shipment', pi_id=pi.id) }}" class="order-inline-form">
+      {{ csrf() }}
+      <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+    </form>
+  {% elif action.kind == 'enter_shipped' %}
+    <a class="{{ button_class }}" href="{{ url_for('v2.enter_shipped', pi_id=pi.id) }}">{{ action.label }}</a>
+  {% elif action.kind == 'enter_arrived' %}
+    <a class="{{ button_class }}" href="{{ url_for('v2.enter_arrived', pi_id=pi.id) }}">{{ action.label }}</a>
+  {% elif action.kind == 'advance_receipt' %}
+    <form method="post" action="{{ url_for('v2.advance_receipt', pi_id=pi.id) }}" class="order-inline-form order-action-form">
+      {{ csrf() }}
+      <label class="visually-hidden" for="advance-amount-{{ task.id }}">Advance received amount</label>
+      <input id="advance-amount-{{ task.id }}" class="form-control form-control-sm" name="advance_received_amount" type="number" min="0" step=".01" required placeholder="Amount">
+      <label class="visually-hidden" for="advance-date-{{ task.id }}">Advance received date</label>
+      <input id="advance-date-{{ task.id }}" class="form-control form-control-sm" name="advance_received_at" type="date" required>
+      <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+    </form>
+  {% elif action.kind == 'followup' %}
+    <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='followup') }}" class="order-inline-form order-action-form">
+      {{ csrf() }}
+      <label class="visually-hidden" for="followup-note-{{ task.id }}">Follow-up note</label>
+      <input id="followup-note-{{ task.id }}" class="form-control form-control-sm" name="note" placeholder="Follow-up note">
+      <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+    </form>
+  {% elif action.kind == 'edit_schedule' %}
+    <a class="{{ button_class }}" href="#shipping-plan">{{ action.label }}</a>
+  {% elif action.kind == 'edit_shipment' %}
+    <a class="{{ button_class }}" href="{% if pi.status == 'NEW' %}{{ url_for('v2.order_edit', pi_id=pi.id) }}{% else %}#shipping-details{% endif %}">{{ action.label }}</a>
+  {% elif action.kind == 'edit_freight' %}
+    <a class="{{ button_class }}" href="#freight">{{ action.label }}</a>
+  {% elif action.kind == 'done' %}
+    <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='done') }}" class="order-inline-form">
+      {{ csrf() }}
+      <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
+    </form>
+  {% elif action.kind == 'required_done' %}
+    <a class="{{ button_class }}" href="#task-{{ task.id }}">{{ action.label }}</a>
+  {% elif action.kind == 'reopen' %}
+    <a class="{{ button_class }}" href="#task-{{ task.id }}">{{ action.label }}</a>
+  {% elif action.kind == 'view_order' %}
+    <a class="{{ button_class }}" href="#order-detail-title">{{ action.label }}</a>
+  {% elif action.kind == 'history' %}
+    <a class="btn btn-sm btn-link" href="{{ url_for('v2.task_history', task_id=task.id) }}">{{ action.label }}</a>
+  {% endif %}
+{%- endmacro %}
+
+{% macro task_management(pi, task, presentation) -%}
+  {% if pi.status != 'COMPLETED' and presentation.display_status not in ['DONE', 'CANCELLED'] %}
+    <div class="order-task-controls">
+      {% for action in presentation.actions if action.kind not in ['done', 'required_done', 'reopen', 'history'] %}
+        {{ render_action(pi, task, action) }}
+      {% endfor %}
+      {% if task.completion_mode != 'RULE_DATA' %}
+        <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='done') }}" class="order-inline-form order-action-form">
+          {{ csrf() }}
+          {% if task.completion_mode == 'MANUAL_REQUIRED_INPUT' %}
+            <label class="visually-hidden" for="tracking-{{ task.id }}">Tracking number</label>
+            <input id="tracking-{{ task.id }}" class="form-control form-control-sm" name="tracking_number" required placeholder="Tracking number">
+            <label class="visually-hidden" for="carrier-{{ task.id }}">Carrier</label>
+            <input id="carrier-{{ task.id }}" class="form-control form-control-sm" name="carrier" placeholder="Carrier">
+          {% endif %}
+          <label class="visually-hidden" for="completion-note-{{ task.id }}">Completion note</label>
+          <input id="completion-note-{{ task.id }}" class="form-control form-control-sm" name="note" placeholder="Completion note">
+          <button type="submit" class="order-done-button"><i class="fa-solid fa-check" aria-hidden="true"></i> Done</button>
+        </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='waiting') }}" class="order-inline-form order-action-form">
+        {{ csrf() }}
+        <label class="visually-hidden" for="waiting-on-{{ task.id }}">Waiting on</label>
+        <select id="waiting-on-{{ task.id }}" class="form-select form-select-sm" name="waiting_on" required>
+          {% for option in ['CUSTOMER','FACTORY','FREIGHT_FORWARDER','BANK','INTERNAL','OTHER'] %}<option>{{ option }}</option>{% endfor %}
+        </select>
+        <label class="visually-hidden" for="next-followup-{{ task.id }}">Next follow-up</label>
+        <input id="next-followup-{{ task.id }}" class="form-control form-control-sm" type="datetime-local" name="next_follow_up_at">
+        <label class="visually-hidden" for="waiting-note-{{ task.id }}">Waiting note</label>
+        <input id="waiting-note-{{ task.id }}" class="form-control form-control-sm" name="note" placeholder="Waiting note">
+        <button type="submit" class="btn btn-sm btn-outline-secondary">Waiting</button>
+      </form>
+      {% if task.source == 'MANUAL' %}
+        <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='cancel') }}" class="order-inline-form order-action-form">
+          {{ csrf() }}
+          <label class="visually-hidden" for="cancel-reason-{{ task.id }}">Cancel reason</label>
+          <input id="cancel-reason-{{ task.id }}" class="form-control form-control-sm" name="reason" required placeholder="Cancel reason">
+          <button type="submit" class="btn btn-sm btn-outline-danger">Cancel</button>
+        </form>
+      {% endif %}
+    </div>
+  {% elif pi.status != 'COMPLETED' and task.status == 'DONE' and task.completion_mode != 'RULE_DATA' %}
+    <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='reopen') }}" class="order-inline-form order-action-form mt-3">
+      {{ csrf() }}
+      <label class="visually-hidden" for="reopen-reason-{{ task.id }}">Reopen reason</label>
+      <input id="reopen-reason-{{ task.id }}" class="form-control form-control-sm" name="reason" required placeholder="Reopen reason">
+      <button type="submit" class="btn btn-sm btn-outline-warning">Reopen</button>
+    </form>
+  {% endif %}
+{%- endmacro %}
