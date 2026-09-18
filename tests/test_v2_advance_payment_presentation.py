@@ -126,6 +126,14 @@ class AdvancePaymentPresentationTest(TestCase):
             self.assertIn("@media(max-width:575.98px)", page)
         shipped_page = self.client().get(f"/v2/orders/{shipped.id}").get_data(as_text=True)
         self.assertIn('id="payment-receipts"', shipped_page)
+        receipts = shipped_page.split('id="payment-receipts"', 1)[1].split('</form>', 1)[0]
+        self.assertIn('class="order-payment-receipts-grid"', receipts)
+        self.assertIn(f'action="/v2/orders/{shipped.id}/facts"', receipts)
+        self.assertIn('method="post"', receipts)
+        self.assertIn('name="csrf_token"', receipts)
+        for field in ('advance_received_amount', 'advance_received_at',
+                      'balance_received_amount', 'balance_received_at'):
+            self.assertIn(f'name="{field}"', receipts)
 
     def test_linked_export_order_has_no_customer_payment_summary(self):
         group = TradeGroup(group_no="TRI-ADVANCE-SUMMARY")
@@ -335,9 +343,12 @@ class AdvancePaymentPresentationTest(TestCase):
 
         page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
+        self.assertIn('v2_design_system.css', page)
+        self.assertIn('v2-modern', page)
+        design_system = (Path(__file__).parents[1] / 'v2/static/v2_design_system.css').read_text()
         for token in ('--v35-primary:#14b8a6', '--v35-border:#e2e9ed', '--v35-muted:#667085',
                       'border-radius:16px', 'padding:17px 20px', 'border-radius:9px'):
-            self.assertIn(token, page)
+            self.assertIn(token, design_system)
         self.assertNotIn('--od-', page)
 
     def test_documents_generated_files_tasks_and_activity_are_distinct_modules(self):

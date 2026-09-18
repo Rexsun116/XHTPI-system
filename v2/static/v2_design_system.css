@@ -1,0 +1,48 @@
+/* Shared V2 visual foundation. Opt-in keeps legacy Bootstrap pages unchanged. */
+body.v2-modern {
+  --v35-primary:#14b8a6; --v35-border:#e2e9ed; --v35-soft:#f8fbfc;
+  --v35-ink:#172033; --v35-muted:#667085;
+  --exception:#c65b69; --exception-soft:#fff5f6; --exception-border:#f0d8dc;
+  --action:#b77728; --action-soft:#fff8ee; --action-border:#f0dfbd;
+  --waiting:#3977ba; --waiting-soft:#f0f7ff; --waiting-border:#d4e5f7;
+  --upcoming:#7063ae; --upcoming-soft:#f5f3ff; --upcoming-border:#e0dcf4;
+  --done:#368463; --done-soft:#effaf4; --done-border:#c9e6d6;
+  background:#f4f8fa; color:var(--v35-ink); font-family:Inter,system-ui;
+}
+
+/* Approved Dashboard V3.5 authenticated shell. */
+body.v2-modern .side { width:245px; padding:24px; background:#fbfdfd; color:var(--v35-ink); border-right:1px solid var(--v35-border); z-index:1; }
+body.v2-modern .side a { padding:7px 0; color:#617084; font-size:16px; font-weight:400; line-height:normal; }
+body.v2-modern .main { box-sizing:border-box; width:calc(100% - 245px); min-width:0; margin-left:245px; padding:28px 32px 46px; background:#f4f8fa; }
+
+/* Opt-in primitives for pages migrated in later P2 batches. */
+.v2-page-header { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.v2-eyebrow { color:#5257ae; font-size:11px; font-weight:700; letter-spacing:.08em; }
+.v2-panel, body.v2-modern .order-panel { overflow:hidden; border:1px solid var(--v35-border); border-radius:16px; background:#fff; }
+.v2-panel-header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:17px 20px; border-bottom:1px solid #edf2f4; }
+.v2-panel-header h2 { margin:0; font-size:17px; }
+.v2-panel-header p, .v2-muted { color:var(--v35-muted); font-size:12px; }
+.v2-toolbar { display:flex; align-items:center; gap:8px; }
+.v2-summary-card { display:flex; align-items:center; gap:12px; min-height:98px; padding:16px; border:1px solid var(--v35-border); border-radius:14px; background:#fff; }
+.v2-button, .v2-search { border:1px solid var(--v35-border); border-radius:9px; background:#fff; color:#425268; font:inherit; font-size:13px; }
+.v2-button { padding:8px 11px; font-weight:600; text-decoration:none; }
+.v2-button--primary { border-color:var(--v35-primary); background:var(--v35-primary); color:#fff; }
+.v2-search { padding:8px 10px; }
+.v2-form-control { min-height:38px; border:1px solid var(--v35-border); border-radius:9px; }
+.v2-table { width:100%; border-collapse:collapse; }
+.v2-table th { padding:12px 14px; background:var(--v35-soft); color:var(--v35-muted); font-size:11px; text-align:left; }
+.v2-table td { padding:13px 14px; border-top:1px solid #edf2f4; font-size:13px; vertical-align:top; }
+.v2-status-badge { display:inline-flex; align-items:center; border-radius:7px; padding:3px 7px; background:#f2f5f7; color:#526174; font-size:11px; font-weight:650; }
+.v2-status-dot { display:inline-block; width:7px; height:7px; margin-right:6px; border-radius:50%; background:currentColor; }
+.v2-status--exception { color:var(--exception); background:var(--exception-soft); }
+.v2-status--action { color:var(--action); background:var(--action-soft); }
+.v2-status--waiting { color:var(--waiting); background:var(--waiting-soft); }
+.v2-status--upcoming { color:var(--upcoming); background:var(--upcoming-soft); }
+.v2-status--done { color:var(--done); background:var(--done-soft); }
+body.v2-modern :focus-visible { outline:3px solid rgb(20 184 166 / .32); outline-offset:2px; }
+
+/* Existing Order Detail narrow-shell behavior shared by modern pages. */
+@media(max-width:575.98px) {
+  body.v2-modern .side { position:static; inset:auto; width:100%; box-sizing:border-box; padding:16px 24px; }
+  body.v2-modern .main { width:100%; margin-left:0; padding:16px; max-width:100%; overflow-x:clip; }
+}

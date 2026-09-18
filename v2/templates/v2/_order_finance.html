@@ -19,7 +19,7 @@
           <form id="payment-receipts" method="post" action="{{ url_for('v2.order_facts', pi_id=pi.id) }}" class="order-control-block">
             {{ csrf() }}
             <div class="order-control-heading"><div><strong>Customer Payment Receipts</strong><span>保存累计确认金额与日期。</span></div><span class="order-panel-tag">独立保存</span></div>
-            <div class="order-form-grid">
+            <div class="order-payment-receipts-grid">
               <div><label for="advance-received-amount">Advance Received Amount</label><input id="advance-received-amount" class="form-control" name="advance_received_amount" type="number" min="0" step=".01" value="{{ pi.advance_received_amount or '' }}"></div>
               <div><label for="advance-received-date">Advance Received Date</label><input id="advance-received-date" class="form-control" name="advance_received_at" type="date" value="{{ pi.advance_received_at.date().isoformat() if pi.advance_received_at else '' }}"></div>
               <div><label for="balance-received-amount">Balance Received Amount</label><input id="balance-received-amount" class="form-control" name="balance_received_amount" type="number" min="0" step=".01" value="{{ pi.balance_received_amount or '' }}"></div>
