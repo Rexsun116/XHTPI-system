@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from order_lifecycle import LifecyclePolicyError, OrderStage
 from v2_domain import compare_freight_quote_to_bill
@@ -65,6 +65,16 @@ def apply_factory_snapshot(item, factory):
     for field in ("name", "address", "tax_code", "country", "contact", "phone"):
         source = "contact_person" if field == "contact" else field
         setattr(item, f"factory_{field}_snapshot", getattr(factory, source, None) if factory else None)
+
+
+def pi_number_exists(pi_no, *, exclude_id=None):
+    """Return whether a PI number is already used, regardless of ASCII casing."""
+    if not pi_no:
+        return False
+    statement = select(PI.id).where(func.lower(PI.pi_no) == pi_no.lower())
+    if exclude_id is not None:
+        statement = statement.where(PI.id != exclude_id)
+    return db.session.scalar(statement) is not None
 
 
 def create_freight_agreement(pi, quote, *, agreed_at=None, note=None):

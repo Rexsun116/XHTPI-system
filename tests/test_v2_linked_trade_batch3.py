@@ -122,7 +122,9 @@ class LinkedTradeCreateExportTest(TestCase):
 
     def test_duplicate_number_and_direct_post_on_ineligible_sources_are_rejected(self):
         source = self.source(); duplicate = self.source("XHT-B3")
-        self.assertEqual(self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=self.payload(source)).status_code, 400)
+        self.assertEqual(self.client().post(
+            f"/v2/orders/{source.id}/create-linked-export", data=self.payload(source, pi_no="xht-b3")
+        ).status_code, 400)
         completed = self.source("WU-COMPLETE", status="COMPLETED")
         self.assertEqual(self.client().get(f"/v2/orders/{completed.id}/create-linked-export").status_code, 409)
         group = TradeGroup(group_no="TRI-EXISTING"); db.session.add(group); db.session.flush()

@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from tests import test_v2_create_pi_form as fixture
 from v2.models import (BankAccount, Customer, Exporter, PI, PIItem, Product, ProductBatch,
-                       OrderTask, TaskActivity, TradeGroup, db)
+                       OrderCorrectionSession, OrderTask, TaskActivity, TradeGroup, db)
 from v2.new_order_edit import edit_form_data
 
 
@@ -86,6 +86,21 @@ class NewOrderEditTest(TestCase):
         self.assertEqual(pi.notify_party_name_snapshot, 'Notify')
         self.assertEqual(self.product.model, 'R504')
 
+    def test_completed_commercial_correction_rejects_case_only_pi_number_conflict(self):
+        existing = self.order('WU1333')
+        target = self.order('CORRECTION-TARGET'); target.status = 'COMPLETED'; db.session.commit()
+        client = self.client()
+        self.assertEqual(client.post(f'/v2/orders/{target.id}/corrections', data={
+            'module': 'COMMERCIAL', 'reason': 'Correct record',
+        }).status_code, 302)
+        session = db.session.scalar(db.select(OrderCorrectionSession).where(OrderCorrectionSession.pi_id == target.id))
+        response = client.post(f'/v2/corrections/{session.id}/edit', data={
+            'pi_no': 'wu1333', 'customer_id': str(target.customer_id), 'exporter_id': str(target.exporter_id),
+        })
+        self.assertEqual(response.status_code, 400)
+        db.session.refresh(target)
+        self.assertEqual(target.pi_no, 'CORRECTION-TARGET')
+
     def test_payment_drivers_require_explicit_choice_and_rollback_all(self):
         pi = self.order()
         for changes in ({'quantity_0':'20'}, {'unit_price_0':'110'}, {'currency':'CNY'}, {'advance_payment_percent':'30'},
@@ -164,7 +179,7 @@ class NewOrderEditTest(TestCase):
     def test_foreign_duplicate_item_ids_and_invalid_inputs_rejected(self):
         pi=self.order(); other=self.order('OTHER')
         for changes in ({'item_id_0':str(other.items[0].id)}, {'product_0':'99999'}, {'quantity_0':'0'},
-                        {'unit_price_0':'NaN'},{'quantity_unit_0':''},{'customer_id':'99999'}, {'pi_no':'OTHER'},
+                        {'unit_price_0':'NaN'},{'quantity_unit_0':''},{'customer_id':'99999'}, {'pi_no':'OTHER'}, {'pi_no':'other'},
                         {'pi_date':'invalid'}, {'status':'SHIPPED'}, {'etd':'2026-10-01'},
                         {'advance_payment_amount':'999'}, {'advance_payment_percent':'101'}):
             before=self.snapshot()
@@ -250,7 +265,7 @@ class NewOrderEditTest(TestCase):
             self.assertEqual({column.name:getattr(peer,column.name) for column in PI.__table__.columns},peer_before)
             self.assertEqual(peer.items[0].unit_price,peer_price)
         for changes in ({'loading_port':'NO'}, {'planned_shipment_date':'2099-01-01'},
-                        {'actual_departure_date':'2026-09-14'}, {'bank_account_id':''}, {'trade_role':'CUSTOMER_ORDER'}):
+                        {'actual_departure_date':'2026-09-14'}, {'bank_account_id':''}, {'trade_role':'CUSTOMER_ORDER'}, {'pi_no':'customer'}):
             before=self.snapshot()
             self.assertEqual(self.post(export,**changes).status_code,400)
             self.assertEqual(before,self.snapshot())

@@ -1,42 +1,59 @@
 {% extends 'v2/base.html' %}
+{% block body_class %}v2-modern{% endblock %}
 {% block content %}
 {% set data = form_data or {} %}
-<h2 class="mb-3">Create V2 PI</h2>
-{% if error %}<div class="alert alert-danger" role="alert">{{ error }}</div>{% endif %}
-<form method="post" id="create-pi-form" novalidate>
+<header class="v2-form-page-header"><div><span class="v2-eyebrow">ORDER ENTRY</span><h1>New Order</h1><p>Create a new PI / order</p></div></header>
+{% if error %}<div class="v2-form-error" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><div>{{ error }}</div></div>{% endif %}
+<form method="post" id="create-pi-form" novalidate class="v2-new-order-form">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
-  <section class="card p-4 mb-3">
-    <h5>1. Order Identity &amp; Commercial Core</h5>
+  <section class="v2-panel mt-4">
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">1</span><strong>Order Identity &amp; Parties</strong><p>Core PI, company, currency and payment terms.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Order Identity &amp; Commercial Core</h5>
     <div class="row g-3">
-      <div class="col-md-3"><label class="form-label" for="pi_no">PI Number *</label><input class="form-control" id="pi_no" name="pi_no" value="{{ data.get('pi_no', '') }}" required autocomplete="off"><div id="pi-number-feedback" class="form-text"></div></div>
+      <div class="col-md-3"><label class="form-label" for="pi_no">PI Number *</label><input class="form-control" id="pi_no" name="pi_no" value="{{ data.get('pi_no', '') }}" required autocomplete="off"><div id="pi-number-feedback" class="v2-pi-feedback" role="status" aria-live="polite"></div></div>
       <div class="col-md-3"><label class="form-label">PI Date *</label><input class="form-control" name="pi_date" type="date" value="{{ data.get('pi_date', '') }}" required></div>
       <div class="col-md-3"><label class="form-label">Order Type</label><select id="order_type" name="order_type" class="form-select"><option value="SALES" {% if data.get('order_type', 'SALES') == 'SALES' %}selected{% endif %}>SALES</option><option value="COMMISSION" {% if data.get('order_type') == 'COMMISSION' %}selected{% endif %}>COMMISSION</option></select></div>
       <div class="col-md-3"><label class="form-label">Currency</label><select id="currency" name="currency" class="form-select" required><option value="USD" {% if data.get('currency', 'USD') == 'USD' %}selected{% endif %}>USD</option><option value="CNY" {% if data.get('currency') == 'CNY' %}selected{% endif %}>CNY</option></select></div>
       <div class="col-md-4"><label class="form-label">Customer *</label><select name="customer_id" class="form-select" required><option value="">Select Customer</option>{% for x in customers %}<option value="{{ x.id }}" {% if data.get('customer_id') == x.id|string %}selected{% endif %}>{{ x.name }}</option>{% endfor %}</select></div>
       <div class="col-md-4"><label class="form-label">Exporter *</label><select name="exporter_id" class="form-select" required><option value="">Select Exporter</option>{% for x in exporters %}<option value="{{ x.id }}" {% if data.get('exporter_id') == x.id|string %}selected{% endif %}>{{ x.name }}</option>{% endfor %}</select></div>
       <div class="col-md-4"><label class="form-label">Payment Terms *</label><input class="form-control" name="payment_terms" value="{{ data.get('payment_terms', '') }}" required></div>
-    </div>
+    </div></div>
   </section>
 
-  <section class="card p-4 mb-3">
-    <div class="d-flex justify-content-between align-items-center"><h5 class="mb-0">2. PI Items</h5><span id="contract-total" class="fw-bold">Contract Total: USD 0.00</span></div>
+  <section class="v2-panel mt-4">
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">2</span><strong>PI Items</strong><p>Add each product, factory, price and quantity.</p></div><span id="contract-total" class="fw-bold">Contract Total: USD 0.00</span></header><div class="v2-item-editor"><div class="d-flex justify-content-between align-items-center"><h5 class="visually-hidden">PI Items</h5></div>
     <div id="items" class="mt-3"></div>
-    <button type="button" class="btn btn-outline-primary" id="add-item">+ Add Item</button>
-  </section>
+    <button type="button" class="v2-button" id="add-item"><i class="fa-solid fa-plus" aria-hidden="true"></i> Add Item</button>
+  </div></section>
 
-  <section class="card p-4 mb-3">
-    <h5>3. Structured Payment Plan</h5>
+  <section class="v2-panel mt-4">
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">3</span><strong>Payment &amp; Commercial</strong><p>Payment preview is calculated from PI Items and Advance %.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Structured Payment Plan</h5>
     <div class="row g-3">
       <div class="col-md-3"><label class="form-label">Advance %</label><input id="advance_payment_percent" name="advance_payment_percent" class="form-control" type="number" step=".01" min="0" max="100" value="{{ data.get('advance_payment_percent', '') }}"></div>
       <div class="col-md-3"><label class="form-label">Advance Expected</label><input id="advance_payment_amount" name="advance_payment_amount" class="form-control" readonly></div>
       <div class="col-md-3"><label class="form-label">Balance Expected</label><input id="balance_payment_amount" name="balance_payment_amount" class="form-control" readonly></div>
       <div class="col-md-3"><div class="form-text pt-4">Calculated from PI Items and Advance %; the server recalculates with Decimal.</div></div>
     </div>
-  </section>
+  </div></section>
 
-  <section id="commission-section" class="card p-4 mb-3" hidden>
-    <h5>Commission</h5>
+
+
+  <section class="v2-panel mt-4">
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">4</span><strong>Shipment Plan</strong><p>Initial expected shipment timing and route.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Initial Shipment Plan</h5><div class="row g-3">
+      {% for field,label in [('planned_shipment_date','Planned Shipment Date'),('loading_port','Departure Port'),('destination_port','Destination Port')] %}<div class="col-md-4"><label>{{label}}{% if field=='planned_shipment_date' %} *{% endif %}</label><input class="form-control" id="{{field}}" name="{{field}}" {% if field=='planned_shipment_date' %}type="date" required{% endif %} value="{{data.get(field,'')}}"></div>{% endfor %}
+    </div>
+  </div></section>
+
+  <section class="v2-panel mt-4">
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">5</span><strong>Document Requirements</strong><p>Record each existing three-state requirement decision.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Document Requirements</h5><div class="row g-3">
+      {% set labels={'coo_required':'COO','apta_required':'APTA','export_license_required':'Export License','customs_docs_required':'Customs Documents','coc_required':'COC','coa_required':'COA','original_bl_required':'Original BL','obd_electronic_required':'OBD Electronic BL','insurance_original_required':'Insurance Original','insurance_electronic_required':'Insurance Electronic','original_documents_mail_required':'Mail Original Documents','telex_release_required':'Telex Release','settlement_documents_required':'Settlement Documents'} %}
+      {% for field,label in labels.items() %}<div class="col-md-3"><label>{{label}}</label><select name="{{field}}" class="form-select"><option value="">Not confirmed</option><option value="true" {% if data.get(field)=='true' %}selected{% endif %}>Required</option><option value="false" {% if data.get(field)=='false' %}selected{% endif %}>Not required</option></select></div>{% endfor %}
+      <div class="col-12"><label>Other document notes</label><textarea name="other_document_notes" class="form-control">{{data.get('other_document_notes','')}}</textarea></div>
+    </div>
+  </div></section>
+
+  <section id="commission-section" class="v2-panel mt-4" hidden>
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">6</span><strong>Commission / Additional</strong><p>Available for COMMISSION orders.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Commission</h5>
     <div class="row g-3">
       <div class="col-md-3"><label>Factory</label><select name="commission_factory_id" class="form-select"><option value="">—</option>{% for x in factories %}<option value="{{x.id}}" {% if data.get('commission_factory_id') == x.id|string %}selected{% endif %}>{{x.name}}</option>{% endfor %}</select></div>
       <div class="col-md-3"><label>Rate %</label><input name="commission_rate" class="form-control" type="number" step=".0001" value="{{data.get('commission_rate','')}}"></div>
@@ -45,24 +62,10 @@
       <div class="col-md-3"><label>Override Amount</label><input name="commission_amount" class="form-control" type="number" step=".01" value="{{data.get('commission_amount','')}}"></div>
       <div class="col-md-6"><label>Override Reason</label><input name="commission_override_reason" class="form-control" value="{{data.get('commission_override_reason','')}}"></div>
     </div>
-  </section>
+  </div></section>
 
-  <section class="card p-4 mb-3">
-    <h5>4. Initial Shipment Plan</h5><div class="row g-3">
-      {% for field,label in [('planned_shipment_date','Planned Shipment Date'),('loading_port','Departure Port'),('destination_port','Destination Port')] %}<div class="col-md-4"><label>{{label}}{% if field=='planned_shipment_date' %} *{% endif %}</label><input class="form-control" id="{{field}}" name="{{field}}" {% if field=='planned_shipment_date' %}type="date" required{% endif %} value="{{data.get(field,'')}}"></div>{% endfor %}
-    </div>
-  </section>
-
-  <section class="card p-4 mb-3">
-    <h5>5. Document Requirements</h5><div class="row g-3">
-      {% set labels={'coo_required':'COO','apta_required':'APTA','export_license_required':'Export License','customs_docs_required':'Customs Documents','coc_required':'COC','coa_required':'COA','original_bl_required':'Original BL','obd_electronic_required':'OBD Electronic BL','insurance_original_required':'Insurance Original','insurance_electronic_required':'Insurance Electronic','original_documents_mail_required':'Mail Original Documents','telex_release_required':'Telex Release','settlement_documents_required':'Settlement Documents'} %}
-      {% for field,label in labels.items() %}<div class="col-md-3"><label>{{label}}</label><select name="{{field}}" class="form-select"><option value="">Not confirmed</option><option value="true" {% if data.get(field)=='true' %}selected{% endif %}>Required</option><option value="false" {% if data.get(field)=='false' %}selected{% endif %}>Not required</option></select></div>{% endfor %}
-      <div class="col-12"><label>Other document notes</label><textarea name="other_document_notes" class="form-control">{{data.get('other_document_notes','')}}</textarea></div>
-    </div>
-  </section>
-
-  <section class="card p-4 mb-3"><h5>6. Bank &amp; Notes</h5><div class="row g-3"><div class="col-md-6"><label>Bank Account</label><select name="bank_account_id" class="form-select"><option value="">—</option>{% for x in banks %}<option value="{{x.id}}" {% if data.get('bank_account_id') == x.id|string %}selected{% endif %}>{{x.name}}</option>{% endfor %}</select></div><div class="col-12"><label>Notes</label><textarea name="note" class="form-control">{{data.get('note','')}}</textarea></div></div></section>
-  <button class="btn btn-primary btn-lg" id="create-submit">Create PI</button>
+  <section class="v2-panel mt-4"><header class="v2-panel-header"><div><span class="v2-form-section-number">7</span><strong>Bank &amp; Notes</strong></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Bank &amp; Notes</h5><div class="row g-3"><div class="col-md-6"><label>Bank Account</label><select name="bank_account_id" class="form-select"><option value="">—</option>{% for x in banks %}<option value="{{x.id}}" {% if data.get('bank_account_id') == x.id|string %}selected{% endif %}>{{x.name}}</option>{% endfor %}</select></div><div class="col-12"><label>Notes</label><textarea name="note" class="form-control">{{data.get('note','')}}</textarea></div></div></div></section>
+  <div class="v2-form-actions"><p>Creating this PI submits one form and creates one order transaction.</p><button class="v2-button v2-button--primary btn btn-primary btn-lg" id="create-submit">Create PI</button></div>
 </form>
 
 <script>
@@ -80,8 +83,8 @@
   function addItem(values = {}, removable = true) {
     const index = values.index ?? nextIndex++;
     nextIndex = Math.max(nextIndex, Number(index) + 1);
-    const row = document.createElement('div'); row.className = 'item-row border rounded p-3 mb-3'; row.dataset.index = index;
-    row.innerHTML = `<div class="d-flex justify-content-between"><b>PI Item</b>${removable ? '<button type="button" class="btn btn-sm btn-outline-danger remove-item">Remove</button>' : ''}</div><div class="row g-2 mt-1"><div class="col-md-3"><label>Product</label><select class="form-select item-input" name="product_${index}" required>${optionHtml(products, values.product)}</select></div><div class="col-md-2"><label>Factory</label><select class="form-select" name="factory_${index}">${optionHtml(factories, values.factory, true)}</select></div><div class="col-md-2"><label>Trade Term</label><input class="form-control" name="trade_term_${index}" value="${values.trade_term || ''}"></div><div class="col-md-2"><label>Unit Price</label><input class="form-control item-input" name="unit_price_${index}" type="number" step=".0001" min="0" value="${values.unit_price || ''}" required></div><div class="col-md-2"><label>Quantity</label><input class="form-control item-input" name="quantity_${index}" type="number" step=".001" min="0.001" value="${values.quantity || ''}" required></div><div class="col-md-1"><label>Unit</label><input class="form-control" name="quantity_unit_${index}" value="${values.quantity_unit || 'KGS'}"></div></div>`;
+    const row = document.createElement('div'); row.className = 'item-row v2-item-row border rounded p-3 mb-3'; row.dataset.index = index;
+    row.innerHTML = `<div class="v2-item-row-head"><b class="v2-item-row-title">PI Item</b>${removable ? '<button type="button" class="btn btn-sm btn-outline-danger remove-item">Remove</button>' : ''}</div><div class="row g-2 mt-1"><div class="col-md-3"><label>Product</label><select class="form-select item-input" name="product_${index}" required>${optionHtml(products, values.product)}</select></div><div class="col-md-2"><label>Factory</label><select class="form-select" name="factory_${index}">${optionHtml(factories, values.factory, true)}</select></div><div class="col-md-2"><label>Trade Term</label><input class="form-control" name="trade_term_${index}" value="${values.trade_term || ''}"></div><div class="col-md-2"><label>Unit Price</label><input class="form-control item-input" name="unit_price_${index}" type="number" step=".0001" min="0" value="${values.unit_price || ''}" required></div><div class="col-md-2"><label>Quantity</label><input class="form-control item-input" name="quantity_${index}" type="number" step=".001" min="0.001" value="${values.quantity || ''}" required></div><div class="col-md-1"><label>Unit</label><input class="form-control" name="quantity_unit_${index}" value="${values.quantity_unit || 'KGS'}"></div></div>`;
     itemContainer.appendChild(row);
   }
   function recalculate() {
@@ -105,7 +108,7 @@
   const toggleCommission = () => { commission.hidden = type.value !== 'COMMISSION'; plannedShipment.required = type.value === 'SALES'; }; type.addEventListener('change', toggleCommission); toggleCommission();
 
   const piNo = document.getElementById('pi_no'); const feedback = document.getElementById('pi-number-feedback'); const submit = document.getElementById('create-submit'); let piAvailable = true; let timer;
-  async function checkNumber() { const value = piNo.value.trim(); if (!value) { feedback.textContent = ''; piAvailable = false; submit.disabled = true; return; } const response = await fetch({{url_for('v2.check_pi_number')|tojson}}, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': document.querySelector('[name=csrf_token]').value}, body: new URLSearchParams({pi_no: value, csrf_token: document.querySelector('[name=csrf_token]').value})}); const result = await response.json(); piAvailable = result.available; feedback.textContent = result.available ? 'PI Number is available.' : 'PI Number already exists.'; feedback.className = result.available ? 'form-text text-success' : 'form-text text-danger'; submit.disabled = !result.available; }
+  async function checkNumber() { const value = piNo.value.trim(); if (!value) { feedback.textContent = ''; piAvailable = false; submit.disabled = true; return; } const response = await fetch({{url_for('v2.check_pi_number')|tojson}}, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': document.querySelector('[name=csrf_token]').value}, body: new URLSearchParams({pi_no: value, csrf_token: document.querySelector('[name=csrf_token]').value})}); const result = await response.json(); piAvailable = result.available; feedback.textContent = result.available ? 'PI Number is available.' : 'PI Number already exists.'; feedback.className = result.available ? 'v2-pi-feedback is-available' : 'v2-pi-feedback is-unavailable'; submit.disabled = !result.available; }
   piNo.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => checkNumber().catch(() => { feedback.textContent = 'Unable to check PI Number.'; }), 300); }); piNo.addEventListener('blur', () => checkNumber().catch(() => {}));
   document.getElementById('create-pi-form').addEventListener('submit', event => { if (!piAvailable) event.preventDefault(); });
 })();

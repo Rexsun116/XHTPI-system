@@ -9,7 +9,7 @@ from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import event
 from werkzeug.security import check_password_hash
 from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, User, db
-from .services import apply_bank_snapshot, apply_product_snapshot, save_order_with_reconcile
+from .services import apply_bank_snapshot, apply_product_snapshot, pi_number_exists, save_order_with_reconcile
 
 
 def _validate_database_uri(uri):
@@ -60,6 +60,8 @@ def create_app(database_uri, *, testing=False, secret_key=None):
     @login_required
     def create_order_api():
         data = request.get_json(force=True)
+        if pi_number_exists(data["pi_no"]):
+            return jsonify({"error": "PI Number already exists."}), 400
         order_type = data.get("order_type", "SALES")
         if order_type == "SALES" and not data.get("planned_shipment_date"):
             return jsonify({"error": "Planned Shipment Date is required for Sales orders."}), 400

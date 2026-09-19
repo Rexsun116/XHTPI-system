@@ -12,7 +12,7 @@ from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
     Product, ProductBatch, TaskActivity, db, utcnow)
 from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
-    completion_check, reconcile_order_tasks_for_pi, save_order_with_reconcile,
+    completion_check, pi_number_exists, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     EXPORT_FINANCIAL_TASK_CODES)
 from .linked_trade import financial_owner_for, is_export_order
 from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
@@ -279,9 +279,7 @@ def _create_item_indexes():
 def check_pi_number():
     """CSRF-protected, authenticated, read-only V2 PI number availability check."""
     pi_no = (request.form.get("pi_no") or "").strip()
-    available = bool(pi_no) and db.session.scalar(
-        db.select(PI.id).where(PI.pi_no == pi_no)
-    ) is None
+    available = bool(pi_no) and not pi_number_exists(pi_no)
     return jsonify({"available": available})
 
 
@@ -303,7 +301,7 @@ def order_new():
         planned_shipment_raw = (request.form.get("planned_shipment_date") or "").strip()
         if order_type == "SALES" and not planned_shipment_raw:
             raise ValueError("Planned Shipment Date is required for Sales orders.")
-        if db.session.scalar(db.select(PI.id).where(PI.pi_no == pi_no)) is not None:
+        if pi_number_exists(pi_no):
             raise ValueError("PI Number already exists.")
         customer = db.session.get(Customer, customer_id)
         exporter = db.session.get(Exporter, exporter_id)
@@ -1160,6 +1158,8 @@ def correction_edit(session_id):
     }
     _reject_unexpected_fields(correction_allowed[session.module])
     if session.module=="COMMERCIAL":
+        if pi_number_exists(request.form.get("pi_no"), exclude_id=pi.id):
+            abort(400, "PI Number already exists.")
         customer=db.session.get(Customer,int(request.form["customer_id"])); exporter=db.session.get(Exporter,int(request.form["exporter_id"])) if request.form.get("exporter_id") else None
         pi.customer_id=customer.id; pi.customer_name_snapshot=customer.name; pi.customer_address_snapshot=customer.address; pi.customer_tax_code_snapshot=customer.tax_code
         pi.exporter_id=exporter.id if exporter else None; pi.exporter_name_snapshot=exporter.name if exporter else None; pi.exporter_address_snapshot=exporter.address if exporter else None

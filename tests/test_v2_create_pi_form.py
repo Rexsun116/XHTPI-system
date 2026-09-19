@@ -57,9 +57,21 @@ class V2CreatePIFormTest(TestCase):
 
     def test_03_items_precede_payment_and_dynamic_remove_exists(self):
         html = self.client().get("/v2/orders/new").get_data(as_text=True)
-        self.assertLess(html.index("2. PI Items"), html.index("3. Structured Payment Plan"))
+        self.assertLess(html.index("PI Items"), html.index("Payment &amp; Commercial"))
         self.assertIn("remove-item", html)
         self.assertIn("recalculate", html)
+
+    def test_03a_rendered_pi_validation_dom_and_initializer_contract(self):
+        html = self.client().get("/v2/orders/new").get_data(as_text=True)
+        self.assertIn('id="create-pi-form"', html)
+        self.assertIn('id="pi_no" name="pi_no"', html)
+        self.assertIn('id="pi-number-feedback" class="v2-pi-feedback" role="status" aria-live="polite"', html)
+        self.assertIn('id="create-submit"', html)
+        self.assertIn('name="csrf_token"', html)
+        self.assertIn('id="contract-total"', html)
+        self.assertIn("const feedback = document.getElementById('pi-number-feedback')", html)
+        self.assertIn("feedback.textContent = result.available", html)
+        self.assertLess(html.index('id="contract-total"'), html.index("<script>"))
 
     def test_04_multiple_items_contract_total_and_decimal_advance(self):
         form = self.form("MULTI", product_1=str(self.product.id), unit_price_1="20.25", quantity_1="4", quantity_unit_1="MT")
@@ -82,16 +94,26 @@ class V2CreatePIFormTest(TestCase):
 
     def test_06_unique_pi_check_available_and_duplicate(self):
         client = self.client()
-        self.assertTrue(client.post("/v2/check-pi-number", data={"pi_no": "UNIQUE"}).get_json()["available"])
-        self.assertEqual(client.post("/v2/orders/new", data=self.form("UNIQUE")).status_code, 302)
-        self.assertFalse(client.post("/v2/check-pi-number", data={"pi_no": "UNIQUE"}).get_json()["available"])
+        self.assertEqual(client.post("/v2/orders/new", data=self.form("WU1333")).status_code, 302)
+        for pi_no in ("WU1333", "wu1333", "Wu1333", "wU1333"):
+            with self.subTest(pi_no=pi_no):
+                self.assertFalse(client.post("/v2/check-pi-number", data={"pi_no": pi_no}).get_json()["available"])
+        self.assertTrue(client.post("/v2/check-pi-number", data={"pi_no": "WU1334"}).get_json()["available"])
 
     def test_07_duplicate_is_rejected_when_async_check_is_bypassed(self):
-        client = self.client(); client.post("/v2/orders/new", data=self.form("DUP"))
-        response = client.post("/v2/orders/new", data=self.form("DUP"))
+        client = self.client(); client.post("/v2/orders/new", data=self.form("WU1333"))
+        for pi_no in ("WU1333", "wu1333"):
+            with self.subTest(pi_no=pi_no):
+                response = client.post("/v2/orders/new", data=self.form(pi_no))
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("PI Number already exists.", response.get_data(as_text=True))
+                self.assertEqual(db.session.scalar(db.select(db.func.count()).select_from(PI)), 1)
+
+    def test_07a_api_rejects_case_only_duplicate(self):
+        client = self.client(); self.assertEqual(client.post("/v2/orders/new", data=self.form("WU1333")).status_code, 302)
+        response = client.post("/orders", json={"pi_no": "wu1333"})
         self.assertEqual(response.status_code, 400)
-        self.assertIn("PI Number already exists.", response.get_data(as_text=True))
-        self.assertEqual(db.session.scalar(db.select(db.func.count()).select_from(PI)), 1)
+        self.assertEqual(response.get_json(), {"error": "PI Number already exists."})
 
     def test_08_required_fields_are_server_validated_and_preserved(self):
         client = self.client()

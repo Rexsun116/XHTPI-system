@@ -7,7 +7,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 
 from .models import BankAccount, Customer, Exporter, PI, PIItem, TradeGroup, db
-from .services import apply_bank_snapshot, reconcile_order_tasks_for_pi
+from .services import apply_bank_snapshot, pi_number_exists, reconcile_order_tasks_for_pi
 from .shipment_ownership import copy_physical_facts
 
 
@@ -83,7 +83,7 @@ def create_linked_export_order(source_id, form):
                 raise LinkedExportCreationError(error)
 
         pi_no = _required(form, "pi_no", "Export PI Number")
-        if db.session.scalar(select(PI.id).where(PI.pi_no == pi_no)) is not None:
+        if pi_number_exists(pi_no):
             raise LinkedExportCreationError("PI Number already exists.")
         try:
             customer_id = int(_required(form, "customer_id", "Export customer"))

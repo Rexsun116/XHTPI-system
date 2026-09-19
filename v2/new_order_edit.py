@@ -7,7 +7,8 @@ from sqlalchemy import select, update
 
 from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, ProductBatch, TradeGroup, db, utcnow
 from .linked_trade_creation import DOCUMENT_FACTS
-from .services import apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, reconcile_order_tasks_for_pi
+from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, pi_number_exists,
+                       reconcile_order_tasks_for_pi)
 
 
 class NewOrderEditError(ValueError):
@@ -116,7 +117,7 @@ def _apply_export_edit(pi, form):
     values["currency"] = values["currency"].upper()
     if len(values["pi_no"]) > 50 or len(values["currency"]) > 10:
         raise NewOrderEditError("PI Number or Currency is too long.")
-    if db.session.scalar(select(PI.id).where(PI.pi_no == values["pi_no"], PI.id != pi.id)):
+    if pi_number_exists(values["pi_no"], exclude_id=pi.id):
         raise NewOrderEditError("PI Number already exists.")
     customer = _master(Customer, form.get("customer_id"), "Customer", required=True)
     seller = _master(Exporter, form.get("exporter_id"), "Exporter", required=True)
@@ -184,7 +185,7 @@ def save_new_order(pi, form):
                 values["currency"] = values["currency"].upper()
                 if len(values["pi_no"]) > 50 or len(values["currency"]) > 10:
                     raise NewOrderEditError("PI Number or Currency is too long.")
-                if db.session.scalar(select(PI.id).where(PI.pi_no == values["pi_no"], PI.id != pi.id)):
+                if pi_number_exists(values["pi_no"], exclude_id=pi.id):
                     raise NewOrderEditError("PI Number already exists.")
                 try:
                     values["pi_date"] = date.fromisoformat(form.get("pi_date", ""))
