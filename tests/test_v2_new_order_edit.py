@@ -270,6 +270,66 @@ class NewOrderEditTest(TestCase):
             self.assertEqual(self.post(export,**changes).status_code,400)
             self.assertEqual(before,self.snapshot())
 
+    def test_linked_customer_new_edit_synchronizes_route_geography_atomically(self):
+        customer, export, _ = self.linked_pair()
+        self.assertEqual(self.post(customer, loading_port="Shanghai", destination_port="Mombasa").status_code, 302)
+        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+
+        existing = self.order("ROUTE-DUPLICATE")
+        before = self.snapshot()
+        response = self.post(customer, pi_no=existing.pi_no, loading_port="Ningbo", destination_port="Jebel Ali")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(before, self.snapshot())
+        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+
+    def test_new_facts_route_synchronizes_customer_route_and_rejects_export_route(self):
+        customer, export, _ = self.linked_pair()
+        response = self.client().post(f"/v2/orders/{customer.id}/facts", data={
+            "loading_port": "Shanghai", "destination_port": "Mombasa",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+
+        before = self.snapshot()
+        response = self.client().post(f"/v2/orders/{export.id}/facts", data={
+            "loading_port": "Ningbo", "destination_port": "Jebel Ali",
+        })
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(before, self.snapshot())
+
+    def test_completed_route_correction_uses_customer_owner_for_both_members(self):
+        customer, export, _ = self.linked_pair()
+        customer.status = export.status = "COMPLETED"
+        db.session.commit()
+        client = self.client()
+
+        self.assertEqual(client.post(f"/v2/orders/{customer.id}/corrections", data={
+            "module": "COMMERCIAL", "reason": "Correct route",
+        }).status_code, 302)
+        self.assertEqual(client.post(f"/v2/orders/{customer.id}/facts", data={
+            "loading_port": "Shanghai",
+            "destination_port": "Mombasa",
+        }).status_code, 302)
+        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+
+        self.assertEqual(client.post(f"/v2/orders/{export.id}/corrections", data={
+            "module": "COMMERCIAL", "reason": "Export commercial correction",
+        }).status_code, 302)
+        export_session = db.session.scalar(db.select(OrderCorrectionSession).where(
+            OrderCorrectionSession.pi_id == export.id,
+        ))
+        self.assertEqual(client.post(f"/v2/corrections/{export_session.id}/edit", data={
+            "pi_no": export.pi_no, "customer_id": str(export.customer_id),
+            "exporter_id": str(export.exporter_id), "loading_port": "Ningbo",
+            "destination_port": "Jebel Ali",
+        }).status_code, 302)
+        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+
     def linked_pair(self):
         from v2.linked_trade_creation import create_linked_export_order
         customer = self.order("CUSTOMER")

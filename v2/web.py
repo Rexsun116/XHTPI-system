@@ -17,7 +17,8 @@ from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_produc
 from .linked_trade import financial_owner_for, is_export_order
 from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
-from .shipment_ownership import PHYSICAL_FORM_FIELDS, is_physical_shipment_task, shipment_owner_for
+from .shipment_ownership import (PHYSICAL_FORM_FIELDS, RouteOwnershipError, is_physical_shipment_task,
+                                 shipment_owner_for, synchronize_route_geography)
 from .rules import CUSTOMER_DOCUMENT_TASK_CODES
 from .new_order_edit import (NewOrderEditError, save_new_order, validate_new_order, edit_form_data,
                              item_indexes, PARTY_SNAPSHOTS)
@@ -465,6 +466,8 @@ def order_view(pi_id):
     agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
     settlement=db.session.scalar(db.select(FreightSettlement).where(FreightSettlement.pi_id==pi.id))
     financial_owner_resolution = financial_owner_for(pi)
+    shipment_owner = shipment_owner_for(pi)
+    route_owner = shipment_owner or pi
     financial_agreement = agreement
     financial_settlement = settlement
     if is_export_order(pi) and financial_owner_resolution.valid:
@@ -490,7 +493,8 @@ def order_view(pi_id):
         can_delete_linked_trade=linked_delete_available(pi),
         agreement=agreement,settlement=settlement,financial_agreement=financial_agreement,
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
-        shipment_owner=shipment_owner_for(pi),
+        shipment_owner=shipment_owner,
+        route_owner=route_owner,
         factory_names=factory_names,
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
@@ -618,8 +622,21 @@ def order_facts(pi_id):
         }
         _reject_unexpected_fields(correction_fields[correction.module])
         if correction.module=="COMMERCIAL":
-            for f in ("payment_terms","note","loading_port","destination_port","shipping_mark","freight_term","contract_number","freight_clause","waybill_option"):
+            commercial_fields = ("payment_terms","note","loading_port","destination_port","shipping_mark","freight_term","contract_number","freight_clause","waybill_option")
+            if is_export_order(pi):
+                owner = shipment_owner_for(pi)
+                if owner is None:
+                    abort(409, "Linked CUSTOMER_ORDER route owner is missing or invalid.")
+                commercial_fields = tuple(field for field in commercial_fields if field not in {"loading_port", "destination_port"})
+            for f in commercial_fields:
                 if f in request.form: setattr(pi,f,request.form.get(f) or None)
+            if is_export_order(pi):
+                pi.loading_port, pi.destination_port = owner.loading_port, owner.destination_port
+            elif pi.trade_role == "CUSTOMER_ORDER":
+                try:
+                    synchronize_route_geography(pi)
+                except RouteOwnershipError as exc:
+                    abort(409, str(exc))
         elif correction.module=="PAYMENT":
             for f in ("advance_payment_percent","advance_payment_amount","balance_payment_amount","advance_received_amount","balance_received_amount"):
                 if f in request.form: setattr(pi,f,Decimal(request.form[f])) if request.form[f] else setattr(pi,f,None)
@@ -692,6 +709,11 @@ def order_facts(pi_id):
             pi.planned_shipment_date=date.fromisoformat(request.form["planned_shipment_date"]) if request.form["planned_shipment_date"] else None
         for f in DOCUMENT_FACTS:
             if f in request.form: setattr(pi,f,_tri_state(request.form.get(f)))
+        if pi.trade_role == "CUSTOMER_ORDER" and {"loading_port", "destination_port"}.intersection(request.form):
+            try:
+                synchronize_route_geography(pi)
+            except RouteOwnershipError as exc:
+                abort(409, str(exc))
     elif pi.status=="PRE_SHIPMENT":
         linked_etd_edit = bool(PHYSICAL_FORM_FIELDS.intersection(request.form)) and has_trade_link(pi)
         # Keep the entire local facts patch pending until both shared rows are claimed.
@@ -1144,9 +1166,10 @@ def correction_edit(session_id):
     if is_export_order(pi) and session.module in {"PAYMENT", "FREIGHT"}:
         abort(409, "Financial corrections are managed by the linked CUSTOMER_ORDER.")
     agreement=db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id))
+    route_owner = shipment_owner_for(pi) or pi
     if request.method=="GET":
         return render_template("v2/correction.html",pi=pi,correction=session,settlement=settlement,agreement=agreement,
-                               document_facts=DOCUMENT_FACTS,**_order_choices())
+                               route_owner=route_owner, document_facts=DOCUMENT_FACTS,**_order_choices())
     _protect_shared_correction_dates(pi)
     correction_allowed={
         "COMMERCIAL":{"pi_no","pi_date","payment_terms","loading_port","destination_port","note","customer_id","exporter_id","bank_account_id","commission_rate","commission_currency","commission_amount_mode","commission_amount","commission_override_reason"}|{f"item_{item.id}_{field}" for item in pi.items for field in ("quantity","quantity_unit","unit_price","trade_term")},
@@ -1163,7 +1186,20 @@ def correction_edit(session_id):
         customer=db.session.get(Customer,int(request.form["customer_id"])); exporter=db.session.get(Exporter,int(request.form["exporter_id"])) if request.form.get("exporter_id") else None
         pi.customer_id=customer.id; pi.customer_name_snapshot=customer.name; pi.customer_address_snapshot=customer.address; pi.customer_tax_code_snapshot=customer.tax_code
         pi.exporter_id=exporter.id if exporter else None; pi.exporter_name_snapshot=exporter.name if exporter else None; pi.exporter_address_snapshot=exporter.address if exporter else None
-        for f in ("pi_no","payment_terms","loading_port","destination_port","note"): setattr(pi,f,request.form.get(f) or None)
+        for f in ("pi_no","payment_terms","note"): setattr(pi,f,request.form.get(f) or None)
+        if is_export_order(pi):
+            owner = shipment_owner_for(pi)
+            if owner is None:
+                abort(409, "Linked CUSTOMER_ORDER route owner is missing or invalid.")
+            pi.loading_port, pi.destination_port = owner.loading_port, owner.destination_port
+        else:
+            for f in ("loading_port", "destination_port"):
+                setattr(pi, f, request.form.get(f) or None)
+            if pi.trade_role == "CUSTOMER_ORDER":
+                try:
+                    synchronize_route_geography(pi)
+                except RouteOwnershipError as exc:
+                    abort(409, str(exc))
         if request.form.get("pi_date"): pi.pi_date=date.fromisoformat(request.form["pi_date"])
         bank=db.session.get(BankAccount,int(request.form["bank_account_id"])) if request.form.get("bank_account_id") else None
         if bank: apply_bank_snapshot(pi,bank)

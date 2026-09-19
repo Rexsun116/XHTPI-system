@@ -100,7 +100,8 @@ class LinkedTradeCreateExportTest(TestCase):
                          (self.export_bank.id, "Export Bank", "EXPORT-ACCOUNT"))
         self.assertEqual(export.items[0].line_total, Decimal("246.90"))
         self.assertEqual(export.items[0].product_hs_code_snapshot, source.items[0].product_hs_code_snapshot)
-        self.assertEqual((export.loading_port, export.etd, export.eta, export.container_type), ("SHA", date(2026, 9, 29), date(2026, 10, 15), "20GP"))
+        self.assertEqual((export.loading_port, export.destination_port, export.etd, export.eta, export.container_type),
+                         ("SHA", "LAX", date(2026, 9, 29), date(2026, 10, 15), "20GP"))
         self.assertIsNone(export.actual_departure_date); self.assertIsNone(export.actual_arrival_date)
         self.assertIsNone(export.bill_of_lading_number); self.assertIsNone(export.container_number)
         self.assertEqual(source.items[0].unit_price, Decimal("999"))

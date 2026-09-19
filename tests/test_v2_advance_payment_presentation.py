@@ -176,6 +176,26 @@ class AdvancePaymentPresentationTest(TestCase):
         self.assertIn('href="#shipping"', page)
         self.assertNotIn('action="/v2/orders/%s/status"' % pi.id, page)
 
+    def test_linked_export_route_uses_owner_for_overview_and_shipping_when_copy_is_stale(self):
+        group = TradeGroup(group_no="TRI-ROUTE-OWNER")
+        db.session.add(group); db.session.flush()
+        customer = self.pi("ROUTE-CUSTOMER", status="PRE_SHIPMENT", group=group, role="CUSTOMER_ORDER")
+        export = self.pi("ROUTE-EXPORT", status="PRE_SHIPMENT", group=group, role="EXPORT_ORDER")
+        customer.loading_port, customer.destination_port = "Shanghai", "Mombasa"
+        export.loading_port, export.destination_port = "Ningbo", "Jebel Ali"
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{export.id}").get_data(as_text=True)
+
+        overview = page.split('id="order-overview"', 1)[1].split('</section>', 1)[0]
+        shipping = page.split('id="shipping"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("Shanghai → Mombasa", overview)
+        self.assertNotIn("Ningbo → Jebel Ali", overview)
+        self.assertIn("Shanghai", shipping)
+        self.assertIn("Mombasa", shipping)
+        self.assertNotIn("Ningbo", shipping)
+        self.assertNotIn("Jebel Ali", shipping)
+
     def test_mixed_units_do_not_create_a_misleading_combined_total(self):
         pi = self.pi("SUMMARY-MIXED-UNITS")
         pi.items.append(PIItem(unit_price=Decimal("10"), quantity=Decimal("4"), quantity_unit="KGS",

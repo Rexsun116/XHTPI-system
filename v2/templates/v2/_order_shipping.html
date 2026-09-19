@@ -1,7 +1,7 @@
 {% macro fact(label, value, extra='') -%}
   <div class="order-fact"><dt>{{ label }}</dt><dd>{{ value if value is not none and value != '' else '—' }}{% if extra %} {{ extra }}{% endif %}</dd></div>
 {%- endmacro %}
-{% set shipping = shipment_owner if pi.is_export_order and shipment_owner else pi %}
+{% set shipping = route_owner %}
 
 <section id="shipping" class="order-panel order-shipping" aria-labelledby="shipping-title">
   <header class="order-panel-head">

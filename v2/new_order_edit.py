@@ -9,6 +9,7 @@ from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Produc
 from .linked_trade_creation import DOCUMENT_FACTS
 from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, pi_number_exists,
                        reconcile_order_tasks_for_pi)
+from .shipment_ownership import RouteOwnershipError, synchronize_route_geography
 
 
 class NewOrderEditError(ValueError):
@@ -314,6 +315,11 @@ def save_new_order(pi, form):
                 for ident in removed:
                     pi.items.remove(existing[ident])
                 pi.derive_commission()
+                if pi.trade_role == "CUSTOMER_ORDER":
+                    try:
+                        synchronize_route_geography(pi)
+                    except RouteOwnershipError as exc:
+                        raise NewOrderEditError(str(exc)) from exc
             pi.updated_at = utcnow()
         db.session.flush()
         reconcile_order_tasks_for_pi(pi)
