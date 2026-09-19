@@ -52,7 +52,8 @@ class LinkedTradeCreateExportTest(TestCase):
                 customer_id=self.customer.id, exporter_id=self.exporter.id,
                 customer_name_snapshot=self.customer.name, exporter_name_snapshot=self.exporter.name,
                 currency="USD", payment_terms="T/T", planned_shipment_date=date(2026, 9, 30),
-                loading_port="SHA", destination_port="LAX", container_loading_date=date(2026, 9, 25),
+                loading_port="SHA", loading_country_code="CN",
+                destination_port="LAX", destination_country_code="US", container_loading_date=date(2026, 9, 25),
                 container_loading_period="AM", container_location="Shanghai", container_type="20GP",
                 container_count=1, shipping_mark="MARK", vessel_info="Vessel", booking_number="BOOK",
                 etd=date(2026, 9, 29), eta=date(2026, 10, 15), actual_departure_date=date(2026, 9, 29),
@@ -100,8 +101,10 @@ class LinkedTradeCreateExportTest(TestCase):
                          (self.export_bank.id, "Export Bank", "EXPORT-ACCOUNT"))
         self.assertEqual(export.items[0].line_total, Decimal("246.90"))
         self.assertEqual(export.items[0].product_hs_code_snapshot, source.items[0].product_hs_code_snapshot)
-        self.assertEqual((export.loading_port, export.destination_port, export.etd, export.eta, export.container_type),
-                         ("SHA", "LAX", date(2026, 9, 29), date(2026, 10, 15), "20GP"))
+        self.assertEqual((export.loading_port, export.loading_country_code,
+                          export.destination_port, export.destination_country_code,
+                          export.etd, export.eta, export.container_type),
+                         ("SHA", "CN", "LAX", "US", date(2026, 9, 29), date(2026, 10, 15), "20GP"))
         self.assertIsNone(export.actual_departure_date); self.assertIsNone(export.actual_arrival_date)
         self.assertIsNone(export.bill_of_lading_number); self.assertIsNone(export.container_number)
         self.assertEqual(source.items[0].unit_price, Decimal("999"))

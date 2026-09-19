@@ -1,6 +1,7 @@
 """V2 physical shipment ownership; commercial/document identities stay local."""
 
 from .linked_trade import is_export_order
+from .iso3166 import ISO_3166_1_ALPHA2
 from .models import PI, db
 
 
@@ -9,7 +10,8 @@ from .models import PI, db
 # Route geography is owned by the CUSTOMER_ORDER and copied to its linked
 # EXPORT_ORDER for compatible per-PI document rendering.
 ROUTE_GEOGRAPHY_FIELDS = (
-    "loading_port", "destination_port",
+    "loading_port", "loading_country_code",
+    "destination_port", "destination_country_code",
 )
 
 SHARED_PHYSICAL_FIELDS = (
@@ -54,6 +56,38 @@ def copy_physical_facts(customer, export):
 
 class RouteOwnershipError(ValueError):
     """A linked pair cannot safely accept a route-owner write."""
+
+
+class RouteGeographyValidationError(ValueError):
+    """An explicit shipment-country value is not a valid ISO route fact."""
+
+
+def normalize_country_code(value):
+    """Return an uppercase ISO 3166-1 alpha-2 code, or ``None`` for blank."""
+    if value is None:
+        return None
+    normalized = str(value).strip().upper()
+    if not normalized:
+        return None
+    if normalized not in ISO_3166_1_ALPHA2:
+        raise RouteGeographyValidationError("Country code must be a valid ISO 3166-1 alpha-2 code.")
+    return normalized
+
+
+def validate_route_geography(*, loading_port=None, loading_country_code=None,
+                             destination_port=None, destination_country_code=None):
+    """Normalize explicit codes and validate a country-aware route write.
+
+    Existing persisted rows are deliberately not validated on read.  Call this
+    only when a future country-aware write contract supplies route data.
+    """
+    loading_country_code = normalize_country_code(loading_country_code)
+    destination_country_code = normalize_country_code(destination_country_code)
+    if (loading_port or "").strip() and not loading_country_code:
+        raise RouteGeographyValidationError("Loading country code is required when Loading Port is set.")
+    if (destination_port or "").strip() and not destination_country_code:
+        raise RouteGeographyValidationError("Destination country code is required when Destination Port is set.")
+    return loading_country_code, destination_country_code
 
 
 def linked_export_for_route_owner(customer):

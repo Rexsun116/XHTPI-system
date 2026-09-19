@@ -173,7 +173,9 @@ class PI(TimestampMixin, db.Model):
     balance_received_at = db.Column(db.DateTime)
 
     loading_port = db.Column(db.String(100))
+    loading_country_code = db.Column(db.String(2))
     destination_port = db.Column(db.String(100))
+    destination_country_code = db.Column(db.String(2))
     planned_shipment_date = db.Column(db.Date)
     bank_account_id = db.Column(db.Integer, db.ForeignKey("bank_account.id"))
     bank_beneficiary_snapshot = db.Column(db.String(200))

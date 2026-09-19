@@ -239,15 +239,19 @@ class LinkedShipmentTest(TestCase):
 
     def test_shared_physical_copy_projects_owner_route_during_linked_schedule_save(self):
         customer, export = self.pair()
-        customer.loading_port, customer.destination_port = "Shanghai", "Mombasa"
-        export.loading_port, export.destination_port = "Ningbo", "Jebel Ali"
+        customer.loading_port, customer.loading_country_code = "Shanghai", "CN"
+        customer.destination_port, customer.destination_country_code = "Mombasa", "KE"
+        export.loading_port, export.loading_country_code = "Ningbo", "AE"
+        export.destination_port, export.destination_country_code = "Jebel Ali", "SA"
         db.session.commit()
 
         self.assertEqual(self.client().post(f"/v2/orders/{customer.id}/facts", data={
             "etd": "2026-09-25",
         }).status_code, 302)
 
-        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual((export.loading_port, export.loading_country_code,
+                          export.destination_port, export.destination_country_code),
+                         ("Shanghai", "CN", "Mombasa", "KE"))
 
     def test_etd_second_reconcile_failure_rolls_back_entire_facts_patch(self):
         customer, export = self.pair()
