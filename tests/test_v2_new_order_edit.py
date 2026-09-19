@@ -1,13 +1,40 @@
 """Full NEW editor regression with disposable databases only."""
 from datetime import date, datetime
 from decimal import Decimal
+from html.parser import HTMLParser
+import re
 from unittest import TestCase
 from unittest.mock import patch
 
 from tests import test_v2_create_pi_form as fixture
-from v2.models import (BankAccount, Customer, Exporter, PI, PIItem, Product, ProductBatch,
+from v2.models import (BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, ProductBatch,
                        OrderCorrectionSession, OrderTask, TaskActivity, TradeGroup, db)
 from v2.new_order_edit import edit_form_data
+
+
+class _EditFormAudit(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.forms = []
+        self.form_depth = 0
+        self.maximum_form_depth = 0
+        self.inputs = []
+        self.save_buttons = []
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag == 'form':
+            self.forms.append(attributes)
+            self.form_depth += 1
+            self.maximum_form_depth = max(self.maximum_form_depth, self.form_depth)
+        elif tag == 'input' and self.form_depth:
+            self.inputs.append(attributes)
+        elif tag == 'button' and self.form_depth and attributes.get('type') == 'submit':
+            self.save_buttons.append(attributes)
+
+    def handle_endtag(self, tag):
+        if tag == 'form':
+            self.form_depth -= 1
 
 
 class NewOrderEditTest(TestCase):
@@ -23,6 +50,16 @@ class NewOrderEditTest(TestCase):
     def post(self, pi, **changes):
         data = edit_form_data(pi); data.update(changes)
         return self.client().post(f'/v2/orders/{pi.id}/edit', data=data)
+
+    def fresh_csrf_submission(self, pi):
+        client = self.client()
+        response = client.get(f'/v2/orders/{pi.id}/edit')
+        self.assertEqual(response.status_code, 200)
+        token = re.search(r'name="csrf_token" value="([^"]+)"', response.get_data(as_text=True))
+        self.assertIsNotNone(token)
+        data = edit_form_data(pi)
+        data['csrf_token'] = token.group(1)
+        return client, data
 
     def snapshot(self):
         return {table.name: list(db.session.execute(table.select()).tuples()) for table in
@@ -78,13 +115,164 @@ class NewOrderEditTest(TestCase):
             trade_term_0='FOB', customer_address_snapshot='Order-specific address',
             product_model_snapshot_0='Custom Model', quantity_unit_0='BAGS',
             notify_party_same_as_consignee='false', notify_party_name_snapshot='Notify',
-            planned_shipment_date='2026-10-01', loading_port='NINGBO', destination_port='LAX')
+            planned_shipment_date='2026-10-01', loading_port='NINGBO', loading_country_name='China',
+            loading_country_code='CN', destination_port='LAX', destination_country_name='United States',
+            destination_country_code='US')
         self.assertEqual(response.status_code, 302)
         self.assertEqual((pi.pi_no, pi.pi_date, pi.payment_terms), ('EDITED', date(2026,9,14), 'Net 60'))
         self.assertEqual((pi.items[0].id, pi.items[0].trade_term, pi.items[0].product_model_snapshot), (ident, 'FOB', 'Custom Model'))
         self.assertEqual(pi.customer_address_snapshot, 'Order-specific address')
         self.assertEqual(pi.notify_party_name_snapshot, 'Notify')
         self.assertEqual(self.product.model, 'R504')
+
+    def test_normal_edit_renders_modern_sections_and_preserves_cancel_target(self):
+        pi = self.order()
+        response = self.client().get(f'/v2/orders/{pi.id}/edit')
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn('<body class="v2-modern">', html)
+        for heading in ('Order Identity &amp; Parties', 'PI Items', 'Payment &amp; Commercial',
+                        'Shipment Plan', 'Document Requirements', 'Additional Details',
+                        'Bank &amp; Notes'):
+            self.assertIn(heading, html)
+        self.assertLess(html.index('Order Identity &amp; Parties'), html.index('PI Items'))
+        self.assertLess(html.index('PI Items'), html.index('Shipment Plan'))
+        self.assertIn('class="v2-route-grid"', html)
+        self.assertEqual(html.count('data-country-combobox'), 2)
+        self.assertEqual(html.count('v2_country_combobox.js'), 1)
+        self.assertIn(f'href="/v2/orders/{pi.id}"', html)
+        self.assertIn('>Save Order</button>', html)
+        self.assertNotIn('class="card p-4 mb-3"', html)
+
+    def test_rendered_edit_form_has_one_authoritative_csrf_submission_boundary(self):
+        pi = self.order()
+        html = self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True)
+        audit = _EditFormAudit(); audit.feed(html)
+        self.assertEqual(len(audit.forms), 1)
+        self.assertEqual(audit.maximum_form_depth, 1)
+        self.assertEqual(audit.forms[0].get('id'), 'new-order-editor')
+        self.assertEqual(audit.forms[0].get('method'), 'post')
+        self.assertEqual([row for row in audit.inputs if row.get('name') == 'csrf_token'],
+                         [{'type': 'hidden', 'name': 'csrf_token', 'value': re.search(
+                             r'name="csrf_token" value="([^"]+)"', html).group(1)}])
+        self.assertEqual(len([row for row in audit.inputs if row.get('name') == 'edit_version']), 1)
+        self.assertEqual(len(audit.save_buttons), 1)
+        self.assertNotIn('form', audit.save_buttons[0])
+
+    def test_sales_hides_commission_fields_but_preserves_additional_order_facts(self):
+        pi = self.order()
+        html = self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True)
+        self.assertIn('<div id="commission-section" hidden>', html)
+        self.assertIn('Order-local party facts', html)
+        self.assertIn('Notify Party', html)
+        self.assertIn('toggleCommission', html)
+
+        pi.order_type = 'COMMISSION'; db.session.commit()
+        html = self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True)
+        self.assertIn('<div id="commission-section" >', html)
+        self.assertIn('Commission Factory', html)
+
+    def test_fresh_csrf_reaches_country_validation_and_then_saves_completed_route(self):
+        pi = self.order()
+        pi.destination_port, pi.destination_country_code = 'MOMBASA', None
+        db.session.commit()
+        self.app.config['WTF_CSRF_ENABLED'] = True
+        before = self.snapshot()
+
+        client, data = self.fresh_csrf_submission(pi)
+        response = client.post(f'/v2/orders/{pi.id}/edit', data=data)
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Destination country is required', html)
+        self.assertIn('id="new-order-editor"', html)
+        self.assertNotIn('The CSRF token has expired', html)
+        self.assertEqual(before, self.snapshot())
+
+        token = re.search(r'name="csrf_token" value="([^"]+)"', html).group(1)
+        data = edit_form_data(pi)
+        data.update(csrf_token=token, destination_country_name='Kenya', destination_country_code='KE')
+        response = client.post(f'/v2/orders/{pi.id}/edit', data=data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(pi.destination_country_code, 'KE')
+
+    def test_edit_country_rendering_historical_nulls_and_validation_are_safe(self):
+        pi = self.order()
+        pi.loading_port, pi.destination_port = 'Shanghai', 'Mombasa'
+        pi.loading_country_code = pi.destination_country_code = None
+        db.session.commit()
+        before = self.snapshot()
+        response = self.client().get(f'/v2/orders/{pi.id}/edit')
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('name="loading_port" value="Shanghai"', html)
+        self.assertIn('name="destination_port" value="Mombasa"', html)
+        self.assertIn('name="loading_country_name" value=""', html)
+        self.assertIn('name="destination_country_code" value=""', html)
+        self.assertEqual(before, self.snapshot())
+
+        response = self.post(pi)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Loading country is required', response.get_data(as_text=True))
+        self.assertEqual(before, self.snapshot())
+
+    def test_edit_country_submission_validation_persistence_and_safe_rerender(self):
+        pi = self.order()
+        self.assertEqual(self.post(
+            pi, loading_port='Shanghai', loading_country_name=' china ', loading_country_code=' cn ',
+            destination_port='Mombasa', destination_country_name='KENYA', destination_country_code='ke',
+        ).status_code, 302)
+        self.assertEqual((pi.loading_port, pi.loading_country_code,
+                          pi.destination_port, pi.destination_country_code),
+                         ('Shanghai', 'CN', 'Mombasa', 'KE'))
+
+        self.assertEqual(self.client().get(f'/v2/orders/{pi.id}/edit').status_code, 200)
+        html = self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True)
+        self.assertIn('name="loading_country_name" value="China"', html)
+        self.assertIn('name="loading_country_code" value="CN"', html)
+        self.assertIn('name="destination_country_name" value="Kenya"', html)
+        self.assertIn('name="destination_country_code" value="KE"', html)
+
+        for changes, message in (
+            ({'loading_country_name': 'Kenyaa', 'loading_country_code': 'KE'}, 'Please select a valid loading country.'),
+            ({'loading_country_name': 'Kenya', 'loading_country_code': 'XX'}, 'Country code must be a valid ISO'),
+            ({'loading_country_name': 'Kenya', 'loading_country_code': 'CN'}, 'Loading country does not match'),
+            ({'loading_country_name': 'Congo', 'loading_country_code': ''}, 'Please select a valid loading country.'),
+        ):
+            before = self.snapshot()
+            response = self.post(pi, **changes)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn(message, response.get_data(as_text=True))
+            self.assertEqual(before, self.snapshot())
+
+        response = self.post(pi, loading_country_name='Kenyaa', loading_country_code='KE')
+        html = response.get_data(as_text=True)
+        self.assertIn('name="loading_country_name" value="Kenyaa"', html)
+        self.assertIn('name="loading_country_code" value=""', html)
+
+    def test_edit_country_without_port_and_both_blank_are_accepted(self):
+        pi = self.order()
+        self.assertEqual(self.post(
+            pi, loading_port='', loading_country_name='China', loading_country_code='CN',
+            destination_port='', destination_country_name='', destination_country_code='',
+        ).status_code, 302)
+        self.assertEqual((pi.loading_port, pi.loading_country_code,
+                          pi.destination_port, pi.destination_country_code),
+                         (None, 'CN', None, None))
+
+    def test_factory_change_refreshes_existing_snapshot_fields_but_not_email(self):
+        pi = self.order()
+        replacement = Factory(code='F2', name='Factory 2', address='Factory address',
+                              tax_code='FAC-TAX', country='CN', contact_person='Factory Contact',
+                              phone='123', email='factory@example.test')
+        db.session.add(replacement); db.session.commit()
+        item = pi.items[0]
+        item.factory_email_snapshot = 'historic@example.test'
+        db.session.commit()
+        self.assertEqual(self.post(pi, factory_0=str(replacement.id)).status_code, 302)
+        self.assertEqual((item.factory_name_snapshot, item.factory_address_snapshot, item.factory_tax_code_snapshot,
+                          item.factory_country_snapshot, item.factory_contact_snapshot, item.factory_phone_snapshot),
+                         ('Factory 2', 'Factory address', 'FAC-TAX', 'CN', 'Factory Contact', '123'))
+        self.assertEqual(item.factory_email_snapshot, 'historic@example.test')
 
     def test_completed_commercial_correction_rejects_case_only_pi_number_conflict(self):
         existing = self.order('WU1333')
@@ -272,9 +460,13 @@ class NewOrderEditTest(TestCase):
 
     def test_linked_customer_new_edit_synchronizes_route_geography_atomically(self):
         customer, export, _ = self.linked_pair()
-        self.assertEqual(self.post(customer, loading_port="Shanghai", destination_port="Mombasa").status_code, 302)
-        self.assertEqual((customer.loading_port, customer.destination_port), ("Shanghai", "Mombasa"))
-        self.assertEqual((export.loading_port, export.destination_port), ("Shanghai", "Mombasa"))
+        self.assertEqual(self.post(customer, loading_port="Shanghai", loading_country_name="China",
+                                   loading_country_code="CN", destination_port="Mombasa",
+                                   destination_country_name="Kenya", destination_country_code="KE").status_code, 302)
+        self.assertEqual((customer.loading_port, customer.loading_country_code,
+                          customer.destination_port, customer.destination_country_code), ("Shanghai", "CN", "Mombasa", "KE"))
+        self.assertEqual((export.loading_port, export.loading_country_code,
+                          export.destination_port, export.destination_country_code), ("Shanghai", "CN", "Mombasa", "KE"))
 
         existing = self.order("ROUTE-DUPLICATE")
         before = self.snapshot()
@@ -366,7 +558,9 @@ class NewOrderEditTest(TestCase):
         for field in ("payment_plan_choice", "advance_payment_percent", "advance_payment_amount",
                       "balance_payment_amount", "quantity_0", "product_0", "pi_date", "note",
                       "planned_shipment_date", "loading_port", "commission_rate", "shipping_mark",
-                      "customer_name_snapshot", "notify_party_same_as_consignee", "order_type"):
+                      "loading_country_name", "loading_country_code", "destination_port",
+                      "destination_country_name", "destination_country_code", "customer_name_snapshot",
+                      "notify_party_same_as_consignee", "order_type"):
             self.assertNotIn(field, fields)
             before = self.snapshot()
             self.assertEqual(self.post(export, **{field: "unexpected"}).status_code, 400, field)
@@ -408,7 +602,7 @@ class NewOrderEditTest(TestCase):
     def test_document_regeneration_uses_saved_facts_and_does_not_lock_new(self):
         from pathlib import Path
         from tempfile import TemporaryDirectory
-        pi=self.order(); pi.items[0].trade_term='FOB';pi.loading_port='SHA';pi.destination_port='LAX';db.session.commit()
+        pi=self.order(); pi.items[0].trade_term='FOB';pi.loading_port='SHA';pi.loading_country_code='CN';pi.destination_port='LAX';pi.destination_country_code='US';db.session.commit()
         self.app.jinja_loader  # Resolve the real template directory before isolating generated output.
         # Exercise the actual generation routes with a disposable output root.
         with TemporaryDirectory() as tmp:
@@ -431,5 +625,7 @@ class NewOrderEditTest(TestCase):
 
     def test_csrf_required_and_transaction_choice_not_persisted(self):
         pi=self.order();self.app.config['WTF_CSRF_ENABLED']=True
-        self.assertEqual(self.post(pi,note='NO').status_code,400)
+        response = self.post(pi,note='NO')
+        self.assertEqual(response.status_code,400)
+        self.assertIn('The CSRF token is missing.', response.get_data(as_text=True))
         self.assertNotIn('payment_plan_choice',PI.__table__.columns)

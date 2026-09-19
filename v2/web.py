@@ -411,7 +411,7 @@ def order_edit(pi_id):
             error, status = "The order changed or is busy. Reload the editor and retry.", 409
         else:
             return redirect(url_for("v2.order_view", pi_id=pi.id))
-    data = request.form if error else edit_form_data(pi)
+    data = _safe_country_form_data(request.form) if error else edit_form_data(pi)
     choices = {name: list(db.session.scalars(db.select(model).order_by(model.id))) for name, model in (
         ("customers", Customer), ("exporters", Exporter), ("products", Product),
         ("factories", Factory), ("banks", BankAccount))}
@@ -420,7 +420,8 @@ def order_edit(pi_id):
                                form_data=data, error=error, document_facts=DOCUMENT_FACTS, **_order_choices()), status
     return render_template("v2/order_edit.html", pi=pi, data=data, error=error,
                            indexes=item_indexes(data), document_facts=DOCUMENT_FACTS,
-                           party_snapshots=PARTY_SNAPSHOTS, **choices), status
+                           party_snapshots=PARTY_SNAPSHOTS, countries=country_choices(),
+                           country_name_for_code=country_name_for_code, **choices), status
 
 
 @blueprint.post("/orders/<int:pi_id>/advance-receipt")

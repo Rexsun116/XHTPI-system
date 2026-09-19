@@ -7,9 +7,11 @@ from sqlalchemy import select, update
 
 from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, ProductBatch, TradeGroup, db, utcnow
 from .linked_trade_creation import DOCUMENT_FACTS
+from .iso3166 import country_name_for_code
 from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, pi_number_exists,
                        reconcile_order_tasks_for_pi)
-from .shipment_ownership import RouteOwnershipError, synchronize_route_geography
+from .shipment_ownership import (RouteOwnershipError, resolve_country_submission,
+                                 synchronize_route_geography, validate_route_geography)
 
 
 class NewOrderEditError(ValueError):
@@ -21,11 +23,14 @@ CORE_TEXT = ("pi_no", "payment_terms", "currency", "note", "other_document_notes
              "loading_port", "destination_port", "shipping_mark", "freight_term", "contract_number",
              "freight_clause", "waybill_option", "notify_party_name_snapshot",
              "notify_party_address_snapshot", "notify_party_tax_code_snapshot")
+ROUTE_COUNTRY_CODE_FIELDS = ("loading_country_code", "destination_country_code")
+ROUTE_COUNTRY_INPUT_FIELDS = ("loading_country_name", "loading_country_code",
+                              "destination_country_name", "destination_country_code")
 PARTY_SNAPSHOTS = tuple(f"{party}_{field}_snapshot" for party in ("customer", "exporter") for field in PARTY_FIELDS)
 ITEM_FIELDS = ("item_id", "product", "factory", "trade_term", "quantity", "quantity_unit", "unit_price",
                "product_model_snapshot", "product_category_snapshot", "product_brand_snapshot",
                "product_packaging_snapshot", "product_hs_code_snapshot")
-EDIT_FIELDS = set(CORE_TEXT + PARTY_SNAPSHOTS + DOCUMENT_FACTS) | {
+EDIT_FIELDS = set(CORE_TEXT + ROUTE_COUNTRY_CODE_FIELDS + PARTY_SNAPSHOTS + DOCUMENT_FACTS) | {
     "csrf_token", "edit_version", "pi_date", "order_type", "customer_id", "exporter_id", "bank_account_id",
     "planned_shipment_date", "advance_payment_percent", "advance_payment_amount", "balance_payment_amount",
     "payment_plan_choice", "commission_factory_id", "commission_rate", "commission_currency",
@@ -89,6 +94,8 @@ def edit_form_data(pi):
         data[field] = "" if getattr(pi, field) is None else str(getattr(pi, field)).lower()
     data["edit_version"] = pi.updated_at.isoformat()
     data["payment_plan_choice"] = ""
+    for code_field in ROUTE_COUNTRY_CODE_FIELDS:
+        data[code_field.replace("_code", "_name")] = country_name_for_code(data.get(code_field)) or ""
     for index, item in enumerate(pi.items):
         for field in ITEM_FIELDS:
             attr = {"item_id": "id", "product": "product_id", "factory": "factory_id"}.get(field, field)
@@ -171,7 +178,8 @@ def save_new_order(pi, form):
                 _apply_export_edit(pi, form)
             else:
                 indexes = item_indexes(form)
-                allowed = EDIT_FIELDS | {f"{field}_{index}" for index in indexes for field in ITEM_FIELDS}
+                allowed = (EDIT_FIELDS | set(ROUTE_COUNTRY_INPUT_FIELDS)
+                           | {f"{field}_{index}" for index in indexes for field in ITEM_FIELDS})
                 unexpected = set(form) - allowed
                 if unexpected:
                     raise NewOrderEditError("Fields are not editable here: " + ", ".join(sorted(unexpected)))
@@ -180,6 +188,19 @@ def save_new_order(pi, form):
                 values = {}
                 for field in CORE_TEXT:
                     values[field] = (form.get(field, getattr(pi, field)) or "").strip() or None
+                loading_country_code = resolve_country_submission(
+                    name=form.get("loading_country_name"), code=form.get("loading_country_code"),
+                    label="Loading country",
+                )
+                destination_country_code = resolve_country_submission(
+                    name=form.get("destination_country_name"), code=form.get("destination_country_code"),
+                    label="Destination country",
+                )
+                (values["loading_country_code"], values["destination_country_code"]
+                 ) = validate_route_geography(
+                    loading_port=values["loading_port"], loading_country_code=loading_country_code,
+                    destination_port=values["destination_port"], destination_country_code=destination_country_code,
+                )
                 for field in ("pi_no", "currency", "payment_terms"):
                     if not values[field]:
                         raise NewOrderEditError(f"{field.replace('_', ' ').title()} is required.")

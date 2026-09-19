@@ -12,7 +12,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.base = (ROOT / "v2/templates/v2/base.html").read_text()
         self.dashboard = (ROOT / "v2/templates/v2/dashboard.html").read_text()
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
-        self.legacy_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
+        self.edit_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
 
     def test_authoritative_tokens_and_approved_shell_are_shared(self):
         for token in (
@@ -39,9 +39,13 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertNotIn("--v35-primary:#14b8a6", self.dashboard)
         self.assertNotIn(":root{--v35-primary", self.order_detail)
 
-    def test_unmigrated_edit_page_does_not_opt_into_modern_page_shell(self):
-        self.assertNotIn("v2-modern", self.legacy_form)
-        self.assertIn("class=\"card p-4 mb-3\"", self.legacy_form)
+    def test_normal_edit_page_uses_the_shared_modern_form_shell(self):
+        self.assertIn("{% block body_class %}v2-modern{% endblock %}", self.edit_form)
+        self.assertIn('class="v2-new-order-form"', self.edit_form)
+        self.assertIn('class="v2-route-grid"', self.edit_form)
+        self.assertIn('data-country-combobox', self.edit_form)
+        self.assertIn('v2_country_combobox.js', self.edit_form)
+        self.assertNotIn('class="card p-4 mb-3"', self.edit_form)
 
     def test_modern_main_uses_the_remaining_width_and_narrow_shell_stacks(self):
         self.assertIn('box-sizing:border-box; width:calc(100% - 245px); min-width:0', self.css)
