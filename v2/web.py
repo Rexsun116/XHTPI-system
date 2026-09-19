@@ -18,7 +18,9 @@ from .linked_trade import financial_owner_for, is_export_order
 from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
 from .shipment_ownership import (PHYSICAL_FORM_FIELDS, RouteOwnershipError, is_physical_shipment_task,
-                                 shipment_owner_for, synchronize_route_geography)
+                                 normalize_country_code, resolve_country_submission, shipment_owner_for,
+                                 synchronize_route_geography, validate_route_geography)
+from .iso3166 import country_choices, country_code_for_name, country_name_for_code
 from .rules import CUSTOMER_DOCUMENT_TASK_CODES
 from .new_order_edit import (NewOrderEditError, save_new_order, validate_new_order, edit_form_data,
                              item_indexes, PARTY_SNAPSHOTS)
@@ -254,8 +256,23 @@ def _update_currency_payment_facts(settlement, form, *, require_enabled):
             setattr(settlement, paid_at_field, None)
 
 
+def _safe_country_form_data(form_data):
+    """Keep a failed C1 submission visible without preserving a stale code."""
+    data = (form_data.to_dict(flat=True) if hasattr(form_data, "to_dict") else dict(form_data or {}))
+    for name_field, code_field in (("loading_country_name", "loading_country_code"),
+                                   ("destination_country_name", "destination_country_code")):
+        resolved = country_code_for_name(data.get(name_field))
+        try:
+            supplied = normalize_country_code(data.get(code_field))
+        except ValueError:
+            supplied = None
+        data[code_field] = resolved if resolved and supplied == resolved else ""
+    return data
+
+
 def _render_create_form(*, form_data=None, error=None, status=200):
-    return render_template("v2/order_form.html", pi=None, form_data=form_data or {}, error=error,
+    return render_template("v2/order_form.html", pi=None, form_data=_safe_country_form_data(form_data), error=error,
+                           countries=country_choices(), country_name_for_code=country_name_for_code,
                            **_order_choices()), status
 
 
@@ -311,6 +328,20 @@ def order_new():
         advance_percent = Decimal(request.form.get("advance_payment_percent") or "0")
         if advance_percent < 0 or advance_percent > 100:
             raise ValueError("Advance % must be between 0 and 100.")
+        loading_port = (request.form.get("loading_port") or "").strip() or None
+        destination_port = (request.form.get("destination_port") or "").strip() or None
+        loading_country_code = resolve_country_submission(
+            name=request.form.get("loading_country_name"), code=request.form.get("loading_country_code"),
+            label="Loading country",
+        )
+        destination_country_code = resolve_country_submission(
+            name=request.form.get("destination_country_name"), code=request.form.get("destination_country_code"),
+            label="Destination country",
+        )
+        loading_country_code, destination_country_code = validate_route_geography(
+            loading_port=loading_port, loading_country_code=loading_country_code,
+            destination_port=destination_port, destination_country_code=destination_country_code,
+        )
         pi = PI(pi_no=pi_no, pi_date=pi_date, order_type=order_type, status="NEW",
             customer_id=customer.id, exporter_id=exporter.id,
             commission_factory_id=int(request.form["commission_factory_id"]) if order_type == "COMMISSION" and request.form.get("commission_factory_id") else None,
@@ -318,7 +349,8 @@ def order_new():
             customer_country_snapshot=customer.country, customer_email_snapshot=customer.email,
             exporter_name_snapshot=exporter.name, exporter_address_snapshot=exporter.address,
             currency=currency, payment_terms=payment_terms, advance_payment_percent=advance_percent,
-            loading_port=request.form.get("loading_port"), destination_port=request.form.get("destination_port"),
+            loading_port=loading_port, loading_country_code=loading_country_code,
+            destination_port=destination_port, destination_country_code=destination_country_code,
             planned_shipment_date=date.fromisoformat(planned_shipment_raw) if planned_shipment_raw else None,
             note=request.form.get("note"), other_document_notes=request.form.get("other_document_notes"))
         if order_type == "COMMISSION":

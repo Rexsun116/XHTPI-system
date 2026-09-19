@@ -10,7 +10,8 @@ import tempfile
 from unittest import TestCase
 
 from v2.app import create_app
-from v2.iso3166 import ISO_3166_1_ALPHA2
+from v2.iso3166 import (COUNTRY_SEARCH_ALIASES, ISO_3166_1_ALPHA2, ISO_3166_1_ENGLISH_NAMES,
+                        country_code_for_name, country_name_for_code, search_countries)
 from v2.models import Customer, PI, db
 from v2.shipment_ownership import (
     RouteGeographyValidationError, copy_physical_facts, normalize_country_code,
@@ -60,6 +61,46 @@ class ShipmentCountryContractTest(TestCase):
         for invalid in ("KEN", "Kenya", "XX", "ZZ", "K1", "K", "ABC"):
             with self.assertRaises(RouteGeographyValidationError):
                 normalize_country_code(invalid)
+
+    def test_complete_english_display_mapping_and_reusable_search(self):
+        self.assertEqual(set(ISO_3166_1_ENGLISH_NAMES), ISO_3166_1_ALPHA2)
+        self.assertTrue(all(name.strip() for name in ISO_3166_1_ENGLISH_NAMES.values()))
+        for code, name in {"CN": "China", "KE": "Kenya", "AE": "United Arab Emirates",
+                           "JP": "Japan", "US": "United States"}.items():
+            self.assertEqual(country_name_for_code(code), name)
+            self.assertEqual(country_code_for_name(name.lower()), code)
+        self.assertIsNone(country_code_for_name("Ken"))
+        self.assertIsNone(country_code_for_name("Kenyaa"))
+        self.assertIsNone(country_name_for_code("XX"))
+        self.assertEqual([row["code"] for row in search_countries("Ken")], ["KE"])
+        arab = search_countries("Arab")
+        self.assertEqual({row["code"] for row in arab}, {"SA", "AE"})
+        self.assertEqual(search_countries("not a country"), [])
+        self.assertEqual(search_countries("a", limit=3), sorted(search_countries("a", limit=3), key=lambda row: (row["name"].casefold(), row["code"])))
+
+    def test_congo_alias_search_is_unambiguous_and_exact_input_never_guesses(self):
+        self.assertEqual((country_name_for_code("CG"), country_name_for_code("CD")),
+                         ("Congo - Brazzaville", "Congo - Kinshasa"))
+        self.assertEqual({row["code"] for row in search_countries("Congo")}, {"CG", "CD"})
+        for query, expected in {
+            "Brazzaville": "CG", "Kinshasa": "CD", "Republic of the Congo": "CG",
+            "Democratic Republic of the Congo": "CD", "DR Congo": "CD", "DRC": "CD",
+        }.items():
+            with self.subTest(query=query):
+                results = search_countries(query)
+                self.assertIn(expected, {row["code"] for row in results})
+                self.assertEqual(results[0]["code"], expected)
+        self.assertIsNone(country_code_for_name("Congo"))
+        self.assertEqual(country_code_for_name("Congo - Brazzaville"), "CG")
+        self.assertEqual(country_code_for_name("Congo - Kinshasa"), "CD")
+        self.assertEqual(country_code_for_name("Republic of the Congo"), "CG")
+        self.assertEqual(country_code_for_name("DRC"), "CD")
+        self.assertEqual(COUNTRY_SEARCH_ALIASES["CG"][0], "Congo")
+
+    def test_representative_ambiguous_substring_searches_remain_complete_before_cap(self):
+        self.assertEqual({row["code"] for row in search_countries("Korea")}, {"KP", "KR"})
+        self.assertEqual({row["code"] for row in search_countries("Guinea")}, {"GQ", "GN", "GW", "PG"})
+        self.assertEqual({row["code"] for row in search_countries("Virgin Islands")}, {"VG", "VI"})
 
     def test_country_aware_route_validation_has_the_approved_asymmetry(self):
         self.assertEqual(validate_route_geography(

@@ -81,3 +81,13 @@ class SharedV2DesignSystemTest(TestCase):
         combined = self.css + self.dashboard
         self.assertNotIn('html,body{overflow-x:hidden', combined)
         self.assertNotIn('body{overflow-x:hidden', combined)
+
+    def test_country_combobox_shared_css_is_positioned_and_narrow_safe(self):
+        self.assertIn('.v2-route-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}', self.css)
+        self.assertIn('.v2-route-grid>.v2-form-field{grid-column:auto}', self.css)
+        self.assertIn('.v2-country-combobox{position:relative;min-width:0}', self.css)
+        self.assertIn('.v2-country-options{position:absolute;z-index:20', self.css)
+        self.assertIn('max-height:220px', self.css)
+        self.assertIn('overflow-y:auto', self.css)
+        self.assertIn('.v2-route-grid{grid-template-columns:1fr}', self.css)
+        self.assertNotIn('html,body{overflow-x:hidden', self.css)

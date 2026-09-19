@@ -73,6 +73,29 @@ class V2CreatePIFormTest(TestCase):
         self.assertIn("feedback.textContent = result.available", html)
         self.assertLess(html.index('id="contract-total"'), html.index("<script>"))
 
+    def test_03b_country_comboboxes_have_accessible_visible_names_and_hidden_codes(self):
+        html = self.client().get("/v2/orders/new").get_data(as_text=True)
+        for field in ("loading", "destination"):
+            self.assertIn(f'id="{field}_country_name" name="{field}_country_name"', html)
+            self.assertIn(f'name="{field}_country_code"', html)
+            self.assertIn(f'aria-controls="{field}-country-options"', html)
+        self.assertEqual(html.count('role="combobox"'), 2)
+        self.assertEqual(html.count('role="listbox"'), 2)
+        self.assertIn("v2_country_combobox.js", html)
+        self.assertIn("window.V2_COUNTRIES", html)
+        self.assertNotIn('name="loading_country_name" class="form-select"', html)
+        self.assertNotIn('value="CN" data-country-code', html)
+
+    def test_03c_country_combobox_client_contract_clears_stale_code_and_keeps_keyboard_support(self):
+        script = (Path(__file__).parents[1] / "v2/static/v2_country_combobox.js").read_text()
+        self.assertIn('code.value = "";', script)
+        self.assertLess(script.index('code.value = "";'), script.index('if (exact) code.value = exact.code;'))
+        for key in ("ArrowDown", "ArrowUp", "Enter", "Escape", "aria-expanded", "aria-activedescendant"):
+            self.assertIn(key, script)
+        self.assertIn('.slice(0, 10)', script)
+        self.assertIn('country.aliases || []', script)
+        self.assertIn('existing && existing.code !== country.code ? null : country', script)
+
     def test_04_multiple_items_contract_total_and_decimal_advance(self):
         form = self.form("MULTI", product_1=str(self.product.id), unit_price_1="20.25", quantity_1="4", quantity_unit_1="MT")
         response = self.client().post("/v2/orders/new", data=form)
@@ -82,6 +105,61 @@ class V2CreatePIFormTest(TestCase):
         self.assertEqual(pi.contract_total, Decimal("1081.00"))
         self.assertEqual(pi.advance_payment_amount, Decimal("216.20"))
         self.assertEqual(pi.balance_payment_amount, Decimal("864.80"))
+
+    def test_04a_country_name_code_submission_persists_canonical_route_codes(self):
+        form = self.form("COUNTRY-ROUTE", loading_port="Shanghai", loading_country_name="China",
+                         loading_country_code="CN", destination_port="Mombasa",
+                         destination_country_name="Kenya", destination_country_code="KE")
+        self.assertEqual(self.client().post("/v2/orders/new", data=form).status_code, 302)
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "COUNTRY-ROUTE"))
+        self.assertEqual((pi.loading_port, pi.loading_country_code,
+                          pi.destination_port, pi.destination_country_code),
+                         ("Shanghai", "CN", "Mombasa", "KE"))
+
+    def test_04b_full_exact_country_name_entry_resolves_without_hidden_code(self):
+        form = self.form("COUNTRY-NAME", loading_country_name="china", destination_country_name="KENYA")
+        self.assertEqual(self.client().post("/v2/orders/new", data=form).status_code, 302)
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "COUNTRY-NAME"))
+        self.assertEqual((pi.loading_country_code, pi.destination_country_code), ("CN", "KE"))
+
+    def test_04ba_unambiguous_country_alias_entry_resolves_without_hidden_code(self):
+        form = self.form("COUNTRY-ALIASES", loading_country_name="Republic of the Congo",
+                         destination_country_name="DRC")
+        self.assertEqual(self.client().post("/v2/orders/new", data=form).status_code, 302)
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "COUNTRY-ALIASES"))
+        self.assertEqual((pi.loading_country_code, pi.destination_country_code), ("CG", "CD"))
+
+    def test_04c_country_validation_rejects_stale_or_forged_hidden_codes_without_partial_order(self):
+        client = self.client()
+        cases = (
+            ("COUNTRY-MISSING", {"loading_port": "Shanghai"}, "Loading country is required"),
+            ("COUNTRY-INVALID", {"loading_country_name": "Kenyaa", "loading_country_code": "KE"}, "Please select a valid loading country."),
+            ("COUNTRY-AMBIGUOUS", {"loading_country_name": "Congo"}, "Please select a valid loading country."),
+            ("COUNTRY-FORGED", {"loading_country_name": "Kenya", "loading_country_code": "XX"}, "Country code must be a valid ISO"),
+            ("COUNTRY-MISMATCH", {"loading_country_name": "Kenya", "loading_country_code": "CN"}, "Loading country does not match"),
+        )
+        for pi_no, changes, message in cases:
+            with self.subTest(pi_no=pi_no):
+                response = client.post("/v2/orders/new", data=self.form(pi_no, **changes))
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.get_data(as_text=True))
+                self.assertIsNone(db.session.scalar(db.select(PI).where(PI.pi_no == pi_no)))
+
+    def test_04d_country_without_port_is_valid_and_failed_rerender_keeps_safe_country_state(self):
+        client = self.client()
+        country_only = self.form("COUNTRY-ONLY", destination_country_name="Kenya", destination_country_code="KE")
+        self.assertEqual(client.post("/v2/orders/new", data=country_only).status_code, 302)
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "COUNTRY-ONLY"))
+        self.assertEqual((pi.destination_port, pi.destination_country_code), (None, "KE"))
+
+        failed = self.form("COUNTRY-RERENDER", loading_country_name="Kenya", loading_country_code="KE",
+                           unit_price_0="not-a-number")
+        response = client.post("/v2/orders/new", data=failed)
+        html = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('name="loading_country_name" value="Kenya"', html)
+        self.assertIn('name="loading_country_code" value="KE"', html)
+        self.assertIsNone(db.session.scalar(db.select(PI).where(PI.pi_no == "COUNTRY-RERENDER")))
 
     def test_05_removed_item_gap_does_not_break_server_parsing(self):
         form = self.form("GAP", product_3=str(self.product.id), unit_price_3="10", quantity_3="2")

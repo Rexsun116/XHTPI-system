@@ -39,8 +39,15 @@
 
 
   <section class="v2-panel mt-4">
-    <header class="v2-panel-header"><div><span class="v2-form-section-number">4</span><strong>Shipment Plan</strong><p>Initial expected shipment timing and route.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Initial Shipment Plan</h5><div class="row g-3">
-      {% for field,label in [('planned_shipment_date','Planned Shipment Date'),('loading_port','Departure Port'),('destination_port','Destination Port')] %}<div class="col-md-4"><label>{{label}}{% if field=='planned_shipment_date' %} *{% endif %}</label><input class="form-control" id="{{field}}" name="{{field}}" {% if field=='planned_shipment_date' %}type="date" required{% endif %} value="{{data.get(field,'')}}"></div>{% endfor %}
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">4</span><strong>Shipment Plan</strong><p>Initial expected shipment timing and route.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Initial Shipment Plan</h5><div class="row g-3 mb-3">
+      <div class="col-md-4"><label for="planned_shipment_date">Planned Shipment Date *</label><input class="form-control" id="planned_shipment_date" name="planned_shipment_date" type="date" required value="{{data.get('planned_shipment_date','')}}"></div>
+    </div><div class="v2-route-grid">
+      <div class="v2-form-field"><label for="loading_port">Loading Port</label><input class="form-control" id="loading_port" name="loading_port" value="{{data.get('loading_port','')}}"></div>
+      {% set loading_country_name = data.get('loading_country_name', country_name_for_code(data.get('loading_country_code')) or '') %}
+      <div class="v2-form-field"><div class="v2-country-combobox" data-country-combobox><label for="loading_country_name">Loading Country</label><input class="form-control" id="loading_country_name" name="loading_country_name" value="{{loading_country_name}}" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="loading-country-options" aria-describedby="loading-country-help" data-country-input><input type="hidden" name="loading_country_code" value="{{data.get('loading_country_code','')}}" data-country-code><p id="loading-country-help" class="v2-form-help">Type a country name, then select a match.</p><ul id="loading-country-options" class="v2-country-options" role="listbox" hidden data-country-listbox></ul></div></div>
+      <div class="v2-form-field"><label for="destination_port">Destination Port</label><input class="form-control" id="destination_port" name="destination_port" value="{{data.get('destination_port','')}}"></div>
+      {% set destination_country_name = data.get('destination_country_name', country_name_for_code(data.get('destination_country_code')) or '') %}
+      <div class="v2-form-field"><div class="v2-country-combobox" data-country-combobox><label for="destination_country_name">Destination Country</label><input class="form-control" id="destination_country_name" name="destination_country_name" value="{{destination_country_name}}" type="text" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="destination-country-options" aria-describedby="destination-country-help" data-country-input><input type="hidden" name="destination_country_code" value="{{data.get('destination_country_code','')}}" data-country-code><p id="destination-country-help" class="v2-form-help">Type a country name, then select a match.</p><ul id="destination-country-options" class="v2-country-options" role="listbox" hidden data-country-listbox></ul></div></div>
     </div>
   </div></section>
 
@@ -111,6 +118,8 @@
   async function checkNumber() { const value = piNo.value.trim(); if (!value) { feedback.textContent = ''; piAvailable = false; submit.disabled = true; return; } const response = await fetch({{url_for('v2.check_pi_number')|tojson}}, {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': document.querySelector('[name=csrf_token]').value}, body: new URLSearchParams({pi_no: value, csrf_token: document.querySelector('[name=csrf_token]').value})}); const result = await response.json(); piAvailable = result.available; feedback.textContent = result.available ? 'PI Number is available.' : 'PI Number already exists.'; feedback.className = result.available ? 'v2-pi-feedback is-available' : 'v2-pi-feedback is-unavailable'; submit.disabled = !result.available; }
   piNo.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => checkNumber().catch(() => { feedback.textContent = 'Unable to check PI Number.'; }), 300); }); piNo.addEventListener('blur', () => checkNumber().catch(() => {}));
   document.getElementById('create-pi-form').addEventListener('submit', event => { if (!piAvailable) event.preventDefault(); });
+  window.V2_COUNTRIES = {{ countries|tojson }};
 })();
 </script>
+<script src="{{ url_for('v2.static', filename='v2_country_combobox.js') }}"></script>
 {% endblock %}

@@ -1,7 +1,7 @@
 """V2 physical shipment ownership; commercial/document identities stay local."""
 
 from .linked_trade import is_export_order
-from .iso3166 import ISO_3166_1_ALPHA2
+from .iso3166 import ISO_3166_1_ALPHA2, country_code_for_name
 from .models import PI, db
 
 
@@ -84,10 +84,31 @@ def validate_route_geography(*, loading_port=None, loading_country_code=None,
     loading_country_code = normalize_country_code(loading_country_code)
     destination_country_code = normalize_country_code(destination_country_code)
     if (loading_port or "").strip() and not loading_country_code:
-        raise RouteGeographyValidationError("Loading country code is required when Loading Port is set.")
+        raise RouteGeographyValidationError("Loading country is required when Loading Port is set.")
     if (destination_port or "").strip() and not destination_country_code:
-        raise RouteGeographyValidationError("Destination country code is required when Destination Port is set.")
+        raise RouteGeographyValidationError("Destination country is required when Destination Port is set.")
     return loading_country_code, destination_country_code
+
+
+def resolve_country_submission(*, name, code, label):
+    """Validate one C1 visible-name/hidden-code country submission.
+
+    A code is accepted only when its accompanying visible English country name
+    resolves exactly to the same alpha-2 code.  This prevents a stale hidden
+    value from silently surviving a user edit to the visible combobox text.
+    """
+    visible_name = " ".join(str(name or "").split())
+    normalized_code = normalize_country_code(code)
+    if not visible_name:
+        if normalized_code:
+            raise RouteGeographyValidationError(f"Please select a valid {label.lower()}.")
+        return None
+    resolved_code = country_code_for_name(visible_name)
+    if resolved_code is None:
+        raise RouteGeographyValidationError(f"Please select a valid {label.lower()}.")
+    if normalized_code and normalized_code != resolved_code:
+        raise RouteGeographyValidationError(f"{label} does not match the selected country name.")
+    return resolved_code
 
 
 def linked_export_for_route_owner(customer):
