@@ -180,6 +180,125 @@ class NewSalesReminderTest(TestCase):
         script = self.client().get("/v2/static/v2_batch1.js").get_data(as_text=True)
         self.assertNotIn("append(", script)
 
+    def test_detail_scoped_saves_redirect_to_their_saved_section(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
+        client = self.client()
+
+        preparation = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "container_loading_date": "2026-09-18", "return_to": "shipping-plan",
+        })
+        self.assertEqual(preparation.status_code, 302)
+        self.assertTrue(preparation.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=shipment-preparation#shipment-preparation-editor"))
+        self.assertEqual(pi.container_loading_date, date(2026, 9, 18))
+
+        schedule = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "etd": "2026-09-19", "eta": "2026-09-25", "return_to": "shipping-schedule",
+        })
+        self.assertEqual(schedule.status_code, 302)
+        self.assertTrue(schedule.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=shipping-schedule#shipping-schedule"))
+        self.assertEqual((pi.etd, pi.eta), (date(2026, 9, 19), date(2026, 9, 25)))
+
+        freight_preparation = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "return_to": "freight-agreement",
+        })
+        self.assertEqual(freight_preparation.status_code, 302)
+        self.assertTrue(freight_preparation.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=freight-agreement#freight"))
+
+        agreement = client.post(f"/v2/orders/{pi.id}/freight-agreement", data={
+            "amount": "125.00", "currency": "USD", "return_to": "freight-agreement",
+        })
+        self.assertEqual(agreement.status_code, 302)
+        self.assertTrue(agreement.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=freight-agreement#freight"))
+
+        pi.status = "SHIPPED"
+        db.session.add(FreightSettlement(pi_id=pi.id, usd_bill_required=True))
+        db.session.commit()
+        receipts = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "advance_received_amount": "200.00", "return_to": "customer-payment",
+        })
+        self.assertEqual(receipts.status_code, 302)
+        self.assertTrue(receipts.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=customer-payment#customer-payment"))
+
+        settlement = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "_form_scope": "FREIGHT_SETTLEMENT", "usd_bill_amount": "130.00",
+            "return_to": "freight-settlement",
+        })
+        self.assertEqual(settlement.status_code, 302)
+        self.assertTrue(settlement.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=freight-settlement#freight-settlement"))
+
+        invalid = client.post(f"/v2/orders/{pi.id}/facts", data={"return_to": "arbitrary-content"})
+        self.assertEqual(invalid.status_code, 302)
+        self.assertTrue(invalid.headers["Location"].endswith(f"/v2/orders/{pi.id}"))
+
+    def test_actual_departure_entry_is_in_shipping_schedule_and_uses_primary_action_style(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        schedule = page.split('id="shipping-plan"', 1)[1].split('</details>', 1)[0]
+        departure = f"/v2/orders/{pi.id}/enter-shipped"
+        self.assertIn('data-actual-departure-entry', schedule)
+        self.assertIn(departure, schedule)
+        self.assertIn('btn btn-sm btn-primary', schedule)
+        self.assertNotIn('btn btn-sm btn-warning', schedule)
+        pi.status = "SHIPPED"; db.session.commit()
+        self.assertNotIn(departure, self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True))
+
+    def test_cargo_inplace_save_is_authoritative_and_normal_post_keeps_prg_fallback(self):
+        pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "PRE_SHIPMENT"
+        client = self.client()
+        payload = {
+            "_inplace_scope": "CARGO", "return_to": "shipping-cargo",
+            "package_count": "960", "package_unit": "BAGS", "gross_weight": "1.5",
+            "gross_weight_display_unit": "MT", "volume": "2.75",
+        }
+        fallback = client.post(f"/v2/orders/{pi.id}/facts", data=payload)
+        self.assertEqual(fallback.status_code, 302)
+        self.assertTrue(fallback.headers["Location"].endswith(
+            f"/v2/orders/{pi.id}?open_editor=shipping-cargo#booking-cargo-information"))
+
+        payload.update({"package_count": "961", "gross_weight": "2.25"})
+        enhanced = client.post(f"/v2/orders/{pi.id}/facts", data=payload, headers={
+            "Accept": "application/json", "X-V2-Inplace-Save": "1",
+        })
+        self.assertEqual(enhanced.status_code, 200)
+        self.assertNotIn("Location", enhanced.headers)
+        body = enhanced.get_json()
+        self.assertEqual(body["ok"], True)
+        self.assertEqual(body["fields"], {
+            "package_count": "961", "package_unit": "BAGS", "gross_weight": "2.250",
+            "gross_weight_display_unit": "MT", "volume": "2.750",
+        })
+        self.assertEqual((pi.package_count, pi.gross_weight_kg, pi.volume_cbm),
+                         (961, Decimal("2250.00"), Decimal("2.75")))
+
+        unsafe_scope = client.post(f"/v2/orders/{pi.id}/facts", data={
+            "_inplace_scope": "SCHEDULE", "etd": "2026-09-21",
+        }, headers={"X-V2-Inplace-Save": "1"})
+        self.assertEqual(unsafe_scope.status_code, 400)
+        self.assertEqual(unsafe_scope.get_json()["ok"], False)
+        self.assertIsNone(pi.etd)
+
+        invalid = client.post(f"/v2/orders/{pi.id}/facts", data={
+            **payload, "gross_weight_display_unit": "TONS",
+        }, headers={"X-V2-Inplace-Save": "1"})
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(invalid.get_json()["ok"], False)
+        self.assertNotIn("Saved", invalid.get_json()["error"])
+        self.assertEqual((pi.package_count, pi.gross_weight_kg, pi.volume_cbm),
+                         (961, Decimal("2250.00"), Decimal("2.75")))
+
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        csrf_failure = client.post(f"/v2/orders/{pi.id}/facts", data=payload, headers={
+            "X-V2-Inplace-Save": "1",
+        })
+        self.assertEqual(csrf_failure.status_code, 400)
+        self.assertNotEqual(csrf_failure.get_json(silent=True), {"ok": True})
+
     def test_enter_arrived_requires_only_actual_arrival_and_creates_pickup_reminder(self):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
         pi.actual_departure_date = date(2026, 9, 20)

@@ -44,7 +44,7 @@ class Batch3CTest(TestCase):
     def test_ordinary_eta_capture_and_form(self):
         pi = self.ordinary()
         page = self.client().get(f"/v2/orders/{pi.id}/enter-shipped").get_data(as_text=True)
-        self.assertIn("ETA (optional)", page)
+        self.assertIn('for="departure-eta">ETA <span class="v2-muted">(optional)</span>', page)
         self.assertIn('name="eta"', page)
         self.assertEqual(self.submit(pi, "2026-09-25").status_code, 302)
         self.assertEqual((pi.status, pi.eta), ("SHIPPED", date(2026, 9, 25)))

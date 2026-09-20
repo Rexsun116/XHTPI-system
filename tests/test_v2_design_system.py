@@ -14,6 +14,11 @@ class SharedV2DesignSystemTest(TestCase):
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
         self.edit_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
         self.linked_export_form = (ROOT / "v2/templates/v2/create_linked_export_order.html").read_text()
+        self.departure = (ROOT / "v2/templates/v2/enter_shipped.html").read_text()
+        self.arrival = (ROOT / "v2/templates/v2/enter_arrived.html").read_text()
+        self.shipping = (ROOT / "v2/templates/v2/_order_shipping.html").read_text()
+        self.finance = (ROOT / "v2/templates/v2/_order_finance.html").read_text()
+        self.detail_js = (ROOT / "v2/static/v2_batch1.js").read_text()
 
     def test_authoritative_tokens_and_approved_shell_are_shared(self):
         for token in (
@@ -57,6 +62,128 @@ class SharedV2DesignSystemTest(TestCase):
         for forbidden in ("card p-4", "loading_country_name", "add-item", "remove-item"):
             self.assertNotIn(forbidden, self.linked_export_form)
         self.assertIn(".v2-readonly-facts", self.css)
+
+    def test_lifecycle_confirmation_pages_use_shared_modern_form_contracts(self):
+        for page in (self.departure, self.arrival):
+            self.assertIn("{% block body_class %}v2-modern{% endblock %}", page)
+            self.assertIn('class="v2-new-order-form"', page)
+            self.assertIn('name="csrf_token"', page)
+            self.assertIn("v2-lifecycle-transition", page)
+            self.assertNotIn("max-width:560px", page)
+        for token in ('name="actual_departure_date" required', 'name="eta"',
+                      'name="shipping_company"', 'name="bill_of_lading_number"',
+                      'Required export documents will be verified when departure is confirmed.'):
+            self.assertIn(token, self.departure)
+        self.assertIn('name="actual_arrival_date" required', self.arrival)
+        for token in (".v2-lifecycle-transition", ".v2-linked-transition", "overflow-wrap:anywhere"):
+            self.assertIn(token, self.css)
+
+    def test_order_detail_scoped_saves_have_stable_return_targets_and_departure_entry(self):
+        for token in (
+            'name="return_to" value="shipping-plan"',
+            'name="return_to" value="shipping-schedule"',
+            'name="return_to" value="shipping-cargo"',
+            'name="return_to" value="shipping-booking"',
+            'name="return_to" value="shipping-loading"',
+            'name="return_to" value="shipping-route"',
+        ):
+            self.assertIn(token, self.shipping)
+        for token in ('name="return_to" value="customer-payment"',
+                      'name="return_to" value="freight-agreement"',
+                      'name="return_to" value="freight-settlement"'):
+            self.assertIn(token, self.finance)
+        schedule = self.shipping.split('id="shipping-plan"', 1)[1].split('</details>', 1)[0]
+        self.assertIn('data-actual-departure-entry', schedule)
+        self.assertIn("url_for('v2.enter_shipped'", schedule)
+        self.assertIn('btn btn-sm btn-primary', schedule)
+        self.assertNotIn('btn btn-sm btn-warning', schedule)
+        self.assertIn('.order-lifecycle-action', self.order_detail)
+
+    def test_order_detail_save_state_restores_prg_editors_and_limits_inplace_save_to_cargo(self):
+        for token in (
+            'id="shipment-preparation-editor"', 'id="shipping-schedule"',
+            'id="booking-cargo-information"', 'id="shipping-booking-editor"',
+            'id="shipping-loading-editor"', 'id="shipping-route-editor"',
+        ):
+            self.assertIn(token, self.shipping)
+        for token in (
+            'data-v2-prg-editor="shipment-preparation"',
+            'data-v2-prg-editor="shipping-cargo"',
+            'data-v2-prg-editor="shipping-booking"',
+            'data-v2-prg-editor="shipping-loading"',
+            'data-v2-prg-editor="shipping-route"',
+            'data-v2-prg-editor="shipping-schedule"',
+        ):
+            self.assertIn(token, self.shipping)
+        for token in (
+            'data-v2-prg-editor="customer-payment"',
+            'data-v2-prg-editor="freight-agreement"',
+            'data-v2-prg-editor="freight-settlement"',
+        ):
+            self.assertIn(token, self.finance)
+        for token in (
+            'window.__v2OrderDetailEditors = editors',
+            'xhtpi:v2:order-detail:restore:',
+            'state.version === 1 && state.editor === editor',
+            'window.sessionStorage.removeItem(storageKey)',
+            'url.searchParams.delete("open_editor")',
+            'window.history.scrollRestoration = "manual"',
+            'const editorGroups = new Map(Object.entries(window.__v2OrderDetailEditors || {}));',
+            'const capturePrgRestore = (editorId) => {',
+            'viewportOffset: Math.round(target.getBoundingClientRect().top)',
+            'createdAt: Date.now()',
+            'document.getElementById("shipment-preparation")?.addEventListener("submit"',
+            'document.querySelectorAll("form[data-v2-prg-editor]")',
+            'closeOtherShippingGroups(group)',
+            'window.scrollTo({',
+            'behavior: "auto"',
+            'window.history.scrollRestoration = "auto"',
+        ):
+            self.assertIn(token, self.order_detail + self.detail_js)
+        self.assertNotIn('document.querySelector(openEditor)', self.detail_js)
+        self.assertNotIn('requestAnimationFrame', self.detail_js)
+        self.assertEqual(self.shipping.count('data-v2-inplace-save'), 1)
+        self.assertIn('data-v2-inplace-scope="CARGO"', self.shipping)
+        self.assertIn('data-v2-save-status', self.shipping)
+        for page in (self.departure, self.arrival, self.finance):
+            self.assertNotIn('data-v2-inplace-save', page)
+        for page in (self.departure, self.arrival):
+            self.assertNotIn('data-v2-prg-editor', page)
+        for token in (
+            'document.querySelectorAll("form[data-v2-inplace-save]")',
+            'if (form.dataset.v2InplaceScope !== "CARGO") return;',
+            'new FormData(form, event.submitter)',
+            'window.fetch(form.action',
+            'if (!response.ok || !payload.ok)',
+            'form.dataset.v2Saving === "true"',
+            '}, 1600);',
+        ):
+            self.assertIn(token, self.detail_js)
+        self.assertNotIn('window.location.reload', self.detail_js)
+        self.assertIn('.order-save-feedback{position:fixed', self.order_detail)
+        self.assertIn('role="status" aria-live="polite"', self.base)
+        self.assertIn('feedback.classList.add("is-dismissing")', self.detail_js)
+        self.assertIn('.v2-save-status', self.css)
+        restore_script = self.order_detail.split('</style><script>', 1)[1].split('</script>', 1)[0]
+        self.assertNotIn('FormData', restore_script)
+        self.assertNotIn('form.elements', restore_script)
+
+    def test_shipping_accordion_compensates_only_for_a_closed_open_peer(self):
+        accordion = self.detail_js.split('shippingGroups.forEach((group) => {', 1)[1].split(
+            'cargoEdit?.addEventListener', 1)[0]
+        for token in (
+            'const closesOpenPeer = shippingGroups.some((peer) => peer !== group && peer.open);',
+            'const beforeTop = closesOpenPeer ? group.getBoundingClientRect().top : null;',
+            'closeOtherShippingGroups(group);',
+            'const delta = group.getBoundingClientRect().top - beforeTop;',
+            'if (delta) window.scrollBy({ top: delta, left: 0, behavior: "auto" });',
+        ):
+            self.assertIn(token, accordion)
+        self.assertIn('if (beforeTop !== null)', accordion)
+        self.assertNotIn('smooth', accordion)
+        self.assertNotIn('.focus(', accordion)
+        self.assertLess(self.detail_js.index('window.scrollBy({ top: delta'),
+                        self.detail_js.index('const editorGroups ='))
 
     def test_modern_main_uses_the_remaining_width_and_narrow_shell_stacks(self):
         self.assertIn('box-sizing:border-box; width:calc(100% - 245px); min-width:0', self.css)

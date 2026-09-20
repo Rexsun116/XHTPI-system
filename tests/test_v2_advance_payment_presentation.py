@@ -315,16 +315,17 @@ class AdvancePaymentPresentationTest(TestCase):
         page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
         self.assertIn('data-cargo-edit aria-controls="cargo-edit-workspace" aria-expanded="false"', page)
-        self.assertIn(f'<form id="booking-cargo-information" method="post" action="/v2/orders/{pi.id}/facts" class="order-control-block" data-cargo-form>', page)
+        self.assertIn(f'<form id="booking-cargo-information" method="post" action="/v2/orders/{pi.id}/facts" class="order-control-block" data-cargo-form data-v2-inplace-save data-v2-inplace-scope="CARGO">', page)
         cargo = page.split('id="booking-cargo-information"', 1)[1].split('</form>', 1)[0]
         self.assertIn('name="csrf_token"', cargo)
         for name in ('package_count', 'package_unit', 'gross_weight', 'gross_weight_display_unit', 'volume'):
             self.assertIn(f'name="{name}"', cargo)
         script = (Path(__file__).parents[1] / "v2/static/v2_batch1.js").read_text()
         self.assertIn('const expanded = cargoEdit.getAttribute("aria-expanded") === "true"', script)
-        self.assertIn('cargoWorkspace.hidden = expanded', script)
-        self.assertIn('cargoEdit.textContent = expanded ? "编辑 / Edit" : "收起 / Collapse"', script)
+        self.assertIn('cargoWorkspace.hidden = !expanded', script)
+        self.assertIn('cargoEdit.textContent = expanded ? "收起 / Collapse" : "编辑 / Edit"', script)
         self.assertNotIn('cargoForm.reset()', script)
+        self.assertIn('headers: { Accept: "application/json", "X-V2-Inplace-Save": "1" }', script)
 
     def test_activity_is_collapsed_native_disclosure_with_hash_reveal_hook(self):
         pi = self.pi("ACTIVITY-DISCLOSURE")

@@ -5,6 +5,7 @@ from decimal import Decimal
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from werkzeug.exceptions import HTTPException
 import re
 from order_lifecycle import LifecyclePolicyError, validate_lifecycle_submission
 from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
@@ -223,6 +224,85 @@ def _reject_unexpected_fields(allowed):
     unexpected = submitted - set(allowed)
     if unexpected:
         abort(400, "Fields are not editable in this lifecycle/module: " + ", ".join(sorted(unexpected)))
+
+
+_ORDER_DETAIL_RETURN_TARGETS = {
+    "shipping-plan": ("shipment-preparation-editor", "shipment-preparation", "Shipment preparation saved."),
+    "shipping-schedule": ("shipping-schedule", "shipping-schedule", "Shipping schedule saved."),
+    "shipping-cargo": ("booking-cargo-information", "shipping-cargo", "Cargo information saved."),
+    "shipping-booking": ("shipping-booking-editor", "shipping-booking", "Shipment preparation saved."),
+    "shipping-loading": ("shipping-loading-editor", "shipping-loading", "Shipment preparation saved."),
+    "shipping-route": ("shipping-route-editor", "shipping-route", "Shipment preparation saved."),
+    "customer-payment": ("customer-payment", "customer-payment", "Payment receipts saved."),
+    "freight-agreement": ("freight", "freight-agreement", "Freight agreement saved."),
+    "freight-settlement": ("freight-settlement", "freight-settlement", "Freight settlement saved."),
+}
+
+_INPLACE_CARGO_FIELDS = {
+    "csrf_token", "_inplace_scope", "return_to", "package_count", "package_unit",
+    "gross_weight", "gross_weight_display_unit", "volume",
+}
+
+
+def _is_inplace_cargo_request():
+    return (request.headers.get("X-V2-Inplace-Save") == "1"
+            and request.form.get("_inplace_scope") == "CARGO")
+
+
+def _validate_inplace_request():
+    if request.headers.get("X-V2-Inplace-Save") != "1":
+        return False
+    if not _is_inplace_cargo_request():
+        abort(400, "This order-detail save cannot be completed in place.")
+    _reject_unexpected_fields(_INPLACE_CARGO_FIELDS)
+    return True
+
+
+def _inplace_cargo_response(pi):
+    unit = pi.gross_weight_display_unit or "KGS"
+    gross_weight = pi.gross_weight_kg
+    if gross_weight is not None and unit == "MT":
+        gross_weight /= Decimal("1000")
+    decimal_text = lambda value: format(value, "f") if value is not None else ""
+    display_text = lambda value: str(value) if value is not None and value != "" else "—"
+    return jsonify({
+        "ok": True,
+        "message": "Saved",
+        "fields": {
+            "package_count": display_text(pi.package_count) if pi.package_count is not None else "",
+            "package_unit": pi.package_unit or "BAGS",
+            "gross_weight": decimal_text(gross_weight),
+            "gross_weight_display_unit": unit,
+            "volume": decimal_text(pi.volume_cbm),
+        },
+        "display": {
+            "package_count": display_text(pi.package_count),
+            "package_unit": display_text(pi.package_unit),
+            "gross_weight_kg": decimal_text(pi.gross_weight_kg) or "—",
+            "gross_weight_display_unit": unit,
+            "volume_cbm": decimal_text(pi.volume_cbm) or "—",
+        },
+    })
+
+
+@blueprint.errorhandler(HTTPException)
+def _inplace_save_error_response(exc):
+    if request.headers.get("X-V2-Inplace-Save") == "1":
+        return jsonify({"ok": False, "error": exc.description}), exc.code
+    return exc
+
+
+def _order_detail_save_redirect(pi, target_name=None):
+    """Return an independently saved detail form to its own stable section."""
+    target = _ORDER_DETAIL_RETURN_TARGETS.get(target_name or request.form.get("return_to"))
+    if target:
+        fragment, open_editor, message = target
+        flash(message, "success order-save-feedback")
+        destination = url_for("v2.order_view", pi_id=pi.id)
+        if open_editor:
+            destination += f"?open_editor={open_editor}"
+        return redirect(destination + f"#{fragment}")
+    return redirect(url_for("v2.order_view", pi_id=pi.id))
 
 
 def _update_currency_payment_facts(settlement, form, *, require_enabled):
@@ -633,6 +713,7 @@ def task_history(task_id):
 @login_required
 def order_facts(pi_id):
     pi=db.get_or_404(PI,pi_id)
+    inplace_cargo = _validate_inplace_request()
     if is_export_order(pi) and pi.status != "COMPLETED" and PHYSICAL_FORM_FIELDS.intersection(request.form):
         abort(409, "Physical shipment facts are managed by the linked CUSTOMER_ORDER.")
     financial_fields = {
@@ -729,7 +810,7 @@ def order_facts(pi_id):
         abort(400, str(exc))
     if request.form.get("_form_scope") == "FREIGHT_SETTLEMENT":
         _reject_unexpected_fields({
-            "_form_scope", "usd_bill_amount", "cny_bill_amount",
+            "_form_scope", "return_to", "usd_bill_amount", "cny_bill_amount",
             "usd_payment_status", "usd_paid_at", "cny_payment_status", "cny_paid_at",
         })
     if pi.status == "PRE_SHIPMENT" and any(field in request.form for field in DOCUMENT_FACTS):
@@ -868,7 +949,9 @@ def order_facts(pi_id):
             abort(409, "Linked shipment could not be saved. Reload and retry.")
     else:
         save_order_with_reconcile(pi)
-    return redirect(url_for("v2.order_view",pi_id=pi.id))
+    if inplace_cargo:
+        return _inplace_cargo_response(pi)
+    return _order_detail_save_redirect(pi)
 
 
 @blueprint.route("/orders/<int:pi_id>/document-requirements", methods=["GET", "POST"])
@@ -1108,7 +1191,7 @@ def update_eta(pi_id):
     except (ValueError, ArithmeticError):
         db.session.rollback()
         raise
-    return redirect(url_for("v2.order_view", pi_id=pi.id) + "#shipping-schedule")
+    return _order_detail_save_redirect(pi, "shipping-schedule")
 
 
 @blueprint.post("/orders/<int:pi_id>/freight-agreement")
@@ -1127,7 +1210,7 @@ def freight_agreement_manual(pi_id):
         amount=Decimal(request.form["amount"]),currency=request.form["currency"].upper(),agreed_at=utcnow(),
         note=request.form.get("note")))
     save_order_with_reconcile(pi)
-    return redirect(url_for("v2.order_view",pi_id=pi.id))
+    return _order_detail_save_redirect(pi)
 
 
 @blueprint.post("/orders/<int:pi_id>/batches")
