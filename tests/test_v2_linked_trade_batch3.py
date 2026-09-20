@@ -152,14 +152,35 @@ class LinkedTradeCreateExportTest(TestCase):
     def test_party_and_price_guards_and_create_page_do_not_leak_source_sale_price(self):
         source = self.source(); client = self.client()
         page = client.get(f"/v2/orders/{source.id}/create-linked-export").get_data(as_text=True)
-        self.assertIn("Source commercial PI", page); self.assertIn("Shipment Plan Prefill", page)
+        self.assertIn('class="v2-modern"', page)
+        self.assertIn('id="linked-export-source-context"', page)
+        self.assertIn("Source Customer Order", page)
+        self.assertIn("SHA · China", page); self.assertIn("LAX · United States", page)
+        self.assertIn("Product B3", page); self.assertIn("Factory", page); self.assertIn("2.000 MT", page)
         self.assertIn("value=\"OA90\"", page); self.assertIn("value=\"FOB\"", page)
         self.assertIn('name="bank_account_id" required', page); self.assertIn("Export-side Bank", page)
         self.assertNotIn('value="999"', page)
+        self.assertNotIn("1998", page)
+        for forbidden in ("loading_port", "loading_country_code", "destination_port", "destination_country_code",
+                          "product_0", "factory_0", "quantity_0", "quantity_unit_0", "add-item", "remove-item"):
+            self.assertNotIn(f'name="{forbidden}"', page)
         payload = self.payload(source, customer_id="", **{f"unit_price_{source.items[0].id}": "not-a-number"})
         self.assertEqual(client.post(f"/v2/orders/{source.id}/create-linked-export", data=payload).status_code, 400)
         source = db.session.get(PI, source.id)
         self.assertIsNone(source.trade_group_id)
+
+    def test_create_rerender_keeps_export_inputs_but_source_context_is_persisted(self):
+        source = self.source()
+        payload = self.payload(source, pi_no="XHT-RETRY", payment_terms="NET45",
+                               **{f"unit_price_{source.items[0].id}": "0",
+                                  "loading_port": "Forged Loading", "loading_country_code": "KE"})
+        response = self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=payload)
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('value="XHT-RETRY"', page); self.assertIn('value="NET45"', page)
+        self.assertIn("SHA · China", page)
+        self.assertNotIn("Forged Loading", page)
+        self.assertNotIn('name="loading_port"', page)
 
     def test_linked_export_bank_selection_is_required_local_snapshot_and_never_borrows_peer_bank(self):
         source = self.source()

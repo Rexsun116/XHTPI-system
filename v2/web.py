@@ -416,7 +416,11 @@ def order_edit(pi_id):
         ("customers", Customer), ("exporters", Exporter), ("products", Product),
         ("factories", Factory), ("banks", BankAccount))}
     if pi.trade_role == "EXPORT_ORDER":
+        source_context = shipment_owner_for(pi)
+        if source_context is None:
+            abort(409, "A valid structured customer/export pair is required.")
         return render_template("v2/create_linked_export_order.html", source=pi, editing=True,
+                               source_context=source_context, country_name_for_code=country_name_for_code,
                                form_data=data, error=error, document_facts=DOCUMENT_FACTS, **_order_choices()), status
     return render_template("v2/order_edit.html", pi=pi, data=data, error=error,
                            indexes=item_indexes(data), document_facts=DOCUMENT_FACTS,
@@ -539,7 +543,8 @@ def order_view(pi_id):
 
 
 def _render_linked_export_create(source, *, form_data=None, error=None, status=200):
-    return render_template("v2/create_linked_export_order.html", source=source,
+    return render_template("v2/create_linked_export_order.html", source=source, source_context=source,
+                           country_name_for_code=country_name_for_code,
                            form_data=form_data or {}, error=error,
                            document_facts=DOCUMENT_FACTS, **_order_choices()), status
 

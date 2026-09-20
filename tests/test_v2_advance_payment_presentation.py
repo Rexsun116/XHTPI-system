@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 import tempfile
 from unittest import TestCase
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -274,7 +275,8 @@ class AdvancePaymentPresentationTest(TestCase):
         )
         db.session.add_all((routine, waiting, exception)); db.session.commit()
 
-        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        with patch("v2.selector.utcnow", return_value=datetime(2026, 9, 16, 9)):
+            page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
         primary = page.split('data-current-action-primary', 1)[1].split('</article>', 1)[0]
         self.assertIn("Exception first", primary)

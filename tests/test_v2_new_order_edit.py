@@ -574,6 +574,37 @@ class NewOrderEditTest(TestCase):
                 self.assertEqual(getattr(original, field), value)
         self.assertTrue(export.settlement_documents_required)
 
+    def test_export_edit_source_context_uses_customer_owner_and_cancel_returns_export(self):
+        customer, export, _ = self.linked_pair()
+        customer.loading_port, customer.loading_country_code = "Shanghai", "CN"
+        customer.destination_port, customer.destination_country_code = "Mombasa", "KE"
+        customer.planned_shipment_date = date(2026, 10, 1)
+        export.loading_port, export.loading_country_code = "Stale Export", "AE"
+        export.destination_port, export.destination_country_code = "Stale Destination", "SA"
+        db.session.commit()
+        page = self.client().get(f"/v2/orders/{export.id}/edit").get_data(as_text=True)
+        self.assertIn('id="linked-export-source-context"', page)
+        self.assertIn(customer.pi_no, page); self.assertIn("Shanghai · China", page)
+        self.assertIn("Mombasa · Kenya", page); self.assertIn("2026-10-01", page)
+        self.assertNotIn("Stale Export", page); self.assertNotIn("Stale Destination", page)
+        self.assertIn(f'href="/v2/orders/{export.id}"', page)
+        self.assertIn('name="edit_version"', page)
+        for field in ("loading_port", "loading_country_code", "destination_port", "destination_country_code",
+                      "loading_country_name", "destination_country_name", "product_0", "quantity_0"):
+            self.assertNotIn(f'name="{field}"', page)
+
+    def test_export_edit_failed_rerender_keeps_commercial_input_not_forged_source_context(self):
+        customer, export, _ = self.linked_pair()
+        customer.loading_port, customer.loading_country_code = "Shanghai", "CN"
+        db.session.commit()
+        data = edit_form_data(export)
+        data.update({"pi_no": "EXPORT-RETRY", "payment_terms": "NET60", "loading_port": "Forged Route"})
+        response = self.client().post(f"/v2/orders/{export.id}/edit", data=data)
+        page = response.get_data(as_text=True)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('value="EXPORT-RETRY"', page); self.assertIn('value="NET60"', page)
+        self.assertIn("Shanghai · China", page); self.assertNotIn("Forged Route", page)
+
     def test_export_bank_required_active_and_snapshot_selection(self):
         customer, export, bank = self.linked_pair()
         replacement = self.bank("REPLACEMENT")

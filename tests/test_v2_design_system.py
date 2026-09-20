@@ -13,6 +13,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.dashboard = (ROOT / "v2/templates/v2/dashboard.html").read_text()
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
         self.edit_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
+        self.linked_export_form = (ROOT / "v2/templates/v2/create_linked_export_order.html").read_text()
 
     def test_authoritative_tokens_and_approved_shell_are_shared(self):
         for token in (
@@ -46,6 +47,16 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn('data-country-combobox', self.edit_form)
         self.assertIn('v2_country_combobox.js', self.edit_form)
         self.assertNotIn('class="card p-4 mb-3"', self.edit_form)
+
+    def test_linked_export_form_reuses_the_modern_shell_and_semantic_context_primitives(self):
+        for token in ("{% block body_class %}v2-modern{% endblock %}", "v2-form-page-header",
+                      "v2-form-error", "v2-panel", "v2-form-grid", "v2-item-row",
+                      "v2-document-grid", "v2-form-actions", "v2-readonly-facts",
+                      "linked-export-source-context"):
+            self.assertIn(token, self.linked_export_form)
+        for forbidden in ("card p-4", "loading_country_name", "add-item", "remove-item"):
+            self.assertNotIn(forbidden, self.linked_export_form)
+        self.assertIn(".v2-readonly-facts", self.css)
 
     def test_modern_main_uses_the_remaining_width_and_narrow_shell_stacks(self):
         self.assertIn('box-sizing:border-box; width:calc(100% - 245px); min-width:0', self.css)
