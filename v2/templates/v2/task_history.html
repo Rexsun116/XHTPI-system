@@ -1,10 +1,11 @@
 {% extends 'v2/base.html' %}
+{% block title %}Task History · XHTPI V2{% endblock %}
+{% block body_class %}v2-modern{% endblock %}
 {% block content %}
-<p><a href="{{ url_for('v2.order_view', pi_id=task.pi_id, open_task=task.id) }}#task-{{ task.id }}">← 返回订单</a></p>
-<section class="card p-4"><h2>{{ task.title }}</h2><p class="text-muted">{{ task.pi.pi_no }} · {{ task.status }}</p>
-<h5>Task Activity History</h5><ul class="list-group">
-{% for activity in activities %}{% set item=present_activity(activity) %}
-<li class="list-group-item"><b>{{ item.label }}</b> · {{ item.when }}{% if activity.actor_id %} · User #{{ activity.actor_id }}{% else %} · System{% endif %}{% if activity.note %}<div>{{ activity.note }}</div>{% endif %}{% for detail in item.details %}<div>{{ detail }}</div>{% endfor %}</li>
-{% else %}<li class="list-group-item">No activity</li>{% endfor %}
-</ul></section>
+{% set status_class = {'DONE':'done', 'CANCELLED':'exception', 'WAITING':'waiting', 'UPCOMING':'upcoming'}.get(task.status, 'action') %}
+{% set back_target = url_for('v2.order_view', pi_id=task.pi_id, open_task=task.id) ~ '#task-' ~ task.id %}
+<header class="v2-form-page-header"><div><p class="v2-form-eyebrow">Task audit trail</p><h1>Task History</h1><p>Recorded activity for one task. Current state is shown for context.</p></div><span class="v2-status-badge v2-status--{{ status_class }}">{{ task.status }}</span></header>
+<section class="v2-panel v2-lifecycle-panel" aria-labelledby="task-history-context-title"><header class="v2-panel-header"><div><h2 id="task-history-context-title">Task Context</h2><p>History is limited to this exact order task.</p></div></header><div class="v2-panel-body"><dl class="v2-readonly-facts"><div><dt>Task</dt><dd>{{ task.title }}</dd></div><div><dt>PI Number</dt><dd>{{ task.pi.pi_no }}</dd></div><div><dt>Current State</dt><dd>{{ task.status }}</dd></div></dl></div></section>
+<section class="v2-panel" aria-labelledby="task-history-title"><header class="v2-panel-header"><div><h2 id="task-history-title">Activity History</h2><p>Newest recorded activity appears first.</p></div></header><div class="v2-panel-body">{% if activities %}<ol class="v2-history-timeline">{% for activity in activities %}{% set item=present_activity(activity) %}<li class="v2-history-event"><div class="v2-history-event-head"><strong>{{ item.label }}</strong><time datetime="{{ activity.created_at.isoformat() }}">{{ item.when }}</time></div><div class="v2-history-meta">{% if activity.actor_id %}User #{{ activity.actor_id }}{% else %}System{% endif %}</div>{% if activity.note %}<p class="v2-history-note">{{ activity.note }}</p>{% endif %}{% for detail in item.details %}<p class="v2-history-detail">{{ detail }}</p>{% endfor %}</li>{% endfor %}</ol>{% else %}<div class="v2-empty-state"><strong>No activity recorded for this task.</strong><span>The current task state is not treated as a historical event.</span></div>{% endif %}</div></section>
+<footer class="v2-form-actions"><p>Task activity is read-only on this page.</p><a class="v2-button v2-button--secondary" href="{{ back_target }}">← Back to Order</a></footer>
 {% endblock %}

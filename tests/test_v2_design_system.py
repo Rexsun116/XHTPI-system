@@ -16,6 +16,10 @@ class SharedV2DesignSystemTest(TestCase):
         self.linked_export_form = (ROOT / "v2/templates/v2/create_linked_export_order.html").read_text()
         self.departure = (ROOT / "v2/templates/v2/enter_shipped.html").read_text()
         self.arrival = (ROOT / "v2/templates/v2/enter_arrived.html").read_text()
+        self.completion = (ROOT / "v2/templates/v2/enter_completed.html").read_text()
+        self.completion_check = (ROOT / "v2/templates/v2/_completion_check.html").read_text()
+        self.secondary = (ROOT / "v2/templates/v2/_order_secondary.html").read_text()
+        self.history = (ROOT / "v2/templates/v2/task_history.html").read_text()
         self.shipping = (ROOT / "v2/templates/v2/_order_shipping.html").read_text()
         self.finance = (ROOT / "v2/templates/v2/_order_finance.html").read_text()
         self.detail_js = (ROOT / "v2/static/v2_batch1.js").read_text()
@@ -76,6 +80,27 @@ class SharedV2DesignSystemTest(TestCase):
             self.assertIn(token, self.departure)
         self.assertIn('name="actual_arrival_date" required', self.arrival)
         for token in (".v2-lifecycle-transition", ".v2-linked-transition", "overflow-wrap:anywhere"):
+            self.assertIn(token, self.css)
+
+    def test_completion_and_task_history_use_shared_modern_semantic_primitives(self):
+        for page in (self.completion, self.history):
+            self.assertIn("{% block body_class %}v2-modern{% endblock %}", page)
+            self.assertIn("v2-form-page-header", page)
+            self.assertIn("v2-panel", page)
+        for token in ("v2-completion-readiness", "v2-readiness-group", "v2-lifecycle-transition",
+                      "v2-completion-consequence", "v2-completion-actions"):
+            self.assertIn(token, self.completion + self.completion_check)
+        self.assertNotIn('id="completion-check"', self.completion_check)
+        self.assertNotIn("<form", self.completion_check)
+        for token in ("Review &amp; Complete", "v2-button v2-button--primary", "v2-status-badge",
+                      "order-lifecycle-action"):
+            self.assertIn(token, self.secondary)
+        self.assertNotIn("确认订单完成", self.secondary)
+        self.assertNotIn("btn btn-success mt-3", self.secondary)
+        for token in ("v2-history-timeline", "v2-history-event", "v2-empty-state", "datetime="):
+            self.assertIn(token, self.history)
+        for token in (".v2-completion-readiness", ".v2-completion-consequence", ".v2-completion-actions",
+                      ".v2-history-timeline", "overflow-wrap:anywhere"):
             self.assertIn(token, self.css)
 
     def test_order_detail_scoped_saves_have_stable_return_targets_and_departure_entry(self):

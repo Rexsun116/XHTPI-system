@@ -1,5 +1,29 @@
-{% extends 'v2/base.html' %}{% block content %}
-<h2>Enter COMPLETED · {{pi.pi_no}}</h2><p class="text-muted">Confirm core commercial and delivery closure. Operational reminders do not block this transition.</p>
-{% include 'v2/_completion_check.html' %}
-{% if completion.overall_complete %}<form method="post"><input type="hidden" name="csrf_token" value="{{csrf_token()}}"><button class="btn btn-success">确认订单完成</button><a class="btn btn-outline-secondary" href="{{url_for('v2.order_view',pi_id=pi.id)}}">Cancel</a></form>{% else %}<a class="btn btn-outline-secondary" href="{{url_for('v2.order_view',pi_id=pi.id)}}">Back to Order</a>{% endif %}
+{% extends 'v2/base.html' %}
+{% block title %}Complete Order · XHTPI V2{% endblock %}
+{% block body_class %}v2-modern{% endblock %}
+{% block content %}
+<header class="v2-form-page-header">
+  <div><p class="v2-form-eyebrow">Controlled completion</p><h1>Completion Check</h1><p>{{ pi.pi_no }} is currently ARRIVED. Completion closes normal operational editing; controlled Correction remains available when needed.</p></div>
+  <span class="v2-status-badge v2-status--action">ARRIVED</span>
+</header>
+<section class="v2-panel v2-lifecycle-panel" aria-labelledby="completion-context-title">
+  <header class="v2-panel-header"><div><h2 id="completion-context-title">Order Context</h2><p>Authoritative facts for this final lifecycle transition.</p></div></header>
+  <div class="v2-panel-body"><dl class="v2-readonly-facts">
+    <div><dt>PI Number</dt><dd>{{ pi.pi_no }}</dd></div><div><dt>Customer</dt><dd>{{ pi.customer_name_snapshot or '—' }}</dd></div><div><dt>Seller / Exporter</dt><dd>{{ pi.exporter_name_snapshot or '—' }}</dd></div>
+    <div><dt>Route</dt><dd>{{ pi.loading_port or '—' }} → {{ pi.destination_port or '—' }}</dd></div><div><dt>Actual Departure</dt><dd>{{ pi.actual_departure_date or '—' }}</dd></div><div><dt>Actual Arrival</dt><dd>{{ pi.actual_arrival_date or '—' }}</dd></div>
+  </dl></div>
+</section>
+<section class="v2-panel v2-lifecycle-panel" aria-labelledby="completion-readiness-title">
+  <header class="v2-panel-header"><div><h2 id="completion-readiness-title">Completion Readiness</h2><p>Only the established completion requirements are evaluated.</p></div></header>
+  <div class="v2-panel-body">{% include 'v2/_completion_check.html' %}</div>
+</section>
+<section class="v2-panel v2-lifecycle-panel" aria-labelledby="completion-transition-title">
+  <header class="v2-panel-header"><div><h2 id="completion-transition-title">Final Lifecycle Transition</h2><p>Completion changes this order to the normal read-only boundary.</p></div></header>
+  <div class="v2-panel-body"><div class="v2-lifecycle-transition"><span class="v2-status-badge v2-status--action">ARRIVED</span><span aria-hidden="true">→</span><span class="v2-status-badge v2-status--done">COMPLETED</span></div></div>
+</section>
+{% if completion.overall_complete %}
+<form method="post" class="v2-new-order-form v2-completion-action-form" id="complete-order-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><aside class="v2-completion-consequence" aria-label="Completion consequence"><strong>Completion consequence</strong><p>Completion moves this order to its normal read-only status. Controlled Correction remains available later when needed.</p></aside><footer class="v2-completion-actions"><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a><button class="v2-button v2-button--primary" type="submit">Complete Order</button></footer></form>
+{% else %}
+<footer class="v2-form-actions"><p>Completion is blocked until the outstanding readiness requirements above are satisfied.</p><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Back to Order</a></footer>
+{% endif %}
 {% endblock %}

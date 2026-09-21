@@ -165,9 +165,54 @@ class CompletionGateTest(TestCase):
         html = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
         self.assertIn("Completion Check", html)
         self.assertIn("Customer Payment", html)
-        self.assertNotIn("确认订单完成</a>", html)
+        self.assertIn("Outstanding", html)
+        self.assertNotIn("Review &amp; Complete", html)
+        self.assertNotIn("确认订单完成", html)
         self.assertEqual(self.client().post(self.complete_url(pi)).status_code, 409)
         self.assertEqual(pi.status, "ARRIVED")
+
+    def test_order_detail_ready_completion_check_enters_final_review_without_post(self):
+        pi = self.pi()
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        panel = page.split('id="completion-check"', 1)[1].split('</section>', 1)[0]
+        for text in ("Controlled completion", "Completion Check", "Customer Payment",
+                     "Freight Settlement", "Document Delivery", "Review &amp; Complete",
+                     "Ready for final completion"):
+            self.assertIn(text, panel)
+        self.assertIn(f'href="/v2/orders/{pi.id}/enter-completed"', panel)
+        self.assertIn('v2-button v2-button--primary', panel)
+        self.assertIn('v2-status-badge v2-status--done', panel)
+        self.assertNotIn("确认订单完成", panel)
+        self.assertNotIn("btn btn-success mt-3", panel)
+        self.assertNotIn("<form", panel)
+
+    def test_completion_page_uses_modern_context_readiness_and_existing_post_contract(self):
+        pi = self.pi(actual_departure_date=date(2026, 8, 4), actual_arrival_date=date(2026, 8, 21))
+        page = self.client().get(self.complete_url(pi)).get_data(as_text=True)
+        for text in ("v2-modern", "Controlled completion", "Completion Check", "Order Context", "Completion Readiness",
+                     "Final Lifecycle Transition", "ARRIVED", "COMPLETED",
+                     "Customer Payment", "Freight Settlement", "Document Delivery",
+                     "controlled Correction remains available"):
+            self.assertIn(text, page)
+        self.assertIn('id="complete-order-form"', page)
+        self.assertIn('name="csrf_token"', page)
+        self.assertIn(f'href="/v2/orders/{pi.id}"', page)
+        for token in ('v2-completion-consequence', 'Completion consequence',
+                      'v2-completion-actions', '>Cancel</a>', '>Complete Order</button>'):
+            self.assertIn(token, page)
+        form = page.split('id="complete-order-form"', 1)[1].split('</form>', 1)[0]
+        self.assertNotIn('v2-form-actions', form)
+        for business_field in ("actual_arrival_date", "completion_note", "completion_date"):
+            self.assertNotIn(f'name="{business_field}"', page)
+
+    def test_incomplete_completion_page_has_no_completion_post_form(self):
+        pi = self.pi(balance_received_amount=Decimal("1"))
+        page = self.client().get(self.complete_url(pi)).get_data(as_text=True)
+        self.assertIn("Completion is blocked", page)
+        self.assertIn("Outstanding", page)
+        self.assertNotIn('id="complete-order-form"', page)
+        self.assertNotIn('v2-completion-actions', page)
+        self.assertNotIn('<form method="post"', page)
 
     def test_completed_order_blocks_task_mutation_but_arrived_does_not(self):
         arrived = self.pi()
