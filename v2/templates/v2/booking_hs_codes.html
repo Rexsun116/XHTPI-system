@@ -1,12 +1,8 @@
 {% extends 'v2/base.html' %}
+{% block title %}Booking HS Codes · XHTPI V2{% endblock %}
+{% block body_class %}v2-modern{% endblock %}
 {% block content %}
-<h2>Booking HS Code · {{ pi.pi_no }}</h2>
-<p class="text-muted">这是订单项快照；不会修改 Product master data。</p>
-<form method="post" class="card p-4">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  {% for item in pi.items %}
-  <div class="border-bottom py-3"><b>{{ item.product_model_snapshot or item.product_category_snapshot or 'Product' }}</b><label class="form-label d-block mt-2">HS Code</label><input class="form-control" maxlength="32" name="product_hs_code_snapshot_{{ item.id }}" value="{{ item.product_hs_code_snapshot or '' }}"></div>
-  {% endfor %}
-  <button class="btn btn-primary mt-3">保存 HS Code</button>
-</form>
+<header class="v2-form-page-header"><div><p class="v2-form-eyebrow">Booking document</p><h1>Booking HS Codes</h1><p>These HS codes are this order's item data used for Booking document output.</p></div><span class="v2-status-badge v2-status--action">PRE_SHIPMENT</span></header>
+<section class="v2-panel v2-lifecycle-panel"><header class="v2-panel-header"><div><h2>Order Context</h2><p>HS codes belong to this order’s Booking data.</p></div></header><div class="v2-panel-body"><dl class="v2-readonly-facts"><div><dt>PI Number</dt><dd>{{ pi.pi_no }}</dd></div><div><dt>Customer</dt><dd>{{ pi.customer_name_snapshot or '—' }}</dd></div><div><dt>Current Status</dt><dd>{{ pi.status }}</dd></div></dl></div></section>
+<form method="post" class="v2-new-order-form" id="booking-hs-codes-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><section class="v2-panel"><header class="v2-panel-header"><div><h2>Booking Items</h2><p>Confirm the HS Code for each order item.</p></div></header><div class="v2-panel-body"><div class="v2-booking-items">{% for item in pi.items %}<section class="v2-booking-item"><div><span class="v2-item-sequence">Item {{ loop.index }}</span><h3>{{ item.product_model_snapshot or item.product_category_snapshot or 'Product' }}</h3><p>{{ item.quantity }} {{ item.quantity_unit or '' }}</p></div><label for="product-hs-code-{{ item.id }}"><span>HS Code</span><input id="product-hs-code-{{ item.id }}" class="form-control" maxlength="32" name="product_hs_code_snapshot_{{ item.id }}" value="{{ item.product_hs_code_snapshot or '' }}"></label></section>{% endfor %}</div><aside class="v2-editor-note"><strong>Order-specific Booking data</strong><p>Changing these values does not update the Product master record.</p></aside></div></section><footer class="v2-form-actions"><p>Save only after confirming each order item.</p><div><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a><button class="v2-button v2-button--primary" type="submit">Save HS Codes</button></div></footer></form>
 {% endblock %}

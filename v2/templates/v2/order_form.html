@@ -52,12 +52,11 @@
   </div></section>
 
   <section class="v2-panel mt-4">
-    <header class="v2-panel-header"><div><span class="v2-form-section-number">5</span><strong>Document Requirements</strong><p>Record each existing three-state requirement decision.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Document Requirements</h5><div class="row g-3">
-      {% set labels={'coo_required':'COO','apta_required':'APTA','export_license_required':'Export License','customs_docs_required':'Customs Documents','coc_required':'COC','coa_required':'COA','original_bl_required':'Original BL','obd_electronic_required':'OBD Electronic BL','insurance_original_required':'Insurance Original','insurance_electronic_required':'Insurance Electronic','original_documents_mail_required':'Mail Original Documents','telex_release_required':'Telex Release','settlement_documents_required':'Settlement Documents'} %}
-      {% for field,label in labels.items() %}<div class="col-md-3"><label>{{label}}</label><select name="{{field}}" class="form-select"><option value="">Not confirmed</option><option value="true" {% if data.get(field)=='true' %}selected{% endif %}>Required</option><option value="false" {% if data.get(field)=='false' %}selected{% endif %}>Not required</option></select></div>{% endfor %}
-      <div class="col-12"><label>Other document notes</label><textarea name="other_document_notes" class="form-control">{{data.get('other_document_notes','')}}</textarea></div>
-    </div>
-  </div></section>
+    <header class="v2-panel-header"><div><span class="v2-form-section-number">5</span><strong>Document Requirements</strong><p>Record each existing three-state requirement decision.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Document Requirements</h5>
+      {% set document_labels={'coo_required':'COO / Certificate of Origin','apta_required':'APTA','export_license_required':'Export License','customs_docs_required':'Customs Documents','coc_required':'COC','coa_required':'COA','original_bl_required':'Original B/L','obd_electronic_required':'OBD Electronic B/L','insurance_original_required':'Original Insurance Policy','insurance_electronic_required':'Electronic Insurance Policy','original_documents_mail_required':'Original Documents Mail','telex_release_required':'Telex Release','settlement_documents_required':'Settlement Documents'} %}
+      <div class="v2-requirements-grid v2-setup-requirements-grid">{% for field,label in document_labels.items() %}<label class="v2-requirement-field" for="{{ field }}"><span>{{label}}</span><select id="{{ field }}" name="{{field}}" class="form-select"><option value="">Not Confirmed</option><option value="true" {% if data.get(field)=='true' %}selected{% endif %}>Required</option><option value="false" {% if data.get(field)=='false' %}selected{% endif %}>Not Required</option></select></label>{% endfor %}</div>
+      <div class="v2-document-notes"><label for="other_document_notes">Other document notes</label><p>Optional setup information; this is separate from the requirement decisions above.</p><textarea id="other_document_notes" name="other_document_notes" class="form-control">{{data.get('other_document_notes','')}}</textarea></div>
+    </div></section>
 
   <section id="commission-section" class="v2-panel mt-4" hidden>
     <header class="v2-panel-header"><div><span class="v2-form-section-number">6</span><strong>Commission / Additional</strong><p>Available for COMMISSION orders.</p></div></header><div class="v2-item-editor"><h5 class="visually-hidden">Commission</h5>

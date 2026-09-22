@@ -60,7 +60,7 @@ class SharedV2DesignSystemTest(TestCase):
     def test_linked_export_form_reuses_the_modern_shell_and_semantic_context_primitives(self):
         for token in ("{% block body_class %}v2-modern{% endblock %}", "v2-form-page-header",
                       "v2-form-error", "v2-panel", "v2-form-grid", "v2-item-row",
-                      "v2-document-grid", "v2-form-actions", "v2-readonly-facts",
+                      "v2-requirements-grid", "v2-form-actions", "v2-readonly-facts",
                       "linked-export-source-context"):
             self.assertIn(token, self.linked_export_form)
         for forbidden in ("card p-4", "loading_country_name", "add-item", "remove-item"):
