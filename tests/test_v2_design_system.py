@@ -41,6 +41,12 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn("{% block body_class %}v2-legacy{% endblock %}", self.base)
         self.assertIn("font-awesome/6.5.2/css/all.min.css", self.base)
 
+    def test_sidebar_defers_freight_quotes_management_without_affecting_order_freight(self):
+        self.assertNotIn("url_for('v2.quotes')", self.base)
+        self.assertNotIn("Freight Quotes", self.base)
+        self.assertIn('name="quote_id"', self.finance)
+        self.assertIn('Accept Freight Quote', self.finance)
+
     def test_dashboard_and_order_detail_opt_into_shared_foundation(self):
         for page in (self.dashboard, self.order_detail):
             self.assertIn("{% block body_class %}v2-modern{% endblock %}", page)
