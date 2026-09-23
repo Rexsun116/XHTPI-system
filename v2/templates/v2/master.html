@@ -21,6 +21,7 @@
   'bank_address': 'Bank Address', 'account_number': 'Account Number', 'swift_code': 'SWIFT Code',
   'currency': 'Currency', 'remittance_information': 'Remittance Information'
 } %}
+{% macro blank_for_none(value) %}{{ value if value is not none else '' }}{% endmacro %}
 
 <section class="v2-master-page" aria-labelledby="master-title">
   <header class="v2-form-page-header v2-master-page-header">
@@ -117,7 +118,7 @@
           <div class="v2-master-grid">
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-name">Account Label / Name <span class="v2-required" aria-hidden="true">*</span></label>
-              <input id="master-name" class="form-control" name="name" value="{{ edit_row|attr('name') if edit_row else '' }}" required>
+              <input id="master-name" class="form-control" name="name" value="{{ blank_for_none(edit_row|attr('name') if edit_row else none) }}" required>
             </div>
           </div>
         </fieldset>
@@ -126,7 +127,7 @@
           <div class="v2-master-grid">
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-beneficiary_name">Beneficiary Name <span class="v2-required" aria-hidden="true">*</span></label>
-              <input id="master-beneficiary_name" class="form-control" name="beneficiary_name" value="{{ edit_row|attr('beneficiary_name') if edit_row else '' }}" required>
+              <input id="master-beneficiary_name" class="form-control" name="beneficiary_name" value="{{ blank_for_none(edit_row|attr('beneficiary_name') if edit_row else none) }}" required>
             </div>
           </div>
         </fieldset>
@@ -135,15 +136,15 @@
           <div class="v2-master-grid">
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-bank_name">Bank Name <span class="v2-required" aria-hidden="true">*</span></label>
-              <input id="master-bank_name" class="form-control" name="bank_name" value="{{ edit_row|attr('bank_name') if edit_row else '' }}" required>
+              <input id="master-bank_name" class="form-control" name="bank_name" value="{{ blank_for_none(edit_row|attr('bank_name') if edit_row else none) }}" required>
             </div>
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-bank_address">Bank Address</label>
-              <textarea id="master-bank_address" class="form-control v2-bank-textarea" name="bank_address" rows="3">{{ edit_row|attr('bank_address') if edit_row else '' }}</textarea>
+              <textarea id="master-bank_address" class="form-control v2-bank-textarea" name="bank_address" rows="3">{{ blank_for_none(edit_row|attr('bank_address') if edit_row else none) }}</textarea>
             </div>
             <div class="v2-master-field">
               <label for="master-swift_code">SWIFT Code</label>
-              <input id="master-swift_code" class="form-control" name="swift_code" value="{{ edit_row|attr('swift_code') if edit_row else '' }}">
+              <input id="master-swift_code" class="form-control" name="swift_code" value="{{ blank_for_none(edit_row|attr('swift_code') if edit_row else none) }}">
             </div>
           </div>
         </fieldset>
@@ -152,11 +153,11 @@
           <div class="v2-master-grid">
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-account_number">Account Number <span class="v2-required" aria-hidden="true">*</span></label>
-              <input id="master-account_number" class="form-control" name="account_number" value="{{ edit_row|attr('account_number') if edit_row else '' }}" required>
+              <input id="master-account_number" class="form-control" name="account_number" value="{{ blank_for_none(edit_row|attr('account_number') if edit_row else none) }}" required>
             </div>
             <div class="v2-master-field">
               <label for="master-currency">Currency</label>
-              <input id="master-currency" class="form-control" name="currency" value="{{ edit_row|attr('currency') if edit_row else '' }}">
+              <input id="master-currency" class="form-control" name="currency" value="{{ blank_for_none(edit_row|attr('currency') if edit_row else none) }}">
             </div>
           </div>
         </fieldset>
@@ -165,7 +166,7 @@
           <div class="v2-master-grid">
             <div class="v2-master-field v2-master-field--wide">
               <label for="master-remittance_information">Remittance Information</label>
-              <textarea id="master-remittance_information" class="form-control v2-bank-textarea" name="remittance_information" rows="3">{{ edit_row|attr('remittance_information') if edit_row else '' }}</textarea>
+              <textarea id="master-remittance_information" class="form-control v2-bank-textarea" name="remittance_information" rows="3">{{ blank_for_none(edit_row|attr('remittance_information') if edit_row else none) }}</textarea>
             </div>
           </div>
         </fieldset>

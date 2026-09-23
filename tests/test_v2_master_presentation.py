@@ -173,6 +173,25 @@ class V2MasterPresentationTest(TestCase):
         self.assertIn("First line\nSecond line", edit_page)
         self.assertIn('href="/v2/master/banks">Cancel</a>', edit_page)
 
+    def test_bank_edit_renders_nullable_fields_blank_without_changing_real_text(self):
+        bank = BankAccount(code="BNK-NULL", name="Nullable bank", beneficiary_name="Beneficiary",
+                           bank_name="Bank", account_number="123", bank_address=None, swift_code=None,
+                           currency=None, remittance_information=None)
+        db.session.add(bank)
+        db.session.commit()
+
+        page = self.client().get(f"/v2/master/banks/{bank.id}/edit").get_data(as_text=True)
+        for field in ("bank_address", "swift_code", "currency", "remittance_information"):
+            self.assertNotIn(f'name="{field}" value="None"', page)
+        self.assertIn('name="swift_code" value=""', page)
+        self.assertIn('name="currency" value=""', page)
+        self.assertIn('name="remittance_information" rows="3"></textarea>', page)
+
+        bank.remittance_information = "Payment reference: TC-2610"
+        db.session.commit()
+        page = self.client().get(f"/v2/master/banks/{bank.id}/edit").get_data(as_text=True)
+        self.assertIn("Payment reference: TC-2610", page)
+
     def test_toggle_remains_post_with_csrf_and_rows_do_not_nest_forms(self):
         customer = Customer(code="CUS0001", name="Existing")
         db.session.add(customer)

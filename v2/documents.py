@@ -23,6 +23,14 @@ def format_document_multiline(value):
     return str(value or "").replace(";", "\n").replace("；", "\n")
 
 
+def optional_document_text(value):
+    """Return optional document text unless it is blank or a null-like legacy value."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    return None if not text or text.casefold() in {"none", "null"} else value
+
+
 def format_product_description(*parts):
     """Join document snapshot fields without leaking empty/null-like values."""
     return " ".join(
@@ -182,6 +190,7 @@ def document_context(pi, kind):
         "container_display": format_container_requirement(pi.container_type, pi.container_count),
         "format_batches": lambda item: format_batch_numbers([b.batch_number for b in item.batches]),
         "format_document_multiline": format_document_multiline,
+        "optional_document_text": optional_document_text,
         "format_decimal_compact": format_decimal_compact,
         "format_decimal_compact_grouped": format_decimal_compact_grouped,
         "format_product_description": format_product_description,

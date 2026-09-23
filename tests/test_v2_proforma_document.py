@@ -80,6 +80,28 @@ class ProformaDocumentTest(TestCase):
         self.assertNotIn("Live Bank", html); self.assertNotIn("LIVE", html)
         self.assertIn("Reference\nOnly", html)
 
+    def test_pi_and_invoice_omit_null_like_optional_remittance_without_changing_bank_lines(self):
+        pi = self.pi()
+        for remittance in (None, "", "   ", "None", "NONE", "nOnE", "null", "NuLl"):
+            with self.subTest(remittance=remittance):
+                pi.bank_remittance_snapshot = remittance
+                for kind in ("pi", "invoice"):
+                    html = render_invoice_html(pi, kind)
+                    self.assertIn("Account with Bank: <span class=\"multiline\">Snapshot Bank</span>", html)
+                    self.assertIn("SWIFT Code: SNAPSWIFT", html)
+                    self.assertNotIn('class="multiline">None</div>', html)
+                    self.assertNotIn('class="multiline">NONE</div>', html)
+                    self.assertNotIn('class="multiline">null</div>', html)
+                    self.assertNotIn("Reference;Only", html)
+
+        pi.bank_remittance_snapshot = "Reference;Only"
+        for kind in ("pi", "invoice"):
+            self.assertIn("Reference\nOnly", render_invoice_html(pi, kind))
+
+        pi.bank_remittance_snapshot = "None of these instructions may be omitted"
+        for kind in ("pi", "invoice"):
+            self.assertIn("None of these instructions may be omitted", render_invoice_html(pi, kind))
+
     def test_commercial_invoice_reuses_approved_pi_body_with_only_title_changed(self):
         pi = self.pi(); item = pi.items[0]
         item.product_category_snapshot = "TITANIUM DIOXIDE"; item.product_brand_snapshot = None
