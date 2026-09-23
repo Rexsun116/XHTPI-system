@@ -10,7 +10,7 @@ from unittest import TestCase
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.models import Customer, Product, User, db
+from v2.models import BankAccount, Customer, Product, User, db
 
 
 class _FormNestingParser(HTMLParser):
@@ -131,6 +131,47 @@ class V2MasterPresentationTest(TestCase):
         self.assertIn(f'action="/v2/master/products/{product.id}/edit"', edit_page)
         self.assertIn('value="PRD0001" readonly data-master-code', edit_page)
         self.assertIn('href="/v2/master/products">Cancel</a>', edit_page)
+
+    def test_bank_uses_dedicated_editor_and_keeps_long_text_contracts(self):
+        bank = BankAccount(code="BNK0001", name="USD collection", beneficiary_name="XHT Trading",
+                           bank_name="Example Bank", bank_address="One\nLong\nAddress",
+                           account_number="123456789", swift_code="EXAMP123", currency="USD",
+                           remittance_information="First line\nSecond line")
+        db.session.add(bank)
+        db.session.commit()
+        client = self.client()
+
+        page = client.get("/v2/master/banks").get_data(as_text=True)
+        self.assertIn('<form id="master-form" method="post"', page)
+        self.assertIn('name="csrf_token"', page)
+        for section in ("identity", "beneficiary", "bank-details", "account-details", "remittance"):
+            self.assertIn(f'data-bank-section="{section}"', page)
+        for field in ("name", "beneficiary_name", "bank_name", "bank_address", "account_number", "swift_code", "currency", "remittance_information"):
+            self.assertIn(f'name="{field}"', page)
+        self.assertIn('class="form-control v2-bank-textarea" name="bank_address"', page)
+        self.assertIn('class="form-control v2-bank-textarea" name="remittance_information"', page)
+        self.assertIn('class="v2-table v2-master-table v2-bank-table"', page)
+        for snapshot_field in (
+            "bank_beneficiary_snapshot", "bank_name_snapshot", "bank_address_snapshot",
+            "bank_account_number_snapshot", "bank_swift_code_snapshot", "bank_currency_snapshot",
+            "bank_remittance_information_snapshot",
+        ):
+            self.assertNotIn(snapshot_field, page)
+        self.assertNotIn(">Delete<", page)
+        self.assertNotIn("123456789</td>", page)
+        self.assertIn('class="v2-master-status"', page)
+        self.assertIn('class="v2-master-actions"', page)
+        self.assertIn(f'<form method="post" action="/v2/master/banks/{bank.id}/toggle">', page)
+        parser = _FormNestingParser()
+        parser.feed(page)
+        self.assertFalse(parser.nested_form_found)
+
+        edit_page = client.get(f"/v2/master/banks/{bank.id}/edit").get_data(as_text=True)
+        self.assertIn(f'action="/v2/master/banks/{bank.id}/edit"', edit_page)
+        self.assertIn('value="BNK0001" readonly data-master-code', edit_page)
+        self.assertIn("One\nLong\nAddress", edit_page)
+        self.assertIn("First line\nSecond line", edit_page)
+        self.assertIn('href="/v2/master/banks">Cancel</a>', edit_page)
 
     def test_toggle_remains_post_with_csrf_and_rows_do_not_nest_forms(self):
         customer = Customer(code="CUS0001", name="Existing")

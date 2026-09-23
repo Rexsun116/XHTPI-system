@@ -111,6 +111,64 @@
             {% endfor %}
           </div>
         </fieldset>
+      {% elif kind == 'banks' %}
+        <fieldset class="v2-master-fieldset v2-bank-identity" data-bank-section="identity">
+          <legend>Identity</legend>
+          <div class="v2-master-grid">
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-name">Account Label / Name <span class="v2-required" aria-hidden="true">*</span></label>
+              <input id="master-name" class="form-control" name="name" value="{{ edit_row|attr('name') if edit_row else '' }}" required>
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="v2-master-fieldset v2-bank-beneficiary" data-bank-section="beneficiary">
+          <legend>Beneficiary</legend>
+          <div class="v2-master-grid">
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-beneficiary_name">Beneficiary Name <span class="v2-required" aria-hidden="true">*</span></label>
+              <input id="master-beneficiary_name" class="form-control" name="beneficiary_name" value="{{ edit_row|attr('beneficiary_name') if edit_row else '' }}" required>
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="v2-master-fieldset v2-bank-details" data-bank-section="bank-details">
+          <legend>Bank Details</legend>
+          <div class="v2-master-grid">
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-bank_name">Bank Name <span class="v2-required" aria-hidden="true">*</span></label>
+              <input id="master-bank_name" class="form-control" name="bank_name" value="{{ edit_row|attr('bank_name') if edit_row else '' }}" required>
+            </div>
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-bank_address">Bank Address</label>
+              <textarea id="master-bank_address" class="form-control v2-bank-textarea" name="bank_address" rows="3">{{ edit_row|attr('bank_address') if edit_row else '' }}</textarea>
+            </div>
+            <div class="v2-master-field">
+              <label for="master-swift_code">SWIFT Code</label>
+              <input id="master-swift_code" class="form-control" name="swift_code" value="{{ edit_row|attr('swift_code') if edit_row else '' }}">
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="v2-master-fieldset v2-bank-account-details" data-bank-section="account-details">
+          <legend>Account Details</legend>
+          <div class="v2-master-grid">
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-account_number">Account Number <span class="v2-required" aria-hidden="true">*</span></label>
+              <input id="master-account_number" class="form-control" name="account_number" value="{{ edit_row|attr('account_number') if edit_row else '' }}" required>
+            </div>
+            <div class="v2-master-field">
+              <label for="master-currency">Currency</label>
+              <input id="master-currency" class="form-control" name="currency" value="{{ edit_row|attr('currency') if edit_row else '' }}">
+            </div>
+          </div>
+        </fieldset>
+        <fieldset class="v2-master-fieldset v2-bank-remittance" data-bank-section="remittance">
+          <legend>Remittance</legend>
+          <div class="v2-master-grid">
+            <div class="v2-master-field v2-master-field--wide">
+              <label for="master-remittance_information">Remittance Information</label>
+              <textarea id="master-remittance_information" class="form-control v2-bank-textarea" name="remittance_information" rows="3">{{ edit_row|attr('remittance_information') if edit_row else '' }}</textarea>
+            </div>
+          </div>
+        </fieldset>
       {% else %}
         <div class="v2-master-grid v2-master-grid--generic">
           {% for f in fields %}
@@ -141,9 +199,11 @@
     </div>
     {% if rows %}
       <div class="v2-master-table-wrap">
-        <table class="v2-table v2-master-table {% if kind == 'products' %}v2-product-table{% endif %}">
+        <table class="v2-table v2-master-table {% if kind == 'products' %}v2-product-table{% elif kind == 'banks' %}v2-bank-table{% endif %}">
           {% if kind == 'products' %}
             <thead><tr><th scope="col">Code</th><th scope="col">Product identity / Model</th><th scope="col" class="v2-product-optional">Category / Brand</th><th scope="col" class="v2-product-optional">Packaging</th><th scope="col">HS Code</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          {% elif kind == 'banks' %}
+            <thead><tr><th scope="col">Code</th><th scope="col">Name / Beneficiary</th><th scope="col">Bank Name</th><th scope="col">Currency</th><th scope="col" class="v2-bank-optional">SWIFT</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           {% else %}
             <thead><tr><th scope="col">Code</th><th scope="col">{{ 'Name' if kind in party_kinds or kind == 'banks' else 'Model' }}</th>{% if kind in party_kinds %}<th scope="col">Country</th><th scope="col">Contact</th>{% endif %}<th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
           {% endif %}
@@ -156,11 +216,16 @@
                   <td class="v2-product-optional">{% if r.category %}<span>{{ r.category }}</span>{% endif %}{% if r.brand %}<span class="v2-master-secondary">{{ r.brand }}</span>{% endif %}{% if not r.category and not r.brand %}—{% endif %}</td>
                   <td class="v2-product-optional">{{ r.packaging or '—' }}</td>
                   <td>{{ r.hs_code or '—' }}</td>
+                {% elif kind == 'banks' %}
+                  <td><strong>{{ r.name }}</strong>{% if r.beneficiary_name %}<span class="v2-master-secondary">{{ r.beneficiary_name }}</span>{% endif %}</td>
+                  <td>{{ r.bank_name or '—' }}</td>
+                  <td>{{ r.currency or '—' }}</td>
+                  <td class="v2-bank-optional">{{ r.swift_code or '—' }}</td>
                 {% else %}
-                  <td><strong>{{ r.name if r.name is defined else r.model }}</strong>{% if kind == 'banks' and r.bank_name %}<span class="v2-master-secondary">{{ r.bank_name }}</span>{% endif %}</td>
+                  <td><strong>{{ r.name if r.name is defined else r.model }}</strong></td>
                 {% endif %}
                 {% if kind in party_kinds %}<td>{{ r.country or '—' }}</td><td>{% if r.contact_person %}<span>{{ r.contact_person }}</span>{% endif %}{% if r.phone %}<span class="v2-master-secondary">{{ r.phone }}</span>{% endif %}{% if not r.contact_person and not r.phone %}—{% endif %}</td>{% endif %}
-                <td><span class="v2-status-badge {{ 'v2-status--done' if r.active else 'v2-status--waiting' }}"><span class="v2-status-dot" aria-hidden="true"></span>{{ 'Active' if r.active else 'Inactive' }}</span></td>
+                <td class="v2-master-status"><span class="v2-status-badge {{ 'v2-status--done' if r.active else 'v2-status--waiting' }}"><span class="v2-status-dot" aria-hidden="true"></span>{{ 'Active' if r.active else 'Inactive' }}</span></td>
                 <td class="v2-master-actions">
                   <a class="v2-button" href="{{ url_for('v2.master_edit', kind=kind, row_id=r.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('v2.master_toggle', kind=kind, row_id=r.id) }}">
