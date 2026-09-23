@@ -10,7 +10,7 @@ from unittest import TestCase
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.models import Customer, User, db
+from v2.models import Customer, Product, User, db
 
 
 class _FormNestingParser(HTMLParser):
@@ -108,6 +108,29 @@ class V2MasterPresentationTest(TestCase):
                 page = client.get(f"/v2/master/{kind}").get_data(as_text=True)
                 for field in fields:
                     self.assertIn(f'name="{field}"', page)
+
+    def test_product_uses_dedicated_editor_and_preserves_existing_browser_contract(self):
+        product = Product(code="PRD0001", category="Pigment", brand="Acme", model="R-996",
+                          packaging="25 kg bag", hs_code="320611")
+        db.session.add(product)
+        db.session.commit()
+        client = self.client()
+
+        page = client.get("/v2/master/products").get_data(as_text=True)
+        self.assertIn('class="v2-master-fieldset v2-product-details"', page)
+        self.assertIn('class="v2-master-fieldset v2-product-trade"', page)
+        self.assertIn('class="v2-table v2-master-table v2-product-table"', page)
+        for field in ("category", "brand", "model", "packaging", "hs_code"):
+            self.assertIn(f'name="{field}"', page)
+        self.assertNotIn("product_hs_code_snapshot", page)
+        self.assertNotIn(">Delete<", page)
+        self.assertIn(f'<form method="post" action="/v2/master/products/{product.id}/toggle">', page)
+        self.assertIn("Set Inactive", page)
+
+        edit_page = client.get(f"/v2/master/products/{product.id}/edit").get_data(as_text=True)
+        self.assertIn(f'action="/v2/master/products/{product.id}/edit"', edit_page)
+        self.assertIn('value="PRD0001" readonly data-master-code', edit_page)
+        self.assertIn('href="/v2/master/products">Cancel</a>', edit_page)
 
     def test_toggle_remains_post_with_csrf_and_rows_do_not_nest_forms(self):
         customer = Customer(code="CUS0001", name="Existing")

@@ -88,6 +88,29 @@
             {% endfor %}
           </div>
         </fieldset>
+      {% elif kind == 'products' %}
+        <fieldset class="v2-master-fieldset v2-product-details" data-product-section="details">
+          <legend>Product Details</legend>
+          <div class="v2-master-grid">
+            {% for f in ['category', 'brand', 'model'] %}
+              <div class="v2-master-field">
+                <label for="master-{{ f }}">{{ labels[f] }}{% if f == 'model' %} <span class="v2-required" aria-hidden="true">*</span>{% endif %}</label>
+                <input id="master-{{ f }}" class="form-control" name="{{ f }}" value="{{ edit_row|attr(f) if edit_row else '' }}" {% if f == 'model' %}required{% endif %}>
+              </div>
+            {% endfor %}
+          </div>
+        </fieldset>
+        <fieldset class="v2-master-fieldset v2-product-trade" data-product-section="trade">
+          <legend>Trade / Packaging</legend>
+          <div class="v2-master-grid">
+            {% for f in ['packaging', 'hs_code'] %}
+              <div class="v2-master-field v2-master-field--wide">
+                <label for="master-{{ f }}">{{ labels[f] }}</label>
+                <input id="master-{{ f }}" class="form-control" name="{{ f }}" value="{{ edit_row|attr(f) if edit_row else '' }}">
+              </div>
+            {% endfor %}
+          </div>
+        </fieldset>
       {% else %}
         <div class="v2-master-grid v2-master-grid--generic">
           {% for f in fields %}
@@ -118,13 +141,24 @@
     </div>
     {% if rows %}
       <div class="v2-master-table-wrap">
-        <table class="v2-table v2-master-table">
-          <thead><tr><th scope="col">Code</th><th scope="col">{{ 'Name' if kind in party_kinds or kind == 'banks' else 'Model' }}</th>{% if kind in party_kinds %}<th scope="col">Country</th><th scope="col">Contact</th>{% endif %}<th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+        <table class="v2-table v2-master-table {% if kind == 'products' %}v2-product-table{% endif %}">
+          {% if kind == 'products' %}
+            <thead><tr><th scope="col">Code</th><th scope="col">Product identity / Model</th><th scope="col" class="v2-product-optional">Category / Brand</th><th scope="col" class="v2-product-optional">Packaging</th><th scope="col">HS Code</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          {% else %}
+            <thead><tr><th scope="col">Code</th><th scope="col">{{ 'Name' if kind in party_kinds or kind == 'banks' else 'Model' }}</th>{% if kind in party_kinds %}<th scope="col">Country</th><th scope="col">Contact</th>{% endif %}<th scope="col">Status</th><th scope="col"><span class="visually-hidden">Actions</span></th></tr></thead>
+          {% endif %}
           <tbody>
             {% for r in rows %}
               <tr>
                 <td class="v2-master-code">{{ r.code }}</td>
-                <td><strong>{{ r.name if r.name is defined else r.model }}</strong>{% if kind == 'products' and r.brand %}<span class="v2-master-secondary">{{ r.brand }}</span>{% elif kind == 'banks' and r.bank_name %}<span class="v2-master-secondary">{{ r.bank_name }}</span>{% endif %}</td>
+                {% if kind == 'products' %}
+                  <td><strong>{{ r.model }}</strong></td>
+                  <td class="v2-product-optional">{% if r.category %}<span>{{ r.category }}</span>{% endif %}{% if r.brand %}<span class="v2-master-secondary">{{ r.brand }}</span>{% endif %}{% if not r.category and not r.brand %}—{% endif %}</td>
+                  <td class="v2-product-optional">{{ r.packaging or '—' }}</td>
+                  <td>{{ r.hs_code or '—' }}</td>
+                {% else %}
+                  <td><strong>{{ r.name if r.name is defined else r.model }}</strong>{% if kind == 'banks' and r.bank_name %}<span class="v2-master-secondary">{{ r.bank_name }}</span>{% endif %}</td>
+                {% endif %}
                 {% if kind in party_kinds %}<td>{{ r.country or '—' }}</td><td>{% if r.contact_person %}<span>{{ r.contact_person }}</span>{% endif %}{% if r.phone %}<span class="v2-master-secondary">{{ r.phone }}</span>{% endif %}{% if not r.contact_person and not r.phone %}—{% endif %}</td>{% endif %}
                 <td><span class="v2-status-badge {{ 'v2-status--done' if r.active else 'v2-status--waiting' }}"><span class="v2-status-dot" aria-hidden="true"></span>{{ 'Active' if r.active else 'Inactive' }}</span></td>
                 <td class="v2-master-actions">
