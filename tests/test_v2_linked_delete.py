@@ -46,6 +46,34 @@ class LinkedDeleteTest(TestCase):
             self.assertEqual(self.client().post(f'/v2/orders/{pi.id}/delete', data={'confirmation':pi.pi_no}).status_code,409)
         self.assertEqual(before,self.snapshot())
 
+    def test_linked_delete_confirmation_page_keeps_pair_contract_in_modern_v2_shell(self):
+        customer, export, group = self.pair()
+        response = self.client().get(f'/v2/orders/{customer.id}/delete-linked-trade')
+        self.assertEqual(response.status_code, 200)
+        page = response.get_data(as_text=True)
+        self.assertIn('class="v2-modern"', page)
+        self.assertIn('class="v2-delete-page"', page)
+        self.assertIn('name="csrf_token"', page)
+        self.assertIn('id="customer-confirmation" name="customer_confirmation"', page)
+        self.assertIn('id="export-confirmation" name="export_confirmation"', page)
+        self.assertIn("CUSTOMER_ORDER", page)
+        self.assertIn("EXPORT_ORDER", page)
+        self.assertIn("CUSTOMER", page)
+        self.assertIn("EXPORT", page)
+        self.assertIn("Permanently Delete Linked Trade", page)
+        self.assertIn(">Cancel<", page)
+        self.assertNotIn("style=", page)
+        self.assertEqual(page.count("<form"), 1)
+        self.assertEqual(page.count("</form>"), 1)
+
+    def test_linked_delete_confirmation_error_uses_the_modern_accessible_alert(self):
+        customer, export, group = self.pair()
+        response = self.post(customer, customer_confirmation="WRONG")
+        self.assertEqual(response.status_code, 400)
+        page = response.get_data(as_text=True)
+        self.assertIn('class="v2-form-error v2-delete-error" role="alert"', page)
+        self.assertIn("confirmation", page.lower())
+
     def test_success_removes_owned_rows_only_and_preserves_file(self):
         customer, export, group = self.pair()
         unrelated = self.make_order('UNRELATED', with_all_children=True)

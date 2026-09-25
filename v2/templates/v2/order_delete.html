@@ -1,19 +1,25 @@
 {% extends 'v2/base.html' %}
 {% block title %}Delete {{ pi.pi_no }} · XHTPI V2{% endblock %}
+{% block body_class %}v2-modern{% endblock %}
 {% block content %}
-<div class="card border border-danger p-4 mx-auto" style="max-width: 680px">
-  <h2 class="text-danger">Permanently delete order {{ pi.pi_no }}?</h2>
-  <p>This permanently removes the order and all V2 child records. This action cannot be undone.</p>
-  <p>Type <strong>{{ pi.pi_no }}</strong> to confirm.</p>
-  {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
-  <form method="post" action="{{ url_for('v2.order_delete', pi_id=pi.id) }}">
+<div class="v2-delete-page" aria-labelledby="delete-order-title">
+  <header class="v2-form-page-header v2-delete-page-header">
+    <div><p class="v2-form-eyebrow">Destructive action</p><h1 id="delete-order-title">Permanently delete order</h1><p>Remove this draft order and its V2 child records.</p></div>
+    <span class="v2-status-badge v2-status--exception">IRREVERSIBLE</span>
+  </header>
+  <section class="v2-panel v2-delete-context" aria-labelledby="delete-order-context-title">
+    <header class="v2-panel-header"><div><h2 id="delete-order-context-title">Order to delete</h2><p>Confirm the exact draft order before continuing.</p></div></header>
+    <div class="v2-panel-body"><dl class="v2-readonly-facts"><div><dt>PI Number</dt><dd>{{ pi.pi_no }}</dd></div><div><dt>Customer</dt><dd>{{ pi.customer_name_snapshot or '—' }}</dd></div><div><dt>Current Status</dt><dd>{{ pi.status }}</dd></div></dl></div>
+  </section>
+  <form method="post" action="{{ url_for('v2.order_delete', pi_id=pi.id) }}" class="v2-panel v2-delete-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label class="form-label" for="confirmation">PI Number</label>
-    <input class="form-control" id="confirmation" name="confirmation" autocomplete="off" required>
-    <div class="d-flex gap-2 mt-4">
-      <button class="btn btn-danger">Permanently Delete Order</button>
-      <a class="btn btn-outline-secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a>
+    <header class="v2-panel-header"><div><h2>Confirm permanent deletion</h2><p>Type the PI Number below to enable this irreversible action.</p></div></header>
+    <div class="v2-panel-body">
+      <aside class="v2-delete-warning"><strong>This action cannot be undone.</strong><p>This permanently removes the order and all V2 child records.</p></aside>
+      {% if error %}<div class="v2-form-error v2-delete-error" role="alert">{{ error }}</div>{% endif %}
+      <div class="v2-delete-field"><label for="confirmation">Type PI Number <strong>{{ pi.pi_no }}</strong> to confirm</label><input class="form-control" id="confirmation" name="confirmation" autocomplete="off" required></div>
     </div>
+    <footer class="v2-delete-actions"><a class="v2-button" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a><button class="v2-button v2-button--danger" type="submit">Permanently Delete Order</button></footer>
   </form>
 </div>
 {% endblock %}

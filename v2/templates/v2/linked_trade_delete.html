@@ -1,18 +1,25 @@
 {% extends 'v2/base.html' %}
+{% block title %}Delete Linked Trade · XHTPI V2{% endblock %}
+{% block body_class %}v2-modern{% endblock %}
 {% block content %}
-<div class="card border border-danger p-4 mx-auto" style="max-width:680px">
-  <h2 class="text-danger">Delete Linked Trade</h2>
-  <p>This will permanently delete both linked orders: <strong>{{pair[0].pi_no}}</strong> and <strong>{{pair[1].pi_no}}</strong>, and all their order-owned records.</p>
-  <p>Master data and generated document files will remain. This action cannot be undone.</p>
-  {% if error %}<div class="alert alert-danger">{{error}}</div>{% endif %}
-  <form method="post">
-    <input type="hidden" name="csrf_token" value="{{csrf_token()}}">
-    <label class="form-label" for="customer-confirmation">Customer Order: {{pair[0].pi_no}}</label>
-    <input class="form-control" id="customer-confirmation" name="customer_confirmation" autocomplete="off" required>
-    <label class="form-label mt-3" for="export-confirmation">Export Order: {{pair[1].pi_no}}</label>
-    <input class="form-control" id="export-confirmation" name="export_confirmation" autocomplete="off" required>
-    <button class="btn btn-danger mt-4">Permanently Delete Linked Trade</button>
-    <a class="btn btn-outline-secondary mt-4" href="{{url_for('v2.order_view',pi_id=pair[0].id)}}">Cancel</a>
+<div class="v2-delete-page" aria-labelledby="delete-linked-trade-title">
+  <header class="v2-form-page-header v2-delete-page-header">
+    <div><p class="v2-form-eyebrow">Destructive action</p><h1 id="delete-linked-trade-title">Delete Linked Trade</h1><p>Permanently remove the complete linked draft pair.</p></div>
+    <span class="v2-status-badge v2-status--exception">IRREVERSIBLE</span>
+  </header>
+  <section class="v2-panel v2-delete-context" aria-labelledby="delete-linked-context-title">
+    <header class="v2-panel-header"><div><h2 id="delete-linked-context-title">Linked orders to delete</h2><p>Both structured draft orders are deleted together.</p></div></header>
+    <div class="v2-panel-body"><dl class="v2-delete-pair"><div><dt>CUSTOMER_ORDER</dt><dd>{{ pair[0].pi_no }}</dd></div><div><dt>EXPORT_ORDER</dt><dd>{{ pair[1].pi_no }}</dd></div></dl></div>
+  </section>
+  <form method="post" class="v2-panel v2-delete-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <header class="v2-panel-header"><div><h2>Confirm pair deletion</h2><p>Type both PI Numbers exactly before permanently deleting the pair.</p></div></header>
+    <div class="v2-panel-body">
+      <aside class="v2-delete-warning"><strong>This action cannot be undone.</strong><p>Both linked orders and their order-owned records are removed. Master data and generated document files remain.</p></aside>
+      {% if error %}<div class="v2-form-error v2-delete-error" role="alert">{{ error }}</div>{% endif %}
+      <div class="v2-delete-confirmations"><div class="v2-delete-field"><label for="customer-confirmation">Type Customer Order PI Number <strong>{{ pair[0].pi_no }}</strong></label><input class="form-control" id="customer-confirmation" name="customer_confirmation" autocomplete="off" required></div><div class="v2-delete-field"><label for="export-confirmation">Type Export Order PI Number <strong>{{ pair[1].pi_no }}</strong></label><input class="form-control" id="export-confirmation" name="export_confirmation" autocomplete="off" required></div></div>
+    </div>
+    <footer class="v2-delete-actions"><a class="v2-button" href="{{ url_for('v2.order_view', pi_id=pair[0].id) }}">Cancel</a><button class="v2-button v2-button--danger" type="submit">Permanently Delete Linked Trade</button></footer>
   </form>
 </div>
 {% endblock %}

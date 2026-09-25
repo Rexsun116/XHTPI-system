@@ -172,6 +172,30 @@ class V2OrderDeleteTest(TestCase):
         self.assertNotIn("Delete Order", client.get(f"/v2/orders/{later.id}").get_data(as_text=True))
         self.assertEqual(client.get(f"/v2/orders/{later.id}/delete").status_code, 409)
 
+    def test_delete_confirmation_page_keeps_its_contract_in_the_modern_v2_shell(self):
+        pi = self.make_order(pi_no="DELETE-PRESENTATION")
+        response = self.client().get(f"/v2/orders/{pi.id}/delete")
+        self.assertEqual(response.status_code, 200)
+        page = response.get_data(as_text=True)
+        self.assertIn('class="v2-modern"', page)
+        self.assertIn('class="v2-delete-page"', page)
+        self.assertIn('name="csrf_token"', page)
+        self.assertIn('id="confirmation" name="confirmation"', page)
+        self.assertIn("DELETE-PRESENTATION", page)
+        self.assertIn("Permanently Delete Order", page)
+        self.assertIn(">Cancel<", page)
+        self.assertNotIn("style=", page)
+        self.assertEqual(page.count("<form"), 1)
+        self.assertEqual(page.count("</form>"), 1)
+
+    def test_delete_confirmation_error_uses_the_modern_accessible_alert(self):
+        pi = self.make_order(pi_no="DELETE-ERROR")
+        response = self.client().post(f"/v2/orders/{pi.id}/delete", data={"confirmation": "WRONG"})
+        self.assertEqual(response.status_code, 400)
+        page = response.get_data(as_text=True)
+        self.assertIn('class="v2-form-error v2-delete-error" role="alert"', page)
+        self.assertIn("Enter the exact PI Number to confirm permanent deletion.", page)
+
     def test_delete_requires_authentication_and_csrf(self):
         pi = self.make_order(pi_no="SECURE")
         anonymous = self.app.test_client()
