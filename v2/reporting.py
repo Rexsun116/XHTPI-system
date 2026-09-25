@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
+from order_lifecycle import OrderStage
+
 
 ZERO = Decimal("0.00")
 COUNTRY_NOT_RECORDED = "Country not recorded"
@@ -121,9 +123,26 @@ def _order_total(order):
     return _money(getattr(order, "contract_total", ZERO))
 
 
+def _weight_mt(item):
+    """Return the only supported management-weight normalization, or None.
+
+    ``quantity_unit`` remains free text in the order model.  Reporting is
+    intentionally narrower: current MT and KGS conventions are accepted after
+    the same conservative trim/case canonicalization used by ``_unit``.
+    """
+    quantity = _money(getattr(item, "quantity", None))
+    unit = _unit(item)
+    if unit == "MT":
+        return quantity
+    if unit == "KGS":
+        return quantity / Decimal("1000")
+    return None
+
+
 def _freight_context(owners, freight_settlements):
     settlements = {getattr(row, "pi_id", None): row for row in freight_settlements}
     confirmed = {"USD": ZERO, "CNY": ZERO}
+    unpaid = {"USD": ZERO, "CNY": ZERO}
     missing, incomplete = 0, 0
     for order in owners:
         settlement = settlements.get(getattr(order, "id", None))
@@ -139,6 +158,11 @@ def _freight_context(owners, freight_settlements):
                 branches.append((amount, confirmed_flag))
                 if amount is not None and confirmed_flag is True:
                     confirmed[currency] += _money(amount)
+                    # Payment status is the authoritative binary settlement
+                    # fact.  ``paid_at`` is derived from it and cannot safely
+                    # distinguish a paid from an unpaid branch on its own.
+                    if getattr(settlement, f"{currency.lower()}_payment_status", None) != "PAID":
+                        unpaid[currency] += _money(amount)
         if any(amount is None or confirmed_flag is not True for amount, confirmed_flag in branches):
             incomplete += 1
         elif not branches and (getattr(settlement, "usd_bill_required", None) is None
@@ -146,6 +170,8 @@ def _freight_context(owners, freight_settlements):
             incomplete += 1
     return {
         "confirmed_bill_amount_by_currency": confirmed,
+        "freight_total_billed_by_currency": confirmed,
+        "freight_unpaid_by_currency": unpaid,
         "orders_with_missing_settlement_count": missing,
         "orders_with_incomplete_settlement_count": incomplete,
     }
@@ -174,6 +200,10 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
     port_rows = {}
     missing_customer, missing_product, missing_country = 0, 0, 0
     unknown_units, all_units = 0, set()
+    open_order_weight_mt = ZERO
+    unshipped_open_order_weight_mt = ZERO
+    open_weight_excluded_lines = 0
+    open_weight_excluded_units = set()
     ytd_order_count = shipped_order_count = arrived_order_count = 0
     in_transit = upcoming = 0
 
@@ -247,6 +277,7 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
         if not shipped_date and planned_context and planned_context >= as_of:
             upcoming += 1
 
+        is_open = getattr(order, "status", None) != OrderStage.COMPLETED
         for item in getattr(order, "items", ()):
             product_label = str(getattr(item, "product_model_snapshot", "") or "").strip()
             if not product_label:
@@ -264,6 +295,16 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
             all_units.add(unit)
             if unit == UNIT_NOT_RECORDED:
                 unknown_units += 1
+
+            if is_open:
+                normalized_weight = _weight_mt(item)
+                if normalized_weight is None:
+                    open_weight_excluded_lines += 1
+                    open_weight_excluded_units.add(unit)
+                else:
+                    open_order_weight_mt += normalized_weight
+                    if not shipped_date:
+                        unshipped_open_order_weight_mt += normalized_weight
 
     freight = _freight_context(owners, freight_settlements)
     collection_rate = {
@@ -309,6 +350,8 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
         "unknown_quantity_unit_item_count": unknown_units,
         "quantity_unit_types": sorted(all_units),
         "mixed_quantity_units": len(all_units - {UNIT_NOT_RECORDED}) > 1,
+        "open_order_weight_excluded_line_count": open_weight_excluded_lines,
+        "open_order_weight_excluded_units": sorted(open_weight_excluded_units),
         "freight_missing_settlement_count": freight["orders_with_missing_settlement_count"],
         "freight_incomplete_settlement_count": freight["orders_with_incomplete_settlement_count"],
     }
@@ -324,6 +367,8 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
             "ytd_arrived_revenue_by_currency": _as_dict(arrived_revenue),
             "orders_in_transit_count": in_transit,
             "upcoming_shipments_count": upcoming,
+            "open_order_weight_mt": open_order_weight_mt,
+            "unshipped_open_order_weight_mt": unshipped_open_order_weight_mt,
             "contracted_by_currency": _as_dict(contracted),
             "received_by_currency": _as_dict(received),
             "outstanding_receivables_by_currency": _as_dict(outstanding),
@@ -338,6 +383,8 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None):
         },
         "freight_context": {
             "confirmed_bill_amount_by_currency": _as_dict(freight["confirmed_bill_amount_by_currency"]),
+            "freight_total_billed_by_currency": _as_dict(freight["freight_total_billed_by_currency"]),
+            "freight_unpaid_by_currency": _as_dict(freight["freight_unpaid_by_currency"]),
             "orders_with_missing_settlement_count": freight["orders_with_missing_settlement_count"],
             "orders_with_incomplete_settlement_count": freight["orders_with_incomplete_settlement_count"],
         },

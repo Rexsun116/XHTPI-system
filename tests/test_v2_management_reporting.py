@@ -56,6 +56,11 @@ class ManagementReportingTest(TestCase):
         return build_management_report(list(db.session.scalars(db.select(PI))),
                                        list(db.session.scalars(db.select(FreightSettlement))), as_of=as_of)
 
+    def add_item(self, pi, *, quantity, unit, amount="1", product="R-996"):
+        pi.items.append(PIItem(unit_price=Decimal(amount) / Decimal(quantity), quantity=Decimal(quantity),
+                               quantity_unit=unit, line_total=Decimal(amount), product_model_snapshot=product))
+        db.session.commit()
+
     def test_standalone_is_included_and_ytd_kpis_use_business_dates(self):
         self.make_order("STANDALONE", amount="100", pi_date=date(2026, 2, 2),
                         departed=date(2026, 3, 3), arrived=date(2026, 4, 4))
@@ -186,8 +191,100 @@ class ManagementReportingTest(TestCase):
         self.assertEqual(report["kpis"]["upcoming_shipments_count"], 1)
         self.assertEqual(report["freight_context"]["confirmed_bill_amount_by_currency"],
                          {"CNY": Decimal("0.00"), "USD": Decimal("30")})
+        self.assertEqual(report["freight_context"]["freight_total_billed_by_currency"],
+                         {"CNY": Decimal("0.00"), "USD": Decimal("30")})
+        self.assertEqual(report["freight_context"]["freight_unpaid_by_currency"],
+                         {"CNY": Decimal("0.00"), "USD": Decimal("30")})
         self.assertEqual(report["freight_context"]["orders_with_missing_settlement_count"], 0)
         self.assertEqual(report["freight_context"]["orders_with_incomplete_settlement_count"], 1)
+
+    def test_open_weight_normalizes_mt_and_kgs_per_line(self):
+        self.make_order("OPEN-MT", quantity="2.500", unit=" mt ")
+        self.make_order("OPEN-KGS", quantity="1500", unit="kGs")
+        mixed = self.make_order("OPEN-MIXED", quantity="500", unit="KGS")
+        self.add_item(mixed, quantity="1.250", unit="MT")
+        report = self.report()
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("5.750"))
+        self.assertEqual(report["kpis"]["unshipped_open_order_weight_mt"], Decimal("5.750"))
+        self.assertEqual(report["quality"]["open_order_weight_excluded_line_count"], 0)
+        self.assertEqual(report["quality"]["open_order_weight_excluded_units"], [])
+
+    def test_open_weight_excludes_unsupported_units_without_losing_supported_lines(self):
+        mixed = self.make_order("OPEN-SUPPORTED", quantity="2", unit="MT")
+        self.add_item(mixed, quantity="12", unit="BAGS")
+        self.make_order("OPEN-BAGS", quantity="20", unit="BAGS")
+        report = self.report()
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("2"))
+        self.assertEqual(report["kpis"]["unshipped_open_order_weight_mt"], Decimal("2"))
+        self.assertEqual(report["quality"]["open_order_weight_excluded_line_count"], 2)
+        self.assertEqual(report["quality"]["open_order_weight_excluded_units"], ["BAGS"])
+
+    def test_open_weight_excludes_completed_and_unshipped_requires_no_actual_departure(self):
+        self.make_order("COMPLETE", status="COMPLETED", quantity="40", unit="MT",
+                        departed=date(2026, 9, 1), arrived=date(2026, 9, 4))
+        self.make_order("OPEN-SHIPPED", status="SHIPPED", quantity="3", unit="MT",
+                        departed=date(2026, 9, 2))
+        self.make_order("OPEN-UNSHIPPED", status="PRE_SHIPMENT", quantity="4", unit="MT")
+        report = self.report()
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("7"))
+        self.assertEqual(report["kpis"]["unshipped_open_order_weight_mt"], Decimal("4"))
+
+    def test_open_weight_uses_the_existing_linked_reporting_owner_population(self):
+        customer = self.make_order("WEIGHT-CUSTOMER", quantity="5", unit="MT")
+        export = self.make_order("WEIGHT-EXPORT", quantity="9000", unit="KGS", include=True)
+        group = TradeGroup(group_no="REPORT-WEIGHT-PAIR")
+        db.session.add(group)
+        customer.trade_group = export.trade_group = group
+        customer.trade_role, export.trade_role = "CUSTOMER_ORDER", "EXPORT_ORDER"
+        malformed = self.make_order("WEIGHT-MALFORMED", quantity="30", unit="MT")
+        broken_group = TradeGroup(group_no="REPORT-WEIGHT-BROKEN")
+        db.session.add(broken_group)
+        malformed.trade_group, malformed.trade_role = broken_group, "CUSTOMER_ORDER"
+        db.session.commit()
+        report = self.report()
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("5"))
+        self.assertEqual(report["quality"]["malformed_linked_metadata_excluded_count"], 1)
+
+    def test_freight_totals_and_unpaid_are_currency_specific_and_binary(self):
+        usd_unpaid = self.make_order("USD-UNPAID")
+        usd_paid = self.make_order("USD-PAID")
+        cny_unpaid = self.make_order("CNY-UNPAID")
+        cny_paid = self.make_order("CNY-PAID")
+        unconfirmed = self.make_order("UNCONFIRMED")
+        non_required = self.make_order("NOT-REQUIRED")
+        db.session.add_all([
+            FreightSettlement(pi_id=usd_unpaid.id, usd_bill_required=True, usd_bill_amount=Decimal("10"),
+                             usd_bill_confirmed=True, usd_payment_status="UNPAID", cny_bill_required=False),
+            FreightSettlement(pi_id=usd_paid.id, usd_bill_required=True, usd_bill_amount=Decimal("20"),
+                             usd_bill_confirmed=True, usd_payment_status="PAID", cny_bill_required=False),
+            FreightSettlement(pi_id=cny_unpaid.id, cny_bill_required=True, cny_bill_amount=Decimal("30"),
+                             cny_bill_confirmed=True, cny_payment_status="UNPAID", usd_bill_required=False),
+            FreightSettlement(pi_id=cny_paid.id, cny_bill_required=True, cny_bill_amount=Decimal("40"),
+                             cny_bill_confirmed=True, cny_payment_status="PAID", usd_bill_required=False),
+            FreightSettlement(pi_id=unconfirmed.id, usd_bill_required=True, usd_bill_amount=Decimal("50"),
+                             usd_bill_confirmed=False, cny_bill_required=False),
+            FreightSettlement(pi_id=non_required.id, usd_bill_required=False, usd_bill_amount=Decimal("60"),
+                             usd_bill_confirmed=True, cny_bill_required=False),
+        ])
+        db.session.commit()
+        freight = self.report()["freight_context"]
+        self.assertEqual(freight["freight_total_billed_by_currency"],
+                         {"CNY": Decimal("70"), "USD": Decimal("30")})
+        self.assertEqual(freight["freight_unpaid_by_currency"],
+                         {"CNY": Decimal("30"), "USD": Decimal("10")})
+        self.assertEqual(freight["confirmed_bill_amount_by_currency"],
+                         freight["freight_total_billed_by_currency"])
+        self.assertEqual(freight["orders_with_incomplete_settlement_count"], 1)
+
+    def test_open_weight_and_freight_outputs_are_zero_safe_for_empty_dataset(self):
+        report = build_management_report([], [], as_of=date(2026, 9, 30))
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("0.00"))
+        self.assertEqual(report["kpis"]["unshipped_open_order_weight_mt"], Decimal("0.00"))
+        self.assertEqual(report["freight_context"]["freight_total_billed_by_currency"],
+                         {"CNY": Decimal("0.00"), "USD": Decimal("0.00")})
+        self.assertEqual(report["freight_context"]["freight_unpaid_by_currency"],
+                         {"CNY": Decimal("0.00"), "USD": Decimal("0.00")})
+        self.assertEqual(report["quality"]["open_order_weight_excluded_line_count"], 0)
 
     def test_empty_dataset_is_a_valid_zero_report(self):
         report = build_management_report([], [], as_of=date(2026, 9, 30))
