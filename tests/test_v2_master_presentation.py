@@ -64,6 +64,10 @@ class V2MasterPresentationTest(TestCase):
                 self.assertIn('class="v2-master-page"', page)
                 self.assertIn('class="v2-master-form"', page)
                 self.assertIn("v2-master-list-panel", page)
+                self.assertIn("v2-page-header__title", page)
+                self.assertIn("v2-master-page-header__actions", page)
+                self.assertIn("v2-master-create-action", page)
+                self.assertIn("v2-master-empty-state", page)
                 self.assertNotIn(">Delete<", page)
 
     def test_party_create_and_edit_keep_fields_codes_and_post_contracts(self):
@@ -161,6 +165,8 @@ class V2MasterPresentationTest(TestCase):
         self.assertNotIn("123456789</td>", page)
         self.assertIn('class="v2-master-status"', page)
         self.assertIn('class="v2-master-actions"', page)
+        self.assertIn("v2-master-edit-action", page)
+        self.assertIn("v2-master-toggle-action", page)
         self.assertIn(f'<form method="post" action="/v2/master/banks/{bank.id}/toggle">', page)
         parser = _FormNestingParser()
         parser.feed(page)
@@ -203,6 +209,18 @@ class V2MasterPresentationTest(TestCase):
         parser = _FormNestingParser()
         parser.feed(page)
         self.assertFalse(parser.nested_form_found)
+
+    def test_statuses_and_row_actions_use_the_shared_presentation_primitives(self):
+        active = Customer(code="CUS-ACTIVE", name="Active customer", active=True)
+        inactive = Customer(code="CUS-INACTIVE", name="Inactive customer", active=False)
+        db.session.add_all((active, inactive))
+        db.session.commit()
+
+        page = self.client().get("/v2/master/customers").get_data(as_text=True)
+        self.assertIn('v2-status-badge v2-status--done', page)
+        self.assertIn('v2-status-badge v2-badge--neutral', page)
+        self.assertIn('class="v2-button v2-master-edit-action"', page)
+        self.assertIn('class="v2-button v2-button--status v2-master-toggle-action"', page)
 
     def test_quotes_navigation_stays_hidden_while_quotes_route_remains_available(self):
         client = self.client()

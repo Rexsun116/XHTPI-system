@@ -24,17 +24,19 @@
 {% macro blank_for_none(value) %}{{ value if value is not none else '' }}{% endmacro %}
 
 <section class="v2-master-page" aria-labelledby="master-title">
-  <header class="v2-form-page-header v2-master-page-header">
+  <header class="v2-form-page-header v2-page-header v2-master-page-header">
     <div>
-      <div class="v2-eyebrow">MASTER DATA</div>
-      <h1 id="master-title">{{ 'Edit ' ~ entity if edit_row else plural }}</h1>
-      <p>{{ descriptions[kind] }}</p>
+      <div class="v2-eyebrow v2-page-header__eyebrow">MASTER DATA</div>
+      <h1 id="master-title" class="v2-page-header__title">{{ 'Edit ' ~ entity if edit_row else plural }}</h1>
+      <p class="v2-page-header__description">{{ descriptions[kind] }}</p>
     </div>
-    {% if edit_row %}
-      <a class="v2-button" href="{{ url_for('v2.master_list', kind=kind) }}">Cancel</a>
-    {% else %}
-      <a class="v2-button v2-button--primary" href="#master-form">Add {{ entity }}</a>
-    {% endif %}
+    <div class="v2-page-header__actions v2-master-page-header__actions">
+      {% if edit_row %}
+        <a class="v2-button v2-master-cancel-action" href="{{ url_for('v2.master_list', kind=kind) }}">Cancel</a>
+      {% else %}
+        <a class="v2-button v2-master-create-action" href="#master-form">Add {{ entity }}</a>
+      {% endif %}
+    </div>
   </header>
 
   <section class="v2-panel v2-master-form-panel" aria-labelledby="master-form-title">
@@ -184,8 +186,8 @@
       <div class="v2-master-form-actions">
         <p>{% if edit_row %}Changes apply to this master record only.{% else %}Generated codes are assigned by the existing master-data service.{% endif %}</p>
         <div>
-          {% if edit_row %}<a class="v2-button" href="{{ url_for('v2.master_list', kind=kind) }}">Cancel</a>{% endif %}
-          <button class="v2-button v2-button--primary" type="submit">{{ 'Save Changes' if edit_row else 'Add ' ~ entity }}</button>
+          {% if edit_row %}<a class="v2-button v2-master-cancel-action" href="{{ url_for('v2.master_list', kind=kind) }}">Cancel</a>{% endif %}
+          <button class="v2-button v2-master-save-action" type="submit">{{ 'Save Changes' if edit_row else 'Add ' ~ entity }}</button>
         </div>
       </div>
     </form>
@@ -226,12 +228,12 @@
                   <td><strong>{{ r.name if r.name is defined else r.model }}</strong></td>
                 {% endif %}
                 {% if kind in party_kinds %}<td>{{ r.country or '—' }}</td><td>{% if r.contact_person %}<span>{{ r.contact_person }}</span>{% endif %}{% if r.phone %}<span class="v2-master-secondary">{{ r.phone }}</span>{% endif %}{% if not r.contact_person and not r.phone %}—{% endif %}</td>{% endif %}
-                <td class="v2-master-status"><span class="v2-status-badge {{ 'v2-status--done' if r.active else 'v2-status--waiting' }}"><span class="v2-status-dot" aria-hidden="true"></span>{{ 'Active' if r.active else 'Inactive' }}</span></td>
+                <td class="v2-master-status"><span class="v2-status-badge {{ 'v2-status--done' if r.active else 'v2-badge--neutral' }}"><span class="v2-status-dot" aria-hidden="true"></span>{{ 'Active' if r.active else 'Inactive' }}</span></td>
                 <td class="v2-master-actions">
-                  <a class="v2-button" href="{{ url_for('v2.master_edit', kind=kind, row_id=r.id) }}">Edit</a>
+                  <a class="v2-button v2-master-edit-action" href="{{ url_for('v2.master_edit', kind=kind, row_id=r.id) }}">Edit</a>
                   <form method="post" action="{{ url_for('v2.master_toggle', kind=kind, row_id=r.id) }}">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button class="v2-button v2-button--status" type="submit">{{ 'Set Inactive' if r.active else 'Set Active' }}</button>
+                    <button class="v2-button v2-button--status v2-master-toggle-action" type="submit">{{ 'Set Inactive' if r.active else 'Set Active' }}</button>
                   </form>
                 </td>
               </tr>
@@ -243,7 +245,7 @@
       <div class="v2-master-empty-state">
         <strong>No {{ entity|lower }} records yet</strong>
         <p>Add the first {{ entity|lower }} record to make it available for normal reference-data use.</p>
-        <a class="v2-button v2-button--primary" href="#master-form">Add {{ entity }}</a>
+        <a class="v2-button v2-master-create-action" href="#master-form">Add {{ entity }}</a>
       </div>
     {% endif %}
   </section>
