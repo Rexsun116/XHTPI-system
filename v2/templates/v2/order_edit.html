@@ -11,9 +11,9 @@
 <fieldset class="v2-item-row edit-item" data-index="{{ index }}"><legend class="visually-hidden">PI Item</legend><div class="v2-item-row-head"><strong class="v2-item-row-title">PI Item</strong><button class="v2-button v2-button--danger remove-edit-item" type="button">Remove Item</button></div><input type="hidden" name="item_id_{{ index }}" value="{{ data.get('item_id_' ~ index, '') }}"><div class="v2-form-grid">{{ select_field('product_' ~ index, 'Product', products, true, true) }}{{ select_field('factory_' ~ index, 'Factory', factories) }}{{ text_field('trade_term_' ~ index, 'Incoterm') }}{{ text_field('quantity_' ~ index, 'Quantity', 'number', true) }}{{ text_field('quantity_unit_' ~ index, 'Unit', 'text', true) }}{{ text_field('unit_price_' ~ index, 'Unit Price', 'number', true) }}</div><details class="mt-3"><summary>Order-local product facts</summary><p class="v2-form-help">Changing Product refreshes these facts from the selected master. With the same Product, corrections remain local to this order.</p><div class="v2-form-grid mt-3">{% for field,label in [('model','Model'),('category','Category'),('brand','Brand'),('packaging','Packaging'),('hs_code','HS Code')] %}{{ text_field('product_' ~ field ~ '_snapshot_' ~ index, label) }}{% endfor %}</div></details></fieldset>
 {%- endmacro %}
 {% block content %}
-<header class="v2-form-page-header"><div><p class="v2-form-eyebrow">NEW order workspace</p><h1>Edit Order · {{ pi.pi_no }}</h1><p>Update this draft in one controlled save. Operational shipment actions remain outside this editor.</p></div><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Back to Order</a></header>
+<header class="v2-form-page-header v2-page-header v2-order-edit-header"><div><p class="v2-form-eyebrow v2-page-header__eyebrow">NEW order workspace</p><h1 class="v2-page-header__title">Edit Order · {{ pi.pi_no }}</h1><p class="v2-page-header__description">Update this draft in one controlled save. Operational shipment actions remain outside this editor.</p></div><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Back to Order</a></header>
 {% if error %}<div class="v2-form-error" role="alert" tabindex="-1" id="edit-error"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><span>{{ error }}</span></div>{% endif %}
-<form method="post" id="new-order-editor" class="v2-new-order-form">
+<form method="post" id="new-order-editor" class="v2-new-order-form v2-order-workspace v2-order-workspace--edit">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="edit_version" value="{{ data.get('edit_version','') }}">
 
   <section class="v2-panel">
@@ -57,7 +57,7 @@
     <div class="v2-item-editor"><div class="v2-form-grid">{{ select_field('bank_account_id', 'Bank Account', banks) }}{{ text_field('note', 'Notes', 'text', false, none, 'v2-form-field--full') }}</div></div>
   </section>
 
-  <footer class="v2-form-actions"><p>Save validates the entire NEW order and applies changes together.</p><div><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a><button class="v2-button" type="submit">Save Order</button></div></footer>
+  <footer class="v2-form-actions"><p>Save validates the entire NEW order and applies changes together.</p><div><a class="v2-button v2-button--secondary" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">Cancel</a><button class="v2-button v2-order-save-action" type="submit">Save Order</button></div></footer>
 </form>
 <template id="new-edit-item">{{ item('__INDEX__') }}</template>
 <script>

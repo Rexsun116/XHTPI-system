@@ -2,9 +2,9 @@
 {% block body_class %}v2-modern{% endblock %}
 {% block content %}
 {% set data = form_data or {} %}
-<header class="v2-form-page-header"><div><span class="v2-eyebrow">ORDER ENTRY</span><h1>New Order</h1><p>Create a new PI / order</p></div></header>
+<header class="v2-form-page-header v2-page-header"><div><span class="v2-eyebrow v2-page-header__eyebrow">ORDER ENTRY</span><h1 class="v2-page-header__title">New Order</h1><p class="v2-page-header__description">Create a new PI / order</p></div></header>
 {% if error %}<div class="v2-form-error" role="alert"><i class="fa-solid fa-circle-exclamation" aria-hidden="true"></i><div>{{ error }}</div></div>{% endif %}
-<form method="post" id="create-pi-form" novalidate class="v2-new-order-form">
+<form method="post" id="create-pi-form" novalidate class="v2-new-order-form v2-order-workspace">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 
   <section class="v2-panel mt-4">

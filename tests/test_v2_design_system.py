@@ -18,6 +18,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.operations_css = (ROOT / "v2/static/v2_operations_dashboard.css").read_text()
         self.base = (ROOT / "v2/templates/v2/base.html").read_text()
         self.dashboard = (ROOT / "v2/templates/v2/dashboard.html").read_text()
+        self.new_form = (ROOT / "v2/templates/v2/order_form.html").read_text()
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
         self.edit_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
         self.linked_export_form = (ROOT / "v2/templates/v2/create_linked_export_order.html").read_text()
@@ -148,11 +149,32 @@ class SharedV2DesignSystemTest(TestCase):
 
     def test_normal_edit_page_uses_the_shared_modern_form_shell(self):
         self.assertIn("{% block body_class %}v2-modern{% endblock %}", self.edit_form)
-        self.assertIn('class="v2-new-order-form"', self.edit_form)
+        self.assertIn('class="v2-new-order-form v2-order-workspace v2-order-workspace--edit"', self.edit_form)
         self.assertIn('class="v2-route-grid"', self.edit_form)
         self.assertIn('data-country-combobox', self.edit_form)
         self.assertIn('v2_country_combobox.js', self.edit_form)
         self.assertNotIn('class="card p-4 mb-3"', self.edit_form)
+
+    def test_order_creation_workspaces_share_business_first_form_presentation_without_contract_loss(self):
+        for page in (self.new_form, self.edit_form, self.linked_export_form):
+            for token in ("v2-form-page-header v2-page-header", "v2-page-header__title",
+                          "v2-page-header__description", "v2-new-order-form v2-order-workspace",
+                          'name="csrf_token"'):
+                self.assertIn(token, page)
+        for token in (
+            ".v2-order-workspace{display:grid;gap:18px;max-width:1200px}",
+            ".v2-order-workspace>.v2-panel", ".v2-order-workspace .form-control",
+            ".v2-order-workspace .v2-item-row", ".v2-order-workspace .v2-form-actions",
+            ".v2-order-workspace .v2-form-actions>div{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}",
+            ".v2-order-workspace .v2-readonly-facts", ".v2-order-workspace .v2-country-options",
+        ):
+            self.assertIn(token, self.css)
+        for token in ("data-country-combobox", "data-country-code", "data-country-listbox",
+                      "id=\"items\"", "id=\"add-item\""):
+            self.assertIn(token, self.new_form)
+        self.assertIn("id=\"linked-export-source-context\"", self.linked_export_form)
+        for token in ("v2-order-edit-header", "v2-order-workspace--edit", "v2-order-save-action"):
+            self.assertIn(token, self.edit_form)
 
     def test_linked_export_form_reuses_the_modern_shell_and_semantic_context_primitives(self):
         for token in ("{% block body_class %}v2-modern{% endblock %}", "v2-form-page-header",
