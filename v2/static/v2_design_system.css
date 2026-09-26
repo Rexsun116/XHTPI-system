@@ -13,10 +13,39 @@ body.v2-modern {
 /* Standalone authentication shell. It deliberately has no authenticated navigation. */
 body.v2-login{--v35-primary:#14b8a6;--v35-border:#e2e9ed;--v35-soft:#f8fbfc;--v35-ink:#172033;--v35-muted:#667085;--exception:#c65b69;--exception-soft:#fff5f6;--exception-border:#f0d8dc;min-height:100vh;margin:0;background:#f4f8fa;color:var(--v35-ink);font-family:Inter,system-ui,sans-serif}.v2-login *,.v2-login *::before,.v2-login *::after{box-sizing:border-box}.v2-login-shell{display:grid;min-height:100vh;place-items:center;padding:24px}.v2-login-card{width:min(100%,420px);padding:32px;border:1px solid var(--v35-border);border-radius:16px;background:#fff;box-shadow:0 12px 30px rgb(23 32 51 / .08)}.v2-login-identity{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-bottom:20px;border-bottom:1px solid #edf2f4}.v2-login-identity strong{font-size:15px;letter-spacing:.01em}.v2-login-identity span{color:var(--v35-muted);font-size:12px;font-weight:650}.v2-login-heading{padding:24px 0 20px}.v2-login-heading h1{margin:0;color:var(--v35-ink);font-size:1.65rem;font-weight:700;line-height:1.2}.v2-login-heading p{margin:7px 0 0;color:var(--v35-muted);font-size:14px;line-height:1.5}.v2-login-form{display:grid;gap:16px}.v2-login-field{min-width:0}.v2-login-field label{display:block;margin-bottom:6px;color:#425268;font-size:13px;font-weight:650}.v2-login-field .form-control{min-height:42px;border-color:var(--v35-border);border-radius:9px;color:var(--v35-ink);font-size:16px;line-height:1.5}.v2-login-field .form-control:focus{border-color:var(--v35-primary);box-shadow:0 0 0 3px rgb(20 184 166 / .18)}.v2-login-submit{width:100%;min-height:42px;margin-top:4px;text-align:center}.v2-login-error{padding:12px 14px;border:1px solid var(--exception-border);border-radius:10px;background:var(--exception-soft);color:#8d3341;font-size:13px;font-weight:650;line-height:1.45}.v2-login :focus-visible{outline:3px solid rgb(20 184 166 / .32);outline-offset:2px}@media(max-width:575.98px){.v2-login-shell{padding:16px}.v2-login-card{padding:24px}.v2-login-heading{padding:20px 0}.v2-login-heading h1{font-size:1.5rem}}
 
-/* Approved Dashboard V3.5 authenticated shell. */
-body.v2-modern .side { width:245px; padding:24px; background:#fbfdfd; color:var(--v35-ink); border-right:1px solid var(--v35-border); z-index:1; }
-body.v2-modern .side a { padding:7px 0; color:#617084; font-size:16px; font-weight:400; line-height:normal; }
-body.v2-modern .main { box-sizing:border-box; width:calc(100% - 245px); min-width:0; margin-left:245px; padding:28px 32px 46px; background:#f4f8fa; }
+/* Shared Shell 2.0 applies only to authenticated modern V2 workspaces. */
+body.v2-modern {
+  --v2-shell-width:236px;
+  --v2-shell-rail-width:74px;
+  --v2-shell-bg:#122c4d;
+  --v2-shell-bg-active:#1d5682;
+  --v2-shell-text:#c6d5e5;
+  --v2-shell-text-muted:#88a1bd;
+  --v2-shell-accent:#64c2c4;
+  --v2-shell-hover:rgba(255,255,255,.075);
+  --v2-shell-border:rgba(255,255,255,.11);
+}
+body.v2-legacy .side{width:230px;position:fixed;inset:0 auto 0 0;padding:24px;background:#172554;color:#fff}
+body.v2-legacy .side a{display:block;padding:7px 0;color:#dbeafe;text-decoration:none}
+body.v2-legacy .main{margin-left:230px;padding:28px}
+body.v2-modern .v2-shell{position:fixed;z-index:10;inset:0 auto 0 0;display:flex;flex-direction:column;width:var(--v2-shell-width);min-height:100vh;padding:24px 14px 18px;background:var(--v2-shell-bg);color:var(--v2-shell-text)}
+body.v2-modern .v2-shell-top{min-width:0}
+body.v2-modern .v2-shell-brand{display:flex;align-items:center;gap:10px;padding:0 10px 23px;color:#fff;font-size:15px;font-weight:720;letter-spacing:-.015em;text-decoration:none}
+body.v2-modern .v2-shell-brand-mark{display:grid;place-items:center;flex:0 0 auto;width:30px;height:30px;border:1px solid rgba(255,255,255,.22);border-radius:9px;background:#1c507d}
+body.v2-modern .v2-shell-brand-mark i{font-size:16px}
+body.v2-modern .v2-shell-brand-version{color:#a7c1d5;font-size:10px;font-weight:720;letter-spacing:.08em}
+body.v2-modern .v2-shell-nav-area{display:grid;gap:20px}
+body.v2-modern .v2-shell-nav-group{display:grid;gap:2px;margin:0}
+body.v2-modern .v2-shell-nav-label{display:block;padding:0 10px 5px;color:var(--v2-shell-text-muted);font-size:10px;font-weight:730;letter-spacing:.09em;text-transform:uppercase}
+body.v2-modern .v2-shell-link{display:flex;align-items:center;gap:11px;min-height:42px;margin:0;padding:9px 10px;border-radius:9px;color:var(--v2-shell-text);font-size:13px;font-weight:570;line-height:1.25;text-decoration:none;transition:background .16s ease,color .16s ease,box-shadow .16s ease}
+body.v2-modern .v2-shell-icon{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px}
+body.v2-modern .v2-shell-icon i{font-size:16px}
+body.v2-modern .v2-shell-link:hover{background:var(--v2-shell-hover);color:#fff}
+body.v2-modern .v2-shell-link.is-active{box-shadow:inset 3px 0 0 var(--v2-shell-accent);background:var(--v2-shell-bg-active);color:#fff;font-weight:650}
+body.v2-modern .v2-shell-link:focus-visible{outline:3px solid rgb(100 194 196 / .58);outline-offset:-1px}
+body.v2-modern .v2-shell-account-slot{display:flex;align-items:center;min-height:44px;margin-top:auto;padding:14px 10px 0;border-top:1px solid var(--v2-shell-border)}
+body.v2-modern .v2-shell-avatar-slot{display:block;width:29px;height:29px;border:1px solid rgba(143,195,223,.28);border-radius:50%;background:#255477}
+body.v2-modern .main{box-sizing:border-box;width:calc(100% - var(--v2-shell-width));min-width:0;margin-left:var(--v2-shell-width);padding:28px 32px 46px;background:#f4f8fa}
 
 /* Opt-in primitives for pages migrated in later P2 batches. */
 .v2-page-header { display:flex; align-items:center; justify-content:space-between; gap:20px; }
@@ -60,10 +89,26 @@ body.v2-modern :focus-visible { outline:3px solid rgb(20 184 166 / .32); outline
 /* Controlled destructive confirmations preserve their existing typed-input contracts. */
 .v2-delete-page{display:grid;gap:20px;max-width:760px}.v2-delete-page-header{margin:0}.v2-delete-context .v2-panel-body{padding:18px 20px}.v2-delete-pair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0}.v2-delete-pair>div{min-width:0;padding:13px 14px;border:1px solid #edf2f4;border-radius:10px;background:var(--v35-soft)}.v2-delete-pair dt{margin:0 0 4px;color:var(--v35-muted);font-size:11px;font-weight:650}.v2-delete-pair dd{margin:0;color:var(--v35-ink);font-size:14px;font-weight:700;overflow-wrap:anywhere}.v2-delete-form .v2-panel-body{display:grid;gap:16px;padding:20px}.v2-delete-warning{padding:13px 15px;border:1px solid var(--exception-border);border-radius:12px;background:var(--exception-soft);color:#8d3341}.v2-delete-warning strong{font-size:14px}.v2-delete-warning p{margin:4px 0 0;font-size:13px;line-height:1.5}.v2-delete-error{margin:0}.v2-delete-field{min-width:0}.v2-delete-field label{display:block;margin-bottom:6px;color:#425268;font-size:13px;font-weight:650}.v2-delete-field label strong{color:var(--v35-ink)}.v2-delete-field .form-control{min-height:42px;border-color:var(--v35-border);border-radius:9px}.v2-delete-confirmations{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.v2-delete-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;padding:17px 20px;border-top:1px solid #edf2f4}.v2-delete-actions .v2-button{display:inline-flex;align-items:center;justify-content:center;min-height:40px}@media(max-width:700px){.v2-delete-pair,.v2-delete-confirmations{grid-template-columns:1fr}}@media(max-width:575.98px){.v2-delete-page{gap:16px}.v2-delete-context .v2-panel-body,.v2-delete-form .v2-panel-body{padding:16px}.v2-delete-actions{align-items:stretch;flex-direction:column}.v2-delete-actions .v2-button{width:100%;text-align:center}}
 
-/* Existing Order Detail narrow-shell behavior shared by modern pages. */
-@media(max-width:575.98px) {
-  body.v2-modern .side { position:static; inset:auto; width:100%; box-sizing:border-box; padding:16px 24px; }
-  body.v2-modern .main { width:100%; margin-left:0; padding:16px; max-width:100%; overflow-x:clip; }
+/* Shared Shell 2.0 is an icon rail before becoming a static, scrollable top shell. */
+@media(max-width:1060px){
+  body.v2-modern .v2-shell{width:var(--v2-shell-rail-width);padding-inline:10px}
+  body.v2-modern .v2-shell-brand{justify-content:center;padding-inline:0}
+  body.v2-modern .v2-shell-brand-name,body.v2-modern .v2-shell-brand-version,body.v2-modern .v2-shell-nav-label,body.v2-modern .v2-shell-link-label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  body.v2-modern .v2-shell-nav-group{justify-items:center}
+  body.v2-modern .v2-shell-link{justify-content:center;width:42px;padding-inline:0}
+  body.v2-modern .v2-shell-account-slot{justify-content:center;padding-inline:0}
+  body.v2-modern .main{width:calc(100% - var(--v2-shell-rail-width));margin-left:var(--v2-shell-rail-width)}
+}
+@media(max-width:700px){
+  body.v2-modern .v2-shell{position:static;flex-direction:row;align-items:center;width:100%;min-height:58px;padding:8px 12px;overflow:hidden}
+  body.v2-modern .v2-shell-top{display:flex;align-items:center;min-width:0;flex:1;gap:8px}
+  body.v2-modern .v2-shell-brand{flex:0 0 auto;padding:0 4px 0 0}
+  body.v2-modern .v2-shell-brand-name{position:static;width:auto;height:auto;margin:0;padding:0;overflow:visible;clip:auto;white-space:normal;border:0;font-size:13px}
+  body.v2-modern .v2-shell-nav-area{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;overflow-y:hidden}
+  body.v2-modern .v2-shell-nav-group{display:flex;align-items:center;gap:2px;flex:0 0 auto}
+  body.v2-modern .v2-shell-link{flex:0 0 42px;margin:0}
+  body.v2-modern .v2-shell-account-slot{flex:0 0 auto;min-height:29px;margin:0;padding:0;border:0}
+  body.v2-modern .main{width:100%;max-width:100%;margin-left:0;padding:20px 16px 36px;overflow-x:clip}
 }
 
 /* Reusable lifecycle-readiness and task-history primitives. */

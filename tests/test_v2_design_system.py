@@ -24,13 +24,15 @@ class SharedV2DesignSystemTest(TestCase):
         self.finance = (ROOT / "v2/templates/v2/_order_finance.html").read_text()
         self.detail_js = (ROOT / "v2/static/v2_batch1.js").read_text()
 
-    def test_authoritative_tokens_and_approved_shell_are_shared(self):
+    def test_authoritative_tokens_and_shared_shell_foundation_are_present(self):
         for token in (
             "--v35-primary:#14b8a6", "--v35-border:#e2e9ed",
             "--v35-soft:#f8fbfc", "--v35-ink:#172033",
-            "--v35-muted:#667085", "width:245px",
-            "background:#fbfdfd", "padding:28px 32px 46px",
-            "font-size:16px", "font-weight:400", "line-height:normal",
+            "--v35-muted:#667085", "--v2-shell-width:236px",
+            "--v2-shell-rail-width:74px", "--v2-shell-bg:#122c4d",
+            "--v2-shell-bg-active:#1d5682", "--v2-shell-accent:#64c2c4",
+            "width:var(--v2-shell-width)", "padding:28px 32px 46px",
+            ".v2-shell-link.is-active", ".v2-shell-account-slot",
             ".v2-summary-card", ".v2-form-control", ".v2-table",
             ".v2-status--exception", ".v2-status--done",
         ):
@@ -40,6 +42,19 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn("v2_design_system.css", self.base)
         self.assertIn("{% block body_class %}v2-legacy{% endblock %}", self.base)
         self.assertIn("font-awesome/6.5.2/css/all.min.css", self.base)
+
+    def test_modern_pages_have_a_semantic_grouped_shell_without_account_claims_yet(self):
+        for token in (
+            '<aside class="side v2-shell" aria-label="XHTPI navigation">',
+            '<nav class="v2-shell-nav-group" aria-label="Workspace">',
+            '<nav class="v2-shell-nav-group" aria-label="Orders">',
+            '<nav class="v2-shell-nav-group" aria-label="Master Data">',
+            'class="v2-shell-link-label"', 'class="v2-shell-account-slot" aria-hidden="true"',
+            'id="v2-main-content"',
+        ):
+            self.assertIn(token, self.base)
+        self.assertNotIn("V2 LOCAL TRIAL</span>", self.base.split("{% else %}", 1)[0])
+        self.assertNotIn("Logout", self.base)
 
     def test_sidebar_defers_freight_quotes_management_without_affecting_order_freight(self):
         self.assertNotIn("url_for('v2.quotes')", self.base)
@@ -216,10 +231,14 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertLess(self.detail_js.index('window.scrollBy({ top: delta'),
                         self.detail_js.index('const editorGroups ='))
 
-    def test_modern_main_uses_the_remaining_width_and_narrow_shell_stacks(self):
-        self.assertIn('box-sizing:border-box; width:calc(100% - 245px); min-width:0', self.css)
-        self.assertIn('@media(max-width:575.98px)', self.css)
-        self.assertIn('body.v2-modern .main { width:100%; margin-left:0', self.css)
+    def test_modern_main_uses_shell_tokens_with_compact_and_mobile_transitions(self):
+        self.assertIn('width:calc(100% - var(--v2-shell-width));min-width:0', self.css)
+        self.assertIn('@media(max-width:1060px)', self.css)
+        self.assertIn('width:calc(100% - var(--v2-shell-rail-width));margin-left:var(--v2-shell-rail-width)', self.css)
+        self.assertIn('@media(max-width:700px)', self.css)
+        self.assertIn('body.v2-modern .v2-shell-nav-area{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto', self.css)
+        self.assertIn('body.v2-modern .main{width:100%;max-width:100%;margin-left:0', self.css)
+        self.assertNotIn('hamburger', self.base.lower() + self.css.lower())
 
     def test_dashboard_reflow_tracks_cannot_exceed_the_modern_main(self):
         for token in (
@@ -242,7 +261,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertNotIn('WU1333', self.dashboard)
 
     def test_dashboard_keeps_wide_tables_local_and_main_content_out_of_sidebar(self):
-        self.assertIn('z-index:1', self.css)
+        self.assertIn('z-index:10', self.css)
         for token in (
             '.v35-dashboard,.v35-panel{min-width:0;max-width:100%',
             '.v35-top>*{min-width:0}',
