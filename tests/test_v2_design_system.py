@@ -189,7 +189,7 @@ class SharedV2DesignSystemTest(TestCase):
 
     def test_lifecycle_confirmation_pages_use_shared_modern_form_contracts(self):
         for page in (self.departure, self.arrival):
-            self.assertIn("{% block body_class %}v2-modern{% endblock %}", page)
+            self.assertIn("{% block body_class %}v2-modern v2-tail-workspace{% endblock %}", page)
             self.assertIn('class="v2-new-order-form"', page)
             self.assertIn('name="csrf_token"', page)
             self.assertIn("v2-lifecycle-transition", page)
@@ -204,7 +204,7 @@ class SharedV2DesignSystemTest(TestCase):
 
     def test_completion_and_task_history_use_shared_modern_semantic_primitives(self):
         for page in (self.completion, self.history):
-            self.assertIn("{% block body_class %}v2-modern{% endblock %}", page)
+            self.assertIn("{% block body_class %}v2-modern v2-tail-workspace{% endblock %}", page)
             self.assertIn("v2-form-page-header", page)
             self.assertIn("v2-panel", page)
         for token in ("v2-completion-readiness", "v2-readiness-group", "v2-lifecycle-transition",
@@ -221,6 +221,22 @@ class SharedV2DesignSystemTest(TestCase):
             self.assertIn(token, self.history)
         for token in (".v2-completion-readiness", ".v2-completion-consequence", ".v2-completion-actions",
                       ".v2-history-timeline", "overflow-wrap:anywhere"):
+            self.assertIn(token, self.css)
+
+    def test_tail_workspaces_use_scoped_business_first_presentation_without_contract_changes(self):
+        tail_pages = (
+            "enter_shipped.html", "enter_arrived.html", "enter_completed.html", "correction.html",
+            "task_history.html", "document_requirements_editor.html", "booking_hs_codes.html",
+            "order_delete.html", "linked_trade_delete.html",
+        )
+        for name in tail_pages:
+            page = (ROOT / "v2/templates/v2" / name).read_text()
+            self.assertIn("{% block body_class %}v2-modern v2-tail-workspace{% endblock %}", page)
+        for token in (
+            "body.v2-tail-workspace .v2-form-page-header", "body.v2-tail-workspace .v2-new-order-form .v2-button--primary",
+            "body.v2-tail-workspace .v2-correction-context", "body.v2-tail-workspace .v2-delete-context",
+            "body.v2-tail-workspace .v2-history-event::before",
+        ):
             self.assertIn(token, self.css)
 
     def test_order_detail_scoped_saves_have_stable_return_targets_and_departure_entry(self):

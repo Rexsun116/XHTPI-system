@@ -1,6 +1,6 @@
 {% extends 'v2/base.html' %}
 {% block title %}Task History · XHTPI V2{% endblock %}
-{% block body_class %}v2-modern{% endblock %}
+{% block body_class %}v2-modern v2-tail-workspace{% endblock %}
 {% block content %}
 {% set status_class = {'DONE':'done', 'CANCELLED':'exception', 'WAITING':'waiting', 'UPCOMING':'upcoming'}.get(task.status, 'action') %}
 {% set back_target = url_for('v2.order_view', pi_id=task.pi_id, open_task=task.id) ~ '#task-' ~ task.id %}

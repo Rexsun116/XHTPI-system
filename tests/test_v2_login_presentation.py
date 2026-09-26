@@ -36,6 +36,9 @@ class V2LoginPresentationTest(TestCase):
         page = response.get_data(as_text=True)
         self.assertIn('class="v2-login"', page)
         self.assertIn("v2_design_system.css", page)
+        self.assertIn("XHTPI", page)
+        self.assertIn(">V2<", page)
+        self.assertNotIn("Local Trial", page)
         self.assertNotIn("<aside", page)
         self.assertNotIn('class="side"', page)
         self.assertIn('<form method="post" class="v2-login-form">', page)
@@ -80,4 +83,8 @@ class V2LoginDesignSystemSourceTest(TestCase):
         self.assertIn(".v2-login-shell", css)
         self.assertIn(".v2-login-card", css)
         self.assertIn("@media(max-width:575.98px){.v2-login-shell", css)
+        login_css = css.split("/* Standalone authentication shell.", 1)[1].split(
+            "/* Shared Shell 2.0", 1)[0]
+        self.assertIn("var(--v2-color-primary-soft)", login_css)
+        self.assertNotIn("--v35-", login_css)
         self.assertNotIn("overflow-x:hidden", css)

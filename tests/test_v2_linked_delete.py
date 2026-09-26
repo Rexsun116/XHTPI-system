@@ -51,7 +51,7 @@ class LinkedDeleteTest(TestCase):
         response = self.client().get(f'/v2/orders/{customer.id}/delete-linked-trade')
         self.assertEqual(response.status_code, 200)
         page = response.get_data(as_text=True)
-        self.assertIn('class="v2-modern"', page)
+        self.assertIn('class="v2-modern v2-tail-workspace"', page)
         self.assertIn('class="v2-delete-page"', page)
         self.assertIn('name="csrf_token"', page)
         self.assertIn('id="customer-confirmation" name="customer_confirmation"', page)

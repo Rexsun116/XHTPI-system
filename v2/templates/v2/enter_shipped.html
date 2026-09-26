@@ -1,6 +1,6 @@
 {% extends 'v2/base.html' %}
 {% block title %}Confirm Actual Departure · XHTPI V2{% endblock %}
-{% block body_class %}v2-modern{% endblock %}
+{% block body_class %}v2-modern v2-tail-workspace{% endblock %}
 {% block content %}
 <header class="v2-form-page-header"><div><p class="v2-form-eyebrow">Lifecycle confirmation</p><h1>Confirm Actual Departure</h1><p>{{ pi.pi_no }} is currently PRE_SHIPMENT. This records actual departure and advances the lifecycle.</p></div><span class="v2-status-badge v2-status--action">PRE_SHIPMENT</span></header>
 {% if departure_error %}<div class="v2-form-error" role="alert"><span>{{ departure_error }}</span> <a href="{{ url_for('v2.order_view', pi_id=linked_pair[1].id) }}">Open {{ linked_pair[1].pi_no }} to complete required documents</a></div>{% endif %}

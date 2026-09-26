@@ -30,7 +30,7 @@ class V2CorrectionPresentationTest(TestCase):
 
     def test_editor_is_a_completed_module_scoped_workspace(self):
         for token in (
-            "{% block body_class %}v2-modern{% endblock %}", 'v2-correction-page',
+            "{% block body_class %}v2-modern v2-tail-workspace{% endblock %}", 'v2-correction-page',
             'Correction context', 'COMPLETED', 'Editable scope · {{ correction.module }}',
             'Saving persists only this module’s correction.', 'Save Correction',
             'Back to Order', 'name="csrf_token"', 'method="post"',

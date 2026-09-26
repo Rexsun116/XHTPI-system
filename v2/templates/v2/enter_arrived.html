@@ -1,6 +1,6 @@
 {% extends 'v2/base.html' %}
 {% block title %}Confirm Actual Arrival · XHTPI V2{% endblock %}
-{% block body_class %}v2-modern{% endblock %}
+{% block body_class %}v2-modern v2-tail-workspace{% endblock %}
 {% block content %}
 <header class="v2-form-page-header"><div><p class="v2-form-eyebrow">Lifecycle confirmation</p><h1>Confirm Actual Arrival</h1><p>{{ pi.pi_no }} is currently SHIPPED. This records physical arrival and advances the order.</p></div><span class="v2-status-badge v2-status--action">SHIPPED</span></header>
 <section class="v2-panel v2-lifecycle-panel"><header class="v2-panel-header"><div><strong>Operation Context</strong><p>Authoritative shipment facts for this confirmation.</p></div></header><div class="v2-panel-body"><dl class="v2-readonly-facts"><div><dt>Customer</dt><dd>{{ pi.customer_name_snapshot or '—' }}</dd></div><div><dt>Route</dt><dd>{{ pi.loading_port or '—' }} → {{ pi.destination_port or '—' }}</dd></div><div><dt>Actual Departure</dt><dd>{{ pi.actual_departure_date or '—' }}</dd></div><div><dt>Current ETA</dt><dd>{{ pi.eta or '—' }}</dd></div></dl></div></section>

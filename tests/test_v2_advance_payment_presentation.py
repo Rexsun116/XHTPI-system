@@ -370,8 +370,9 @@ class AdvancePaymentPresentationTest(TestCase):
         self.assertIn('v2_design_system.css', page)
         self.assertIn('v2-modern', page)
         design_system = (Path(__file__).parents[1] / 'v2/static/v2_design_system.css').read_text()
-        for token in ('--v35-primary:#14b8a6', '--v35-border:#e2e9ed', '--v35-muted:#667085',
-                      'border-radius:16px', 'padding:17px 20px', 'border-radius:9px'):
+        for token in ('--v2-color-primary:#153b64', '--v2-color-border:#e2e8f0',
+                      '--v2-color-muted:#62728a', '--v2-radius-lg:16px',
+                      'padding:17px 20px', '--v2-radius-sm:9px'):
             self.assertIn(token, design_system)
         self.assertNotIn('--od-', page)
 

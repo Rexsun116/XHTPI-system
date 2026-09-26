@@ -1,6 +1,6 @@
 {% extends 'v2/base.html' %}
 {% block title %}Booking HS Codes · XHTPI V2{% endblock %}
-{% block body_class %}v2-modern{% endblock %}
+{% block body_class %}v2-modern v2-tail-workspace{% endblock %}
 {% block content %}
 <header class="v2-form-page-header"><div><p class="v2-form-eyebrow">Booking document</p><h1>Booking HS Codes</h1><p>These HS codes are this order's item data used for Booking document output.</p></div><span class="v2-status-badge v2-status--action">PRE_SHIPMENT</span></header>
 <section class="v2-panel v2-lifecycle-panel"><header class="v2-panel-header"><div><h2>Order Context</h2><p>HS codes belong to this order’s Booking data.</p></div></header><div class="v2-panel-body"><dl class="v2-readonly-facts"><div><dt>PI Number</dt><dd>{{ pi.pi_no }}</dd></div><div><dt>Customer</dt><dd>{{ pi.customer_name_snapshot or '—' }}</dd></div><div><dt>Current Status</dt><dd>{{ pi.status }}</dd></div></dl></div></section>
