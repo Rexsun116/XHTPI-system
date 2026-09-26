@@ -20,6 +20,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.dashboard = (ROOT / "v2/templates/v2/dashboard.html").read_text()
         self.new_form = (ROOT / "v2/templates/v2/order_form.html").read_text()
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
+        self.order_detail_css = (ROOT / "v2/static/v2_order_detail.css").read_text()
         self.edit_form = (ROOT / "v2/templates/v2/order_edit.html").read_text()
         self.linked_export_form = (ROOT / "v2/templates/v2/create_linked_export_order.html").read_text()
         self.departure = (ROOT / "v2/templates/v2/enter_shipped.html").read_text()
@@ -241,7 +242,7 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn("url_for('v2.enter_shipped'", schedule)
         self.assertIn('btn btn-sm btn-primary', schedule)
         self.assertNotIn('btn btn-sm btn-warning', schedule)
-        self.assertIn('.order-lifecycle-action', self.order_detail)
+        self.assertIn('.order-lifecycle-action', self.order_detail_css)
 
     def test_order_detail_save_state_restores_prg_editors_and_limits_inplace_save_to_cargo(self):
         for token in (
@@ -304,13 +305,31 @@ class SharedV2DesignSystemTest(TestCase):
         ):
             self.assertIn(token, self.detail_js)
         self.assertNotIn('window.location.reload', self.detail_js)
-        self.assertIn('.order-save-feedback{position:fixed', self.order_detail)
+        self.assertIn('.order-save-feedback{position:fixed', self.order_detail_css)
         self.assertIn('role="status" aria-live="polite"', self.base)
         self.assertIn('feedback.classList.add("is-dismissing")', self.detail_js)
         self.assertIn('.v2-save-status', self.css)
-        restore_script = self.order_detail.split('</style><script>', 1)[1].split('</script>', 1)[0]
+        restore_script = self.order_detail.split('<script>', 1)[1].split('</script>', 1)[0]
         self.assertNotIn('FormData', restore_script)
         self.assertNotIn('form.elements', restore_script)
+
+    def test_order_detail_uses_its_dedicated_business_first_stylesheet_without_contract_changes(self):
+        self.assertIn("filename='v2_order_detail.css'", self.order_detail)
+        self.assertNotIn('{% block head_extra %}<style>', self.order_detail)
+        for token in (
+            '.order-hero,.order-stage-panel,.order-panel', '.order-nav',
+            '.order-shell .btn-primary,.order-shell .btn-outline-primary',
+            '.order-status-badge.is-pre_shipment,.order-status-badge.is-shipped',
+            '.order-correction', '.order-file-download', '.order-shipping-group',
+        ):
+            self.assertIn(token, self.order_detail_css)
+        for token in (
+            'id="order-identity"', 'id="order-lifecycle"', 'class="order-nav"',
+            'id="generated-files"', 'id="tasks"', 'id="activity"',
+            "url_for('v2.document'", "{% include 'v2/_order_current_action.html' %}",
+            "{% include 'v2/_order_shipping.html' %}",
+        ):
+            self.assertIn(token, self.order_detail)
 
     def test_shipping_accordion_compensates_only_for_a_closed_open_peer(self):
         accordion = self.detail_js.split('shippingGroups.forEach((group) => {', 1)[1].split(

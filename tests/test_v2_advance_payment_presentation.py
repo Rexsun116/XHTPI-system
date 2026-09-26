@@ -118,13 +118,14 @@ class AdvancePaymentPresentationTest(TestCase):
         pre = self.pi("SUMMARY-PRE", status="PRE_SHIPMENT", received="100", received_at=datetime(2026, 9, 15, 10))
         shipped = self.pi("SUMMARY-SHIPPED", status="SHIPPED", received="100", received_at=datetime(2026, 9, 15, 10))
         db.session.commit()
+        detail_css = (Path(__file__).parents[1] / "v2/static/v2_order_detail.css").read_text()
+        self.assertIn("@media(max-width:575.98px)", detail_css)
         for pi, status in ((new, "部分到账"), (pre, "已足额到账"), (shipped, "已足额到账")):
             page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
             self.assertIn('id="advance-payment-summary"', page)
             self.assertIn("应收预付款", page)
             self.assertIn("USD 100.00", page)
             self.assertIn(status, page)
-            self.assertIn("@media(max-width:575.98px)", page)
         shipped_page = self.client().get(f"/v2/orders/{shipped.id}").get_data(as_text=True)
         self.assertIn('id="payment-receipts"', shipped_page)
         receipts = shipped_page.split('id="payment-receipts"', 1)[1].split('</form>', 1)[0]
