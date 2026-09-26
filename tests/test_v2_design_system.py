@@ -30,19 +30,46 @@ class SharedV2DesignSystemTest(TestCase):
         self.finance = (ROOT / "v2/templates/v2/_order_finance.html").read_text()
         self.detail_js = (ROOT / "v2/static/v2_batch1.js").read_text()
 
-    def test_authoritative_tokens_and_shared_shell_foundation_are_present(self):
+    def test_business_first_foundation_tokens_and_shell_contract_are_present(self):
         for token in (
-            "--v35-primary:#14b8a6", "--v35-border:#e2e9ed",
-            "--v35-soft:#f8fbfc", "--v35-ink:#172033",
-            "--v35-muted:#667085", "--v2-shell-width:236px",
+            "--v2-color-canvas:#f5f7fb", "--v2-color-surface:#fff",
+            "--v2-color-text:#15253b", "--v2-color-muted:#62728a",
+            "--v2-color-primary:#153b64", "--v2-color-primary-strong:#1d5c8e",
+            "--v2-color-accent:#159a86", "--v2-color-success",
+            "--v2-color-warning", "--v2-color-danger", "--v2-color-info",
+            "--v2-color-analytics-purple", "--v2-radius-sm:9px",
+            "--v2-radius-md:12px", "--v2-radius-lg:16px",
+            "--v2-shadow-card", "--v2-control-height:40px",
+            "--v2-focus-ring", "--v2-transition-fast:160ms ease",
+            "--v35-primary:var(--v2-color-accent)",
+            "--v35-border:var(--v2-color-border)",
+            "--v35-soft:var(--v2-color-surface-soft)",
+            "--v35-ink:var(--v2-color-text)",
+            "--v35-muted:var(--v2-color-muted)", "--v2-shell-width:236px",
             "--v2-shell-rail-width:74px", "--v2-shell-bg:#122c4d",
             "--v2-shell-bg-active:#1d5682", "--v2-shell-accent:#64c2c4",
             "width:var(--v2-shell-width)", "padding:28px 32px 46px",
-            ".v2-shell-link.is-active", ".v2-shell-account",
-            ".v2-summary-card", ".v2-form-control", ".v2-table",
-            ".v2-status--exception", ".v2-status--done",
+            ".v2-shell-link.is-active", ".v2-shell-account", ".v2-card",
+            ".v2-card--compact", ".v2-card--hero", ".v2-inset-panel",
+            ".v2-card--danger", ".v2-btn", ".v2-btn--primary",
+            ".v2-btn--secondary", ".v2-btn--ghost", ".v2-btn--subtle",
+            ".v2-btn--success", ".v2-btn--danger", ".v2-btn--text",
+            ".v2-btn--icon", ".v2-form-choice", ".v2-table-wrap",
+            ".v2-table--compact", ".v2-table-number", ".v2-badge--neutral",
+            ".v2-badge--success", ".v2-badge--warning", ".v2-badge--danger",
+            ".v2-badge--info", ".v2-badge--analytics", ".v2-page-header__title",
         ):
             self.assertIn(token, self.css)
+
+    def test_long_form_primitives_use_foundation_tokens_without_removing_v35_aliases(self):
+        long_form_css = self.css.split("/* Shared long-form workspace primitives.", 1)[1]
+        for token in (
+            "var(--v2-color-border)", "var(--v2-color-surface-soft)",
+            "var(--v2-color-text)", "var(--v2-color-muted)",
+            "var(--v2-color-danger)", "var(--v2-color-accent)",
+        ):
+            self.assertIn(token, long_form_css)
+        self.assertNotIn("var(--v35-", long_form_css)
 
     def test_base_loads_foundation_but_defaults_to_legacy_scope(self):
         self.assertIn("v2_design_system.css", self.base)

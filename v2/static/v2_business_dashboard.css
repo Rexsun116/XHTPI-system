@@ -1,19 +1,20 @@
 .v2-business-page {
-  --biz-bg: #f5f7fb;
-  --biz-surface: #fff;
-  --biz-surface-soft: #f8fafc;
-  --biz-border: #e2e8f0;
-  --biz-text: #15253b;
-  --biz-muted: #62728a;
-  --biz-primary: #153b64;
-  --biz-primary-2: #1d5c8e;
-  --biz-revenue: #159a86;
-  --biz-receivable: #bd6d21;
-  --biz-receivable-soft: #fff5e9;
-  --biz-shipment: #4d6fbd;
-  --biz-shipment-soft: #eff3ff;
-  --biz-customer: #7263a8;
-  --biz-shadow: 0 1px 2px rgba(21,37,59,.04), 0 10px 24px rgba(21,37,59,.035);
+  /* Global aliases preserve the approved dashboard appearance. */
+  --biz-bg: var(--v2-color-canvas);
+  --biz-surface: var(--v2-color-surface);
+  --biz-surface-soft: var(--v2-color-surface-soft);
+  --biz-border: var(--v2-color-border);
+  --biz-text: var(--v2-color-text);
+  --biz-muted: var(--v2-color-muted);
+  --biz-primary: var(--v2-color-primary);
+  --biz-primary-2: var(--v2-color-primary-strong);
+  --biz-revenue: var(--v2-color-accent);
+  --biz-receivable: var(--v2-color-warning);
+  --biz-receivable-soft: var(--v2-color-warning-soft);
+  --biz-shipment: var(--v2-color-info);
+  --biz-shipment-soft: var(--v2-color-info-soft);
+  --biz-customer: var(--v2-color-analytics-purple);
+  --biz-shadow: var(--v2-shadow-card);
   background: var(--biz-bg);
 }
 .v2-business-page .biz-dashboard { width: min(1480px, 100%); margin: 0 auto; color: var(--biz-text); }

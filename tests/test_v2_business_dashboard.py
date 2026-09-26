@@ -187,7 +187,21 @@ class BusinessDashboardTest(TestCase):
             self.assertIn(structure, html)
         self.assertIn("v2_business_dashboard.css", html)
         stylesheet = Path("v2/static/v2_business_dashboard.css").read_text()
+        foundation = Path("v2/static/v2_design_system.css").read_text()
         self.assertIn(".v2-business-page", stylesheet)
+        for alias in (
+            "--biz-bg: var(--v2-color-canvas)",
+            "--biz-surface: var(--v2-color-surface)",
+            "--biz-border: var(--v2-color-border)",
+            "--biz-text: var(--v2-color-text)",
+            "--biz-primary: var(--v2-color-primary)",
+            "--biz-revenue: var(--v2-color-accent)",
+            "--biz-shadow: var(--v2-shadow-card)",
+        ):
+            self.assertIn(alias, stylesheet)
+        self.assertIn(".biz-revenue-hero", stylesheet)
+        self.assertIn(".biz-chart-line { fill: none; stroke: #168d80", stylesheet)
+        self.assertIn("--v2-color-primary:#153b64", foundation)
         self.assertIn(".biz-table-scroll", stylesheet)
         self.assertIn("overflow-x: auto", stylesheet)
         self.assertIn(".biz-context-grid", stylesheet)
