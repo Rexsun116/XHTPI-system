@@ -43,6 +43,7 @@ from .order_deletion import (
     delete_new_order, delete_linked_trade, linked_delete_pair, linked_delete_available,
 )
 from .master_codes import MasterCodeAllocationError, create_master_record
+from .management_dashboard import build_business_dashboard
 
 blueprint = Blueprint("v2", __name__, url_prefix="/v2", static_folder="static")
 
@@ -54,6 +55,23 @@ MASTER = {
  "products": (Product, "PRD", ["category","brand","model","packaging","hs_code"]),
  "banks": (BankAccount, "BNK", ["name","beneficiary_name","bank_name","bank_address","account_number","swift_code","currency","remittance_information"]),
 }
+
+
+@blueprint.get("/business")
+@login_required
+def business_overview():
+    raw_year = request.args.get("year")
+    current_year = business_today().year
+    try:
+        year = int(raw_year) if raw_year else current_year
+    except (TypeError, ValueError):
+        abort(400, "Invalid reporting year.")
+    if not 2000 <= year <= current_year:
+        abort(400, "Invalid reporting year.")
+    return render_template(
+        "v2/business_overview.html",
+        **build_business_dashboard(year, today=business_today()),
+    )
 
 
 @blueprint.get("/")
