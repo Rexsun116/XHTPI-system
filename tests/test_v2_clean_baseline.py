@@ -260,6 +260,7 @@ class V2CleanBaselineTest(TestCase):
         self.assertIn("订单控制中心", dashboard)
         self.assertIn("v35-dashboard", dashboard)
         self.assertIn("v2_design_system.css", dashboard)
+        self.assertIn("v2_operations_dashboard.css", dashboard)
         self.assertIn("v2-modern", dashboard)
         self.assertIn("v35-cell-primary", dashboard)
         self.assertIn("v35-cell-secondary", dashboard)
@@ -267,7 +268,7 @@ class V2CleanBaselineTest(TestCase):
         self.assertIn("limits={exception:3,action:5,waiting:4}", dashboard)
         self.assertIn("applyCollapsedState();", dashboard)
         self.assertIn("aria-expanded','false'", dashboard)
-        self.assertIn("var(--upcoming)", dashboard)
+        self.assertIn("v2-badge--neutral", dashboard)
 
     def test_12_documents_generate_in_v2_directory(self):
         client=self.login_client(); client.post("/orders",json=self.sales_payload("DOCS"))

@@ -15,6 +15,7 @@ ROOT = Path(__file__).parents[1]
 class SharedV2DesignSystemTest(TestCase):
     def setUp(self):
         self.css = (ROOT / "v2/static/v2_design_system.css").read_text()
+        self.operations_css = (ROOT / "v2/static/v2_operations_dashboard.css").read_text()
         self.base = (ROOT / "v2/templates/v2/base.html").read_text()
         self.dashboard = (ROOT / "v2/templates/v2/dashboard.html").read_text()
         self.order_detail = (ROOT / "v2/templates/v2/order_view.html").read_text()
@@ -118,6 +119,32 @@ class SharedV2DesignSystemTest(TestCase):
             self.assertNotIn("@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome", page)
         self.assertNotIn("--v35-primary:#14b8a6", self.dashboard)
         self.assertNotIn(":root{--v35-primary", self.order_detail)
+
+    def test_operations_dashboard_uses_the_static_business_first_presentation_contract(self):
+        for token in (
+            "v2_operations_dashboard.css", "v2-page-header", "v2-page-header__title",
+            "v2-card v2-card--compact", "v2-table-wrap", "v2-table--compact",
+            "v2-badge v2-badge--neutral", "v2-btn", "Action Center",
+            "v35-action-column {{ key|lower }}", "Active Orders Control Board",
+            "applyCollapsedState", "limits={exception:3,action:5,waiting:4}",
+        ):
+            self.assertIn(token, self.dashboard)
+        self.assertNotIn("{% block head_extra %}<style>", self.dashboard)
+        for token in (
+            "var(--v2-color-canvas)", "var(--v2-color-danger)",
+            "var(--v2-color-warning)", "var(--v2-color-info)",
+            "var(--v2-color-success)", "var(--v2-table-header-bg)",
+            "var(--v2-table-row-hover)", ".v35-action-center",
+            ".v35-action-column.exception", ".v35-action-column.action",
+            ".v35-action-column.waiting", ".v35-group.done",
+            ".v35-button.primary,.v35-small-button.primary",
+            ".v35-small-button.warning", ".v35-small-button.danger",
+            ".v35-summary-card.active", "var(--v2-color-primary-soft)",
+            ".v35-board{box-sizing:border-box;width:100%;min-width:0;max-width:100%;overflow-x:auto",
+        ):
+            self.assertIn(token, self.operations_css)
+        self.assertNotIn("var(--v35-", self.operations_css)
+        self.assertNotIn("v2_business_dashboard.css", self.dashboard)
 
     def test_normal_edit_page_uses_the_shared_modern_form_shell(self):
         self.assertIn("{% block body_class %}v2-modern{% endblock %}", self.edit_form)
@@ -296,7 +323,7 @@ class SharedV2DesignSystemTest(TestCase):
             'grid-template-columns:repeat(2,minmax(0,1fr))',
             '.v35-board{box-sizing:border-box;width:100%;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden}',
         ):
-            self.assertIn(token, self.dashboard)
+            self.assertIn(token, self.operations_css)
 
     def test_dashboard_task_entries_shrink_and_wrap_within_their_column(self):
         for token in (
@@ -306,20 +333,20 @@ class SharedV2DesignSystemTest(TestCase):
             '.v35-task-actions details,.v35-task-actions form{min-width:0;max-width:100%',
             'width:min(230px,100%);min-width:0;max-width:100%',
         ):
-            self.assertIn(token, self.dashboard)
+            self.assertIn(token, self.operations_css)
         self.assertNotIn('WU1333', self.dashboard)
 
     def test_dashboard_keeps_wide_tables_local_and_main_content_out_of_sidebar(self):
         self.assertIn('z-index:10', self.css)
         for token in (
-            '.v35-dashboard,.v35-panel{min-width:0;max-width:100%',
+            '.v35-dashboard{min-width:0;max-width:100%',
             '.v35-top>*{min-width:0}',
-            '.v35-toolbar{min-width:0;gap:8px;flex-wrap:wrap;justify-content:flex-end}',
+            '.v35-toolbar{display:flex;align-items:center;min-width:0;gap:8px;flex-wrap:wrap;justify-content:flex-end}',
             '@media(max-width:900px){.v35-top{display:block}',
             '.v35-board{box-sizing:border-box;width:100%;min-width:0;max-width:100%;overflow-x:auto;overflow-y:hidden}',
         ):
-            self.assertIn(token, self.dashboard)
-        combined = self.css + self.dashboard
+            self.assertIn(token, self.operations_css)
+        combined = self.css + self.dashboard + self.operations_css
         self.assertNotIn('html,body{overflow-x:hidden', combined)
         self.assertNotIn('body{overflow-x:hidden', combined)
 

@@ -104,7 +104,7 @@ body.v2-modern .v2-shell-account{display:flex;align-items:center;gap:9px;min-hei
 body.v2-modern .v2-shell-avatar{display:grid;place-items:center;flex:0 0 auto;width:29px;height:29px;border:1px solid rgba(143,195,223,.28);border-radius:50%;background:#255477;color:#dff2f3;font-size:10px;font-weight:760;letter-spacing:.02em}
 body.v2-modern .v2-shell-account-copy{min-width:0;font-size:10px;line-height:1.25}
 body.v2-modern .v2-shell-account-copy strong{display:block;overflow:hidden;color:#e8f0f7;font-size:12px;font-weight:660;text-overflow:ellipsis;white-space:nowrap}
-body.v2-modern .main{box-sizing:border-box;width:calc(100% - var(--v2-shell-width));min-width:0;margin-left:var(--v2-shell-width);padding:28px 32px 46px;background:#f4f8fa}
+body.v2-modern .main{box-sizing:border-box;width:calc(100% - var(--v2-shell-width));min-width:0;margin-left:var(--v2-shell-width);padding:28px 32px 46px;background:var(--v2-color-canvas)}
 
 /* Reusable components. Existing V2 names remain compatibility aliases. */
 .v2-page-header,.v2-form-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
