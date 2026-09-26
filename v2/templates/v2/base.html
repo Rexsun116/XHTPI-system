@@ -10,47 +10,72 @@
   <style>body{font-family:Inter,system-ui;background:#f5f7fb}.card{border:0;box-shadow:0 3px 12px #0f172a12}.task-title{font-size:1rem;font-weight:650}</style>
   {% block head_extra %}{% endblock %}
 </head>
+{% macro shell_icon(name) -%}
+<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if name == 'operations' %}<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/>
+{% elif name == 'business' %}<path d="M4 19V5m0 14h16"/><path d="m7 15 3-4 3 2 4-6"/>
+{% elif name == 'order' %}<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v5h5M9 13h6M9 17h4"/><path d="M17 16v5m-2.5-2.5h5"/>
+{% elif name == 'customers' %}<circle cx="9" cy="8" r="3"/><path d="M3.5 20c.5-3.2 2.3-5 5.5-5s5 1.8 5.5 5M17 11c2 0 3.2 1.1 3.5 3.1"/>
+{% elif name == 'exporters' %}<path d="M4 20h16M6 20V5h9v15M9 9h3m-3 4h3m5-5 3 3-3 3M15 11h5"/>
+{% elif name == 'factories' %}<path d="M3 20h18M5 20V9l5 3V9l5 3V5h4v15M8 16h1m3 0h1m4 0h1"/>
+{% elif name == 'forwarders' %}<path d="M3 6h11v10H3zM14 10h3l3 3v3h-6z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+{% elif name == 'products' %}<path d="m4 7 8-4 8 4-8 4zM4 7v10l8 4 8-4V7M12 11v10"/>
+{% elif name == 'banks' %}<path d="m3 9 9-5 9 5M5 10h14M6 10v7m4-7v7m4-7v7m4-7v7M3 20h18"/>
+{% endif %}
+</svg>
+{%- endmacro %}
 {% set page_body_class %}{% block body_class %}v2-legacy{% endblock %}{% endset %}
 <body class="{{ page_body_class|trim }}">
 {% if 'v2-modern' in page_body_class %}
+  {% set current_endpoint = request.endpoint or '' %}
+  {% set current_master_kind = request.view_args.get('kind') if current_endpoint in ('v2.master_list', 'v2.master_edit') else none %}
+  {% set account_username = current_user.username|default('', true)|trim %}
+  {% set account_initial = account_username[:1]|upper if account_username else '?' %}
   <aside class="side v2-shell" aria-label="XHTPI navigation">
     <div class="v2-shell-top">
       <a class="v2-shell-brand" href="{{ url_for('v2.dashboard') }}" aria-label="XHTPI Operations Dashboard">
-        <span class="v2-shell-brand-mark" aria-hidden="true"><i class="fa-solid fa-arrow-trend-up"></i></span>
+        <span class="v2-shell-brand-mark" aria-hidden="true">{{ shell_icon('business') }}</span>
         <span class="v2-shell-brand-name">XHTPI</span>
         <span class="v2-shell-brand-version">V2</span>
       </a>
       <div class="v2-shell-nav-area">
         <nav class="v2-shell-nav-group" aria-label="Workspace">
           <span class="v2-shell-nav-label">Workspace</span>
-          <a class="v2-shell-link" href="{{ url_for('v2.dashboard') }}" aria-label="Dashboard / Operations">
-            <span class="v2-shell-icon" aria-hidden="true"><i class="fa-solid fa-table-cells-large"></i></span>
-            <span class="v2-shell-link-label">Dashboard / Operations</span>
+          {% set operations_active = current_endpoint == 'v2.dashboard' %}
+          <a class="v2-shell-link{% if operations_active %} is-active{% endif %}" href="{{ url_for('v2.dashboard') }}" aria-label="Operations Dashboard"{% if operations_active %} aria-current="page"{% endif %}>
+            <span class="v2-shell-icon">{{ shell_icon('operations') }}</span>
+            <span class="v2-shell-link-label">Operations Dashboard</span>
           </a>
-          <a class="v2-shell-link" href="{{ url_for('v2.business_overview') }}" aria-label="Business Overview">
-            <span class="v2-shell-icon" aria-hidden="true"><i class="fa-solid fa-chart-line"></i></span>
+          {% set business_active = current_endpoint == 'v2.business_overview' %}
+          <a class="v2-shell-link{% if business_active %} is-active{% endif %}" href="{{ url_for('v2.business_overview') }}" aria-label="Business Overview"{% if business_active %} aria-current="page"{% endif %}>
+            <span class="v2-shell-icon">{{ shell_icon('business') }}</span>
             <span class="v2-shell-link-label">Business Overview</span>
           </a>
         </nav>
         <nav class="v2-shell-nav-group" aria-label="Orders">
           <span class="v2-shell-nav-label">Orders</span>
-          <a class="v2-shell-link" href="{{ url_for('v2.order_new') }}" aria-label="Create PI">
-            <span class="v2-shell-icon" aria-hidden="true"><i class="fa-solid fa-file-circle-plus"></i></span>
-            <span class="v2-shell-link-label">Create PI</span>
+          {% set new_order_active = current_endpoint == 'v2.order_new' %}
+          <a class="v2-shell-link{% if new_order_active %} is-active{% endif %}" href="{{ url_for('v2.order_new') }}" aria-label="New Order"{% if new_order_active %} aria-current="page"{% endif %}>
+            <span class="v2-shell-icon">{{ shell_icon('order') }}</span>
+            <span class="v2-shell-link-label">New Order</span>
           </a>
         </nav>
         <nav class="v2-shell-nav-group" aria-label="Master Data">
           <span class="v2-shell-nav-label">Master Data</span>
-          {% for k,label,icon in [('customers','Customers','fa-users'),('exporters','Exporters','fa-building'),('factories','Factories','fa-industry'),('forwarders','Freight Forwarders','fa-truck'),('products','Products','fa-boxes-stacked'),('banks','Bank Accounts','fa-building-columns')] %}
-            <a class="v2-shell-link" href="{{ url_for('v2.master_list', kind=k) }}" aria-label="{{ label }}">
-              <span class="v2-shell-icon" aria-hidden="true"><i class="fa-solid {{ icon }}"></i></span>
+          {% for k,label,icon in [('customers','Customers','customers'),('exporters','Exporters','exporters'),('factories','Factories','factories'),('forwarders','Freight Forwarders','forwarders'),('products','Products','products'),('banks','Bank Accounts','banks')] %}
+            {% set master_active = current_master_kind == k %}
+            <a class="v2-shell-link{% if master_active %} is-active{% endif %}" href="{{ url_for('v2.master_list', kind=k) }}" aria-label="{{ label }}"{% if master_active %} aria-current="page"{% endif %}>
+              <span class="v2-shell-icon">{{ shell_icon(icon) }}</span>
               <span class="v2-shell-link-label">{{ label }}</span>
             </a>
           {% endfor %}
         </nav>
       </div>
     </div>
-    <div class="v2-shell-account-slot" aria-hidden="true"><span class="v2-shell-avatar-slot"></span></div>
+    <div class="v2-shell-account" aria-label="Signed in as {{ account_username or 'unknown user' }}">
+      <span class="v2-shell-avatar" aria-hidden="true">{{ account_initial }}</span>
+      <span class="v2-shell-account-copy"><strong>{{ account_username or 'Unknown user' }}</strong><span>Signed in</span></span>
+    </div>
   </aside>
 {% else %}
   <aside class="side">

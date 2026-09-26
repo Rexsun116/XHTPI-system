@@ -1,7 +1,13 @@
-"""P2.1 shared V2 visual-foundation source contracts."""
+"""Shared V2 visual-foundation and shell-navigation contracts."""
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
+from tests import test_v2_new_order_edit as fixture
+from v2.fx_reference import FXReference
+from v2.models import BankAccount, FreightForwarder, db
 
 ROOT = Path(__file__).parents[1]
 
@@ -32,7 +38,7 @@ class SharedV2DesignSystemTest(TestCase):
             "--v2-shell-rail-width:74px", "--v2-shell-bg:#122c4d",
             "--v2-shell-bg-active:#1d5682", "--v2-shell-accent:#64c2c4",
             "width:var(--v2-shell-width)", "padding:28px 32px 46px",
-            ".v2-shell-link.is-active", ".v2-shell-account-slot",
+            ".v2-shell-link.is-active", ".v2-shell-account",
             ".v2-summary-card", ".v2-form-control", ".v2-table",
             ".v2-status--exception", ".v2-status--done",
         ):
@@ -49,12 +55,28 @@ class SharedV2DesignSystemTest(TestCase):
             '<nav class="v2-shell-nav-group" aria-label="Workspace">',
             '<nav class="v2-shell-nav-group" aria-label="Orders">',
             '<nav class="v2-shell-nav-group" aria-label="Master Data">',
-            'class="v2-shell-link-label"', 'class="v2-shell-account-slot" aria-hidden="true"',
+            'class="v2-shell-link-label"', 'class="v2-shell-account" aria-label="Signed in as',
             'id="v2-main-content"',
         ):
             self.assertIn(token, self.base)
         self.assertNotIn("V2 LOCAL TRIAL</span>", self.base.split("{% else %}", 1)[0])
         self.assertNotIn("Logout", self.base)
+
+    def test_shell_navigation_uses_server_route_context_and_inline_svg_icons(self):
+        for token in (
+            "current_endpoint = request.endpoint or ''",
+            "operations_active = current_endpoint == 'v2.dashboard'",
+            "business_active = current_endpoint == 'v2.business_overview'",
+            "new_order_active = current_endpoint == 'v2.order_new'",
+            "current_endpoint in ('v2.master_list', 'v2.master_edit')",
+            'aria-current="page"', "current_user.username", "account_username[:1]|upper",
+        ):
+            self.assertIn(token, self.base)
+        modern_shell = self.base.split("{% if 'v2-modern' in page_body_class %}", 1)[1].split("{% else %}", 1)[0]
+        self.assertIn('<svg viewBox="0 0 24 24"', self.base)
+        self.assertNotIn('fa-', modern_shell)
+        self.assertIn('.v2-shell-link.is-active,body.v2-modern .v2-shell-link.is-active:hover', self.css)
+        self.assertIn('box-shadow:inset 0 -3px 0 var(--v2-shell-accent)', self.css)
 
     def test_sidebar_defers_freight_quotes_management_without_affecting_order_freight(self):
         self.assertNotIn("url_for('v2.quotes')", self.base)
@@ -283,3 +305,87 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn('overflow-y:auto', self.css)
         self.assertIn('.v2-route-grid{grid-template-columns:1fr}', self.css)
         self.assertNotIn('html,body{overflow-x:hidden', self.css)
+
+
+class SharedShellNavigationRenderTest(TestCase):
+    setUp = fixture.NewOrderEditTest.setUp
+    tearDown = fixture.NewOrderEditTest.tearDown
+    client = fixture.NewOrderEditTest.client
+    form = fixture.NewOrderEditTest.form
+    order = fixture.NewOrderEditTest.order
+
+    @staticmethod
+    def _nav_link(html, label):
+        label_at = html.index(f'aria-label="{label}"', html.index('<aside class="side v2-shell"'))
+        return html[html.rfind('<a ', 0, label_at):html.index('>', label_at) + 1]
+
+    def _assert_active(self, html, label, expected):
+        link = self._nav_link(html, label)
+        self.assertEqual('is-active' in link, expected, link)
+        self.assertEqual('aria-current="page"' in link, expected, link)
+
+    def _business_page(self):
+        reference = FXReference(
+            base='USD', quote='CNY', rate=Decimal('7.1'), as_of=date(2026, 9, 20),
+            fetched_at=datetime(2026, 9, 20, tzinfo=timezone.utc), source='test',
+            stale=False, available=True,
+        )
+        with patch('v2.management_dashboard.fx_reference_service.current_usd_cny', return_value=reference):
+            response = self.client().get('/v2/business')
+        self.assertEqual(response.status_code, 200)
+        return response.get_data(as_text=True)
+
+    def test_workspace_new_order_and_order_context_active_states_are_exact(self):
+        dashboard = self.client().get('/v2/').get_data(as_text=True)
+        self._assert_active(dashboard, 'Operations Dashboard', True)
+        self._assert_active(dashboard, 'Business Overview', False)
+        self._assert_active(dashboard, 'New Order', False)
+
+        business = self._business_page()
+        self._assert_active(business, 'Operations Dashboard', False)
+        self._assert_active(business, 'Business Overview', True)
+        self._assert_active(business, 'New Order', False)
+
+        new_order = self.client().get('/v2/orders/new').get_data(as_text=True)
+        self._assert_active(new_order, 'New Order', True)
+        pi = self.order('SHELL-NAV')
+        for page in (
+            self.client().get(f'/v2/orders/{pi.id}').get_data(as_text=True),
+            self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True),
+        ):
+            self._assert_active(page, 'New Order', False)
+
+    def test_every_master_list_and_edit_marks_only_its_own_navigation_entry_current(self):
+        forwarder = FreightForwarder(code='FF-SHELL', name='Shell Forwarder')
+        bank = BankAccount(code='BNK-SHELL', name='Shell Bank', beneficiary_name='Shell Beneficiary',
+                           bank_name='Shell Bank', account_number='123', currency='USD')
+        db.session.add_all((forwarder, bank)); db.session.commit()
+        rows = {
+            'customers': self.customer,
+            'exporters': self.exporter,
+            'factories': self.factory,
+            'forwarders': forwarder,
+            'products': self.product,
+            'banks': bank,
+        }
+        labels = {
+            'customers': 'Customers', 'exporters': 'Exporters', 'factories': 'Factories',
+            'forwarders': 'Freight Forwarders', 'products': 'Products', 'banks': 'Bank Accounts',
+        }
+        for kind, row in rows.items():
+            for url in (f'/v2/master/{kind}', f'/v2/master/{kind}/{row.id}/edit'):
+                with self.subTest(kind=kind, url=url):
+                    response = self.client().get(url)
+                    self.assertEqual(response.status_code, 200)
+                    page = response.get_data(as_text=True)
+                    for sibling_kind, label in labels.items():
+                        self._assert_active(page, label, sibling_kind == kind)
+
+    def test_account_uses_authenticated_username_and_has_no_role_or_logout_claim(self):
+        page = self.client().get('/v2/').get_data(as_text=True)
+        self.assertIn('aria-label="Signed in as create"', page)
+        self.assertIn('<span class="v2-shell-avatar" aria-hidden="true">C</span>', page)
+        self.assertIn('<strong>create</strong><span>Signed in</span>', page)
+        self.assertNotIn('Logout', page)
+        self.assertNotIn('Role', page)
+        self.assertNotIn('Freight Quotes', page)

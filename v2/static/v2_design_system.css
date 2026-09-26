@@ -39,12 +39,14 @@ body.v2-modern .v2-shell-nav-group{display:grid;gap:2px;margin:0}
 body.v2-modern .v2-shell-nav-label{display:block;padding:0 10px 5px;color:var(--v2-shell-text-muted);font-size:10px;font-weight:730;letter-spacing:.09em;text-transform:uppercase}
 body.v2-modern .v2-shell-link{display:flex;align-items:center;gap:11px;min-height:42px;margin:0;padding:9px 10px;border-radius:9px;color:var(--v2-shell-text);font-size:13px;font-weight:570;line-height:1.25;text-decoration:none;transition:background .16s ease,color .16s ease,box-shadow .16s ease}
 body.v2-modern .v2-shell-icon{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px}
-body.v2-modern .v2-shell-icon i{font-size:16px}
+body.v2-modern .v2-shell-icon svg,body.v2-modern .v2-shell-brand-mark svg{width:18px;height:18px;stroke-width:1.8}
 body.v2-modern .v2-shell-link:hover{background:var(--v2-shell-hover);color:#fff}
-body.v2-modern .v2-shell-link.is-active{box-shadow:inset 3px 0 0 var(--v2-shell-accent);background:var(--v2-shell-bg-active);color:#fff;font-weight:650}
+body.v2-modern .v2-shell-link.is-active,body.v2-modern .v2-shell-link.is-active:hover{box-shadow:inset 3px 0 0 var(--v2-shell-accent);background:var(--v2-shell-bg-active);color:#fff;font-weight:650}
 body.v2-modern .v2-shell-link:focus-visible{outline:3px solid rgb(100 194 196 / .58);outline-offset:-1px}
-body.v2-modern .v2-shell-account-slot{display:flex;align-items:center;min-height:44px;margin-top:auto;padding:14px 10px 0;border-top:1px solid var(--v2-shell-border)}
-body.v2-modern .v2-shell-avatar-slot{display:block;width:29px;height:29px;border:1px solid rgba(143,195,223,.28);border-radius:50%;background:#255477}
+body.v2-modern .v2-shell-account{display:flex;align-items:center;gap:9px;min-height:44px;margin-top:auto;padding:14px 10px 0;border-top:1px solid var(--v2-shell-border);color:var(--v2-shell-text-muted)}
+body.v2-modern .v2-shell-avatar{display:grid;place-items:center;flex:0 0 auto;width:29px;height:29px;border:1px solid rgba(143,195,223,.28);border-radius:50%;background:#255477;color:#dff2f3;font-size:10px;font-weight:760;letter-spacing:.02em}
+body.v2-modern .v2-shell-account-copy{min-width:0;font-size:10px;line-height:1.25}
+body.v2-modern .v2-shell-account-copy strong{display:block;overflow:hidden;color:#e8f0f7;font-size:12px;font-weight:660;text-overflow:ellipsis;white-space:nowrap}
 body.v2-modern .main{box-sizing:border-box;width:calc(100% - var(--v2-shell-width));min-width:0;margin-left:var(--v2-shell-width);padding:28px 32px 46px;background:#f4f8fa}
 
 /* Opt-in primitives for pages migrated in later P2 batches. */
@@ -96,7 +98,8 @@ body.v2-modern :focus-visible { outline:3px solid rgb(20 184 166 / .32); outline
   body.v2-modern .v2-shell-brand-name,body.v2-modern .v2-shell-brand-version,body.v2-modern .v2-shell-nav-label,body.v2-modern .v2-shell-link-label{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   body.v2-modern .v2-shell-nav-group{justify-items:center}
   body.v2-modern .v2-shell-link{justify-content:center;width:42px;padding-inline:0}
-  body.v2-modern .v2-shell-account-slot{justify-content:center;padding-inline:0}
+  body.v2-modern .v2-shell-account{justify-content:center;padding-inline:0}
+  body.v2-modern .v2-shell-account-copy{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
   body.v2-modern .main{width:calc(100% - var(--v2-shell-rail-width));margin-left:var(--v2-shell-rail-width)}
 }
 @media(max-width:700px){
@@ -107,7 +110,8 @@ body.v2-modern :focus-visible { outline:3px solid rgb(20 184 166 / .32); outline
   body.v2-modern .v2-shell-nav-area{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;overflow-y:hidden}
   body.v2-modern .v2-shell-nav-group{display:flex;align-items:center;gap:2px;flex:0 0 auto}
   body.v2-modern .v2-shell-link{flex:0 0 42px;margin:0}
-  body.v2-modern .v2-shell-account-slot{flex:0 0 auto;min-height:29px;margin:0;padding:0;border:0}
+  body.v2-modern .v2-shell-link.is-active,body.v2-modern .v2-shell-link.is-active:hover{box-shadow:inset 0 -3px 0 var(--v2-shell-accent)}
+  body.v2-modern .v2-shell-account{flex:0 0 auto;min-height:29px;margin:0;padding:0;border:0}
   body.v2-modern .main{width:100%;max-width:100%;margin-left:0;padding:20px 16px 36px;overflow-x:clip}
 }
 

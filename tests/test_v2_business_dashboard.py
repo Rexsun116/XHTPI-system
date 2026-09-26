@@ -46,7 +46,7 @@ class BusinessDashboardTest(TestCase):
     def test_operations_dashboard_route_remains_reachable(self):
         response = self.client().get("/v2/")
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Dashboard / Operations", response.get_data(as_text=True))
+        self.assertIn("Operations Dashboard", response.get_data(as_text=True))
 
     def test_authenticated_page_uses_real_reporting_data_and_preserves_operations_entry(self):
         self.create_order("BUS-USD", loading_port="Shanghai", loading_country_name="China",
