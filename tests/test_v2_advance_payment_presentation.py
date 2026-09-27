@@ -178,6 +178,30 @@ class AdvancePaymentPresentationTest(TestCase):
         self.assertIn('href="#shipping"', page)
         self.assertNotIn('action="/v2/orders/%s/status"' % pi.id, page)
 
+    def test_shipping_route_flags_use_only_explicit_route_country_codes(self):
+        flagged = self.pi("ROUTE-FLAGS", status="PRE_SHIPMENT")
+        flagged.loading_port, flagged.loading_country_code = "Shanghai", "cn"
+        flagged.destination_port, flagged.destination_country_code = "Nhava Sheva", "IN"
+        missing = self.pi("ROUTE-NO-FLAGS", status="PRE_SHIPMENT")
+        missing.loading_port, missing.destination_port = "Shanghai", "Mombasa"
+        invalid = self.pi("ROUTE-INVALID-FLAG", status="PRE_SHIPMENT")
+        invalid.loading_port, invalid.loading_country_code = "Jebel Ali", "XX"
+        invalid.destination_port, invalid.destination_country_code = "Mombasa", "KEN"
+        db.session.commit()
+
+        flagged_page = self.client().get(f"/v2/orders/{flagged.id}").get_data(as_text=True)
+        missing_page = self.client().get(f"/v2/orders/{missing.id}").get_data(as_text=True)
+        invalid_page = self.client().get(f"/v2/orders/{invalid.id}").get_data(as_text=True)
+
+        self.assertIn('class="order-route-flag" aria-hidden="true">🇨🇳</span>Shanghai', flagged_page)
+        self.assertIn('class="order-route-flag" aria-hidden="true">🇮🇳</span>Nhava Sheva', flagged_page)
+        self.assertIn("Shanghai", missing_page)
+        self.assertIn("Mombasa", missing_page)
+        self.assertNotIn('class="order-route-flag"', missing_page)
+        self.assertIn("Jebel Ali", invalid_page)
+        self.assertIn("Mombasa", invalid_page)
+        self.assertNotIn('class="order-route-flag"', invalid_page)
+
     def test_linked_export_route_uses_owner_for_overview_and_shipping_when_copy_is_stale(self):
         group = TradeGroup(group_no="TRI-ROUTE-OWNER")
         db.session.add(group); db.session.flush()

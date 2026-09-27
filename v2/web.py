@@ -21,7 +21,7 @@ from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError,
 from .shipment_ownership import (PHYSICAL_FORM_FIELDS, RouteOwnershipError, is_physical_shipment_task,
                                  normalize_country_code, resolve_country_submission, shipment_owner_for,
                                  synchronize_route_geography, validate_route_geography)
-from .iso3166 import country_choices, country_code_for_name, country_name_for_code
+from .iso3166 import country_choices, country_code_for_name, country_flag_for_code, country_name_for_code
 from .rules import CUSTOMER_DOCUMENT_TASK_CODES
 from .new_order_edit import (NewOrderEditError, save_new_order, validate_new_order, edit_form_data,
                              item_indexes, PARTY_SNAPSHOTS)
@@ -630,6 +630,7 @@ def order_view(pi_id):
         financial_settlement=financial_settlement,financial_owner_resolution=financial_owner_resolution,
         shipment_owner=shipment_owner,
         route_owner=route_owner,
+        country_flag_for_code=country_flag_for_code,
         factory_names=factory_names,
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,

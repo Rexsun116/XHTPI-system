@@ -11,7 +11,7 @@ from unittest import TestCase
 
 from v2.app import create_app
 from v2.iso3166 import (COUNTRY_SEARCH_ALIASES, ISO_3166_1_ALPHA2, ISO_3166_1_ENGLISH_NAMES,
-                        country_code_for_name, country_name_for_code, search_countries)
+                        country_code_for_name, country_flag_for_code, country_name_for_code, search_countries)
 from v2.models import Customer, PI, db
 from v2.shipment_ownership import (
     RouteGeographyValidationError, copy_physical_facts, normalize_country_code,
@@ -61,6 +61,13 @@ class ShipmentCountryContractTest(TestCase):
         for invalid in ("KEN", "Kenya", "XX", "ZZ", "K1", "K", "ABC"):
             with self.assertRaises(RouteGeographyValidationError):
                 normalize_country_code(invalid)
+
+    def test_country_flag_display_requires_a_valid_explicit_alpha2_code(self):
+        self.assertEqual(country_flag_for_code("CN"), "🇨🇳")
+        self.assertEqual(country_flag_for_code(" in "), "🇮🇳")
+        for value in (None, "", "XX", "Shanghai", "C", "CNN", "ＣＮ"):
+            with self.subTest(value=value):
+                self.assertIsNone(country_flag_for_code(value))
 
     def test_complete_english_display_mapping_and_reusable_search(self):
         self.assertEqual(set(ISO_3166_1_ENGLISH_NAMES), ISO_3166_1_ALPHA2)

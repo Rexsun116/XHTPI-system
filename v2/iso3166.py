@@ -311,6 +311,15 @@ def country_name_for_code(code):
     return ISO_3166_1_ENGLISH_NAMES.get(normalized)
 
 
+def country_flag_for_code(code):
+    """Return a decorative regional-indicator flag for one valid ISO alpha-2 code."""
+    normalized = str(code or "").strip().upper()
+    if (len(normalized) != 2 or not normalized.isascii() or not normalized.isalpha()
+            or normalized not in ISO_3166_1_ALPHA2):
+        return None
+    return "".join(chr(0x1F1E6 + ord(letter) - ord("A")) for letter in normalized)
+
+
 def country_code_for_name(value):
     """Resolve an exact accepted name only when it identifies one ISO code."""
     codes = _COUNTRY_CODES_BY_NORMALIZED_ACCEPTED_NAME.get(_normalize_country_name(value), ())
