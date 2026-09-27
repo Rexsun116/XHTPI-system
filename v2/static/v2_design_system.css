@@ -6,7 +6,6 @@
   --v2-color-text:#15253b;
   --v2-color-text-strong:#15253b;
   --v2-color-muted:#62728a;
-  --v2-color-muted-2:#8a99a9;
   --v2-color-border:#e2e8f0;
   --v2-color-border-strong:#dce8eb;
   --v2-color-primary:#153b64;
@@ -42,30 +41,11 @@
   --v2-table-row-hover:#f7fbfb;
 }
 
-body.v2-modern {
-  /* Temporary V3.5 compatibility aliases for unmigrated page-local CSS. */
-  --v35-primary:var(--v2-color-accent);
-  --v35-border:var(--v2-color-border);
-  --v35-soft:var(--v2-color-surface-soft);
-  --v35-ink:var(--v2-color-text);
-  --v35-muted:var(--v2-color-muted);
-  --exception:var(--v2-color-danger);
-  --exception-soft:var(--v2-color-danger-soft);
-  --exception-border:var(--v2-color-danger-border);
-  --action:var(--v2-color-warning);
-  --action-soft:var(--v2-color-warning-soft);
-  --action-border:var(--v2-color-warning-border);
-  --waiting:var(--v2-color-info);
-  --waiting-soft:var(--v2-color-info-soft);
-  --waiting-border:var(--v2-color-info-border);
-  --upcoming:var(--v2-color-analytics-purple);
-  --upcoming-soft:var(--v2-color-analytics-purple-soft);
-  --upcoming-border:#e0dcf4;
-  --done:var(--v2-color-success);
-  --done-soft:var(--v2-color-success-soft);
-  --done-border:var(--v2-color-success-border);
-  background:var(--v2-color-canvas); color:var(--v2-color-text); font-family:Inter,system-ui;
-}
+/* Legacy V2 pages retain their existing Bootstrap card treatment. */
+body.v2-legacy{background:var(--v2-color-canvas);font-family:Inter,system-ui}
+.card{border:0;box-shadow:0 3px 12px #0f172a12}
+
+body.v2-modern { background:var(--v2-color-canvas); color:var(--v2-color-text); font-family:Inter,system-ui; }
 
 /* Standalone authentication shell. It deliberately has no authenticated navigation. */
 body.v2-login{min-height:100vh;margin:0;background:var(--v2-color-canvas);color:var(--v2-color-text);font-family:Inter,system-ui,sans-serif}

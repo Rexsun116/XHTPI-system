@@ -44,11 +44,6 @@ class SharedV2DesignSystemTest(TestCase):
             "--v2-radius-md:12px", "--v2-radius-lg:16px",
             "--v2-shadow-card", "--v2-control-height:40px",
             "--v2-focus-ring", "--v2-transition-fast:160ms ease",
-            "--v35-primary:var(--v2-color-accent)",
-            "--v35-border:var(--v2-color-border)",
-            "--v35-soft:var(--v2-color-surface-soft)",
-            "--v35-ink:var(--v2-color-text)",
-            "--v35-muted:var(--v2-color-muted)", "--v2-shell-width:236px",
             "--v2-shell-rail-width:74px", "--v2-shell-bg:#122c4d",
             "--v2-shell-bg-active:#1d5682", "--v2-shell-accent:#64c2c4",
             "width:var(--v2-shell-width)", "padding:28px 32px 46px",
@@ -73,6 +68,8 @@ class SharedV2DesignSystemTest(TestCase):
         ):
             self.assertIn(token, long_form_css)
         self.assertNotIn("var(--v35-", long_form_css)
+        self.assertNotIn("--v35-", self.css)
+        self.assertNotIn("var(--v35-", self.order_detail_css)
 
     def test_base_loads_foundation_but_defaults_to_legacy_scope(self):
         self.assertIn("v2_design_system.css", self.base)
