@@ -121,8 +121,12 @@ def create_linked_export_order(source_id, form):
         source.include_in_business_stats = True
 
         payment_terms = _required(form, "payment_terms", "Payment Terms")
+        try:
+            pi_date = date.fromisoformat(_required(form, "pi_date", "Export PI Date"))
+        except ValueError as exc:
+            raise LinkedExportCreationError("Export PI Date must be a valid calendar date.") from exc
         export = PI(
-            pi_no=pi_no, pi_date=date.today(), order_type="SALES",
+            pi_no=pi_no, pi_date=pi_date, order_type="SALES",
             status="PRE_SHIPMENT" if source.status == "PRE_SHIPMENT" else "NEW",
             customer_id=customer.id, exporter_id=exporter.id,
             customer_name_snapshot=customer.name, customer_address_snapshot=customer.address,

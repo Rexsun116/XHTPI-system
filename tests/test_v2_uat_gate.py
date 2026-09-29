@@ -12,7 +12,7 @@ from docx import Document
 from werkzeug.security import generate_password_hash
 
 from v2.app import create_app
-from v2.models import (Customer, Exporter, FreightSettlement, OrderFreightAgreement,
+from v2.models import (Customer, Exporter, FreightForwarder, FreightQuote, FreightSettlement, OrderFreightAgreement,
                        OrderTask, PI, PIItem, ProductBatch, TaskActivity, User, db)
 from v2.documents import format_decimal_compact, render_booking_docx, render_invoice_html
 from v2.selector import select_next_action
@@ -74,7 +74,7 @@ class V2UATGateTest(TestCase):
         mail=self.task(pi,"ORIGINAL_DOCUMENTS_MAIL"); self.assertEqual(mail.status,"ACTION")
         with self.assertRaises(TaskOperationError): mark_done(mail,self.user.id,payload={})
         mark_done(mail,self.user.id,payload={"tracking_number":"DHL-1","carrier":"DHL"})
-        email=self.task(pi,"PAYMENT_EMAIL"); email.completed_at=now-timedelta(days=1); email.status="DONE"
+        email=self.task(pi,"PAYMENT_EMAIL"); email.completed_at=now-timedelta(days=1); email.status="DONE"; pi.payment_email_sent_on=(now-timedelta(days=4)).date()
         mail.completed_at=now-timedelta(days=4)
         reconcile_order_tasks_for_pi(pi,now=now)
         follow=self.task(pi,"PAYMENT_BALANCE_FOLLOWUP")
@@ -86,7 +86,7 @@ class V2UATGateTest(TestCase):
     def test_waiting_due_reconcile_and_history_preserved(self):
         now=datetime(2026,8,21,10); pi=self.pi(status="SHIPPED")
         reconcile_order_tasks_for_pi(pi,now=now); email=self.task(pi,"PAYMENT_EMAIL")
-        mark_done(email,self.user.id); email.completed_at=now-timedelta(days=4); reconcile_order_tasks_for_pi(pi,now=now)
+        mark_done(email,self.user.id); email.completed_at=now-timedelta(days=4); pi.payment_email_sent_on=(now-timedelta(days=4)).date(); reconcile_order_tasks_for_pi(pi,now=now)
         follow=self.task(pi,"PAYMENT_BALANCE_FOLLOWUP")
         move_to_waiting(follow,self.user.id,waiting_on="CUSTOMER",next_follow_up_at=now-timedelta(hours=1),note="sent")
         reconcile_order_tasks_for_pi(pi,now=now)
@@ -195,3 +195,67 @@ class V2UATGateTest(TestCase):
         with self.assertRaises(ValueError): pi.derive_commission()
         pi.commission_override_reason="commercial exception"
         self.assertEqual(pi.derive_commission(),Decimal("30"))
+
+class HistoricalBackfillContractTest(V2UATGateTest):
+    def test_booking_allows_blank_vessel_and_title_keeps_exact_units(self):
+        template = Path(__file__).parents[1] / "v2/templates/word/BN-Sample.docx"
+        for unit, quantities, expected in (
+            ("KGS", (Decimal("40000"),), "40000 KGS"),
+            ("MT", (Decimal("40"),), "40 MT"),
+            ("MT", (Decimal("40"), Decimal("20")), "60 MT"),
+            ("mixed", (Decimal("40"), Decimal("40000")), "Mixed units — see cargo details"),
+        ):
+            pi = self.pi(container_type="20GP", container_count=1, shipping_mark="MARK", freight_term="FOB", waybill_option="TELEX", vessel_info=None)
+            pi.items[0].quantity = quantities[0]; pi.items[0].quantity_unit = "KGS" if unit == "KGS" else "MT"
+            if len(quantities) > 1:
+                pi.items.append(PIItem(unit_price=Decimal("1"), quantity=quantities[1], quantity_unit="KGS" if unit == "mixed" else "MT", line_total=quantities[1]))
+            db.session.flush()
+            self.assertNotIn("Vessel / Voyage", __import__("v2.documents", fromlist=["booking_missing_fields"]).booking_missing_fields(pi))
+            doc = Document(render_booking_docx(pi, template))
+            self.assertIn(expected, doc.paragraphs[0].text)
+            self.assertNotIn("{{", "\n".join(p.text for p in doc.paragraphs))
+
+    def test_packing_mark_uses_shipping_mark_or_nm_without_changing_invoice(self):
+        pi = self.pi(shipping_mark="WT DEST:BANGKOK")
+        marked = render_invoice_html(pi, "packing")
+        self.assertIn("WT DEST:BANGKOK", marked)
+        self.assertNotIn("MARK &amp; NO.", render_invoice_html(pi, "invoice"))
+        pi.shipping_mark = None
+        self.assertIn(">N/M<", render_invoice_html(pi, "packing"))
+
+    def test_payment_email_business_date_drives_followup_not_task_audit_time(self):
+        pi = self.pi(status="SHIPPED")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 29, 10))
+        task = self.task(pi, "PAYMENT_EMAIL")
+        response = self.client().post(f"/v2/tasks/{task.id}/done", data={"payment_email_sent_on": "2025-01-10"})
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(pi); db.session.refresh(task)
+        self.assertEqual(pi.payment_email_sent_on, date(2025, 1, 10))
+        self.assertNotEqual(task.completed_at.date(), pi.payment_email_sent_on)
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 29, 10))
+        followup = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+        self.assertEqual(followup.activation_at.date(), date(2025, 1, 13))
+        self.assertEqual(followup.context_payload["trigger_date"], "2025-01-13")
+
+    def test_done_payment_email_without_business_date_does_not_invent_followup_date(self):
+        pi = self.pi(status="SHIPPED")
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 29, 10))
+        task = self.task(pi, "PAYMENT_EMAIL")
+        from v2.task_service import mark_done
+        mark_done(task, self.user.id)
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 29, 10))
+        self.assertIsNone(self.task(pi, "PAYMENT_BALANCE_FOLLOWUP"))
+
+    def test_freight_agreement_business_date_is_immutable_business_data_not_audit_time(self):
+        from v2.services import create_freight_agreement
+        pi = self.pi(status="PRE_SHIPMENT")
+        forwarder = FreightForwarder(code="FF-HIST", name="Historical Forwarder")
+        db.session.add(forwarder); db.session.flush()
+        quote = FreightQuote(freight_forwarder_id=forwarder.id, departure_port="SHA", destination_port="BKK", amount=Decimal("100"), currency="USD")
+        db.session.add(quote); db.session.flush()
+        agreement = create_freight_agreement(pi, quote, agreed_on=date(2025, 1, 10))
+        self.assertEqual(agreement.agreed_on, date(2025, 1, 10))
+        self.assertNotEqual(agreement.agreed_at.date(), agreement.agreed_on)
+        db.session.add(agreement); db.session.commit()
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        self.assertIn("2025-01-10", page)

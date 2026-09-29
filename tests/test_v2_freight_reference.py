@@ -71,3 +71,20 @@ class FreightReferenceTest(TestCase):
         self.assertNotIn('id="freight-settlement"', page)
         self.assertNotIn('name="usd_bill_amount"', page)
         self.assertNotIn('name="cny_bill_amount"', page)
+
+    def test_agreement_date_is_selected_on_manual_and_quote_acceptance_paths(self):
+        from v2.models import FreightQuote, FreightForwarder
+        pi = self.pi("DATE-MANUAL"); pi.status = "PRE_SHIPMENT"
+        forwarder = FreightForwarder(code="FF-DATE", name="Date Forwarder", active=True)
+        db.session.add(forwarder); db.session.flush(); pi.freight_forwarder_id = forwarder.id; db.session.commit()
+        response = self.client().post(f"/v2/orders/{pi.id}/freight-agreement", data={"amount": "125.00", "currency": "USD", "agreement_date": "2025-01-10"})
+        self.assertEqual(response.status_code, 302)
+        manual = db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == pi.id))
+        self.assertEqual(manual.agreed_on.isoformat(), "2025-01-10")
+        quote_pi = self.pi("DATE-QUOTE"); quote_pi.status = "PRE_SHIPMENT"
+        quote = FreightQuote(freight_forwarder_id=forwarder.id, departure_port="SHA", destination_port="BKK", amount=Decimal("50"), currency="USD")
+        db.session.add(quote); db.session.commit()
+        response = self.client().post(f"/v2/orders/{quote_pi.id}/facts", data={"quote_id": str(quote.id), "agreement_date": "2025-01-11"})
+        self.assertEqual(response.status_code, 302)
+        accepted = db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id == quote_pi.id))
+        self.assertEqual(accepted.agreed_on.isoformat(), "2025-01-11")

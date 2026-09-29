@@ -171,6 +171,8 @@ class PI(TimestampMixin, db.Model):
     balance_payment_amount = db.Column(db.Numeric(18, 2))
     balance_received_amount = db.Column(db.Numeric(18, 2))
     balance_received_at = db.Column(db.DateTime)
+    # Separate customer-payment business date from task completion audit time.
+    payment_email_sent_on = db.Column(db.Date)
 
     loading_port = db.Column(db.String(100))
     loading_country_code = db.Column(db.String(2))
@@ -349,6 +351,8 @@ class OrderFreightAgreement(TimestampMixin, db.Model):
     currency = db.Column(db.String(10), nullable=False)
     quote_date = db.Column(db.Date)
     agreed_at = db.Column(db.DateTime)
+    # Historical business date; audit timestamps remain untouched.
+    agreed_on = db.Column(db.Date)
     note = db.Column(db.Text)
     pi = db.relationship("PI")
 

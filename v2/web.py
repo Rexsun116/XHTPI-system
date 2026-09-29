@@ -132,7 +132,7 @@ def dashboard():
     return render_template("v2/dashboard.html", grouped=grouped, orders=orders,
                            tasks_by_order=tasks_by_order, next_by_order=next_by_order,
                            upcoming_days=upcoming_days, summary=summary, present_task=present_task,
-                           format_decimal_compact=format_decimal_compact, selected_sort=selected_sort)
+                           format_decimal_compact=format_decimal_compact, selected_sort=selected_sort, today=today)
 
 
 @blueprint.route("/master/<kind>", methods=["GET", "POST"])
@@ -638,6 +638,7 @@ def order_view(pi_id):
         document_rows=order_document_rows(pi, tasks),
         advance_payment=advance_payment_summary(pi) if pi.order_type == "SALES" and not pi.is_export_order else None,
         completion=completion_check(pi) if pi.status in {"ARRIVED", "COMPLETED"} else None,
+        today=business_today(),
         can_create_linked_export=linked_export_creation_error(pi) is None)
 
 
@@ -920,13 +921,14 @@ def order_facts(pi_id):
                 if field in request.form:
                     item.product_hs_code_snapshot = request.form.get(field) or None
             if request.form.get("quote_id") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
-                db.session.add(create_freight_agreement(pi,db.session.get(FreightQuote,int(request.form["quote_id"]))))
+                agreed_on = _parse_calendar_date((request.form.get("agreement_date") or "").strip()) if request.form.get("agreement_date") else None
+                db.session.add(create_freight_agreement(pi,db.session.get(FreightQuote,int(request.form["quote_id"])), agreed_on=agreed_on))
             elif request.form.get("agreement_amount") and not db.session.scalar(db.select(OrderFreightAgreement).where(OrderFreightAgreement.pi_id==pi.id)):
                 forwarder=db.session.get(FreightForwarder,pi.freight_forwarder_id) if pi.freight_forwarder_id else None
                 db.session.add(OrderFreightAgreement(pi_id=pi.id,freight_forwarder_id=pi.freight_forwarder_id,
                     freight_forwarder_name_snapshot=forwarder.name if forwarder else "Freight forwarder not confirmed",
                     amount=Decimal(request.form["agreement_amount"]),currency=request.form["agreement_currency"].upper(),
-                    agreed_at=utcnow(),note=request.form.get("agreement_note")))
+                    agreed_at=utcnow(),agreed_on=_parse_calendar_date((request.form.get("agreement_date") or "").strip()) if request.form.get("agreement_date") else None,note=request.form.get("agreement_note")))
     elif pi.status in {"SHIPPED","ARRIVED"}:
         if "actual_departure_date" in request.form:
             pi.actual_departure_date=date.fromisoformat(request.form["actual_departure_date"]) if request.form["actual_departure_date"] else None
@@ -1227,6 +1229,7 @@ def freight_agreement_manual(pi_id):
     db.session.add(OrderFreightAgreement(pi_id=pi.id,freight_forwarder_id=pi.freight_forwarder_id,
         freight_forwarder_name_snapshot=forwarder.name if forwarder else "Freight forwarder not confirmed",
         amount=Decimal(request.form["amount"]),currency=request.form["currency"].upper(),agreed_at=utcnow(),
+        agreed_on=_parse_calendar_date((request.form.get("agreement_date") or "").strip()) if request.form.get("agreement_date") else None,
         note=request.form.get("note")))
     save_order_with_reconcile(pi)
     return _order_detail_save_redirect(pi)
@@ -1404,7 +1407,7 @@ def task_action(task_id,action):
         abort(409, "Financial tasks are managed by the linked CUSTOMER_ORDER.")
     try:
         if action=="done":
-            payload=apply_manual_task_business_fact(task) or {}
+            payload=apply_manual_task_business_fact(task, request.form) or {}
             payload.update({key: request.form.get(key) for key in ("tracking_number","carrier") if request.form.get(key)})
             mark_done(task,current_user.id,note=request.form.get("note"),payload=payload)
             reconcile_order_tasks_for_pi(task.pi)

@@ -81,7 +81,7 @@ class LinkedTradeCreateExportTest(TestCase):
     def payload(self, source, **extra):
         values = {"pi_no": "XHT-B3", "customer_id": str(self.export_customer.id),
                   "exporter_id": str(self.export_seller.id), "bank_account_id": str(self.export_bank.id),
-                  "currency": "USD", "payment_terms": "OA90"}
+                  "currency": "USD", "payment_terms": "OA90", "pi_date": "2025-12-15"}
         for item in source.items:
             values[f"unit_price_{item.id}"] = "123.45"; values[f"trade_term_{item.id}"] = "FOB"
         values.update(extra); return values
@@ -94,6 +94,7 @@ class LinkedTradeCreateExportTest(TestCase):
         export = db.session.scalar(db.select(PI).where(PI.pi_no == "XHT-B3"))
         self.assertEqual((source.trade_role, source.include_in_business_stats), ("CUSTOMER_ORDER", True))
         self.assertEqual((export.trade_role, export.include_in_business_stats, export.status), ("EXPORT_ORDER", False, "NEW"))
+        self.assertEqual(export.pi_date, date(2025, 12, 15))
         self.assertEqual(export.trade_group_id, source.trade_group_id)
         self.assertIs(financial_owner_for(export).owner, source)
         self.assertEqual((export.payment_terms, export.items[0].trade_term, export.items[0].unit_price), ("OA90", "FOB", Decimal("123.45")))
@@ -114,6 +115,16 @@ class LinkedTradeCreateExportTest(TestCase):
         self.assertEqual(db.session.scalar(db.select(FreightSettlement.usd_bill_amount).where(FreightSettlement.pi_id == source.id)), Decimal("2"))
         self.assertEqual(db.session.scalar(db.select(db.func.count(OrderTask.id)).where(OrderTask.pi_id == source.id)), 1)
         self.assertEqual(db.session.scalar(db.select(db.func.count(TaskActivity.id)).join(OrderTask).where(OrderTask.pi_id == source.id)), 1)
+
+    def test_historical_pi_date_is_required_and_never_substituted_with_today(self):
+        source = self.source(); payload = self.payload(source); payload.pop("pi_date")
+        response = self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(db.session.get(PI, source.id).trade_group_id)
+        payload = self.payload(source, pi_date="not-a-date")
+        response = self.client().post(f"/v2/orders/{source.id}/create-linked-export", data=payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertIsNone(db.session.get(PI, source.id).trade_group_id)
 
     def test_missing_or_zero_price_rolls_back_all_link_changes(self):
         source = self.source(); payload = self.payload(source, **{f"unit_price_{source.items[0].id}": "0"})
@@ -155,6 +166,8 @@ class LinkedTradeCreateExportTest(TestCase):
         self.assertIn('class="v2-modern"', page)
         self.assertIn('id="linked-export-source-context"', page)
         self.assertIn("Source Customer Order", page)
+        self.assertIn('name="pi_date"', page)
+        self.assertIn('type="date"', page)
         self.assertIn("SHA · China", page); self.assertIn("LAX · United States", page)
         self.assertIn("Product B3", page); self.assertIn("Factory", page); self.assertIn("2.000 MT", page)
         self.assertIn("value=\"OA90\"", page); self.assertIn("value=\"FOB\"", page)

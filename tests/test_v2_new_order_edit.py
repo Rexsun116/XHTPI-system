@@ -529,7 +529,7 @@ class NewOrderEditTest(TestCase):
         export = create_linked_export_order(customer.id, {
             "pi_no": "EXPORT", "customer_id": str(customer.customer_id),
             "exporter_id": str(customer.exporter_id), "bank_account_id": str(bank.id),
-            "payment_terms": "OA90", "currency": "USD",
+            "payment_terms": "OA90", "currency": "USD", "pi_date": "2025-12-15",
             f"unit_price_{customer.items[0].id}": "80"})
         return customer, export, bank
 

@@ -1,6 +1,6 @@
 """V2 order mutations and targeted reconcile; no V1 adapters."""
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from sqlalchemy import func, select
@@ -77,7 +77,7 @@ def pi_number_exists(pi_no, *, exclude_id=None):
     return db.session.scalar(statement) is not None
 
 
-def create_freight_agreement(pi, quote, *, agreed_at=None, note=None):
+def create_freight_agreement(pi, quote, *, agreed_on=None, agreed_at=None, note=None):
     return OrderFreightAgreement(
         pi_id=pi.id,
         source_freight_quote_id=quote.id,
@@ -87,6 +87,7 @@ def create_freight_agreement(pi, quote, *, agreed_at=None, note=None):
         currency=quote.currency.upper(),
         quote_date=quote.quote_date,
         agreed_at=agreed_at or utcnow(),
+        agreed_on=agreed_on,
         note=note,
     )
 
@@ -641,13 +642,12 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             _cancel_task(pi, "SETTLEMENT_DOCUMENT_ADVANCE")
             _cancel_task(pi, "SETTLEMENT_DOCUMENT_BALANCE")
 
-        prerequisites = [task for task in (_task_done(pi, "PAYMENT_EMAIL"), _task_done(pi, "ORIGINAL_DOCUMENTS_MAIL")) if task and task.completed_at]
+        payment_email = _task_done(pi, "PAYMENT_EMAIL")
         followup = _find_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
         if fully_paid:
             _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
-        elif prerequisites and (pi.balance_payment_amount or Decimal("0")) > Decimal("0"):
-            base = min(task.completed_at for task in prerequisites)
-            activation_date = base.date() + timedelta(days=3)
+        elif payment_email and pi.payment_email_sent_on and (pi.balance_payment_amount or Decimal("0")) > Decimal("0"):
+            activation_date = pi.payment_email_sent_on + timedelta(days=3)
             activation = datetime.combine(activation_date, datetime.min.time())
             outstanding = (pi.balance_payment_amount or Decimal("0")) - (pi.balance_received_amount or Decimal("0"))
             if not (followup and followup.status == "WAITING" and followup.next_follow_up_at and followup.next_follow_up_at.date() > today):
@@ -655,7 +655,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                              status="ACTION" if today >= activation_date else "UPCOMING",
                              health="OVERDUE" if today > activation_date else "NORMAL",
                              context={"currency": pi.currency, "outstanding_amount": str(max(outstanding, Decimal('0'))),
-                                      "base_completed_at": base.isoformat(), "trigger_date": activation_date.isoformat()},
+                                      "payment_email_business_date": pi.payment_email_sent_on.isoformat(), "trigger_date": activation_date.isoformat()},
                              activation_at=activation)
         else:
             _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
@@ -779,11 +779,21 @@ def save_order_with_reconcile(pi, *, now=None, before_commit=None):
         raise
 
 
-def apply_manual_task_business_fact(task):
+def apply_manual_task_business_fact(task, form=None):
     """Synchronize approved manual workflow facts before task completion."""
     settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == task.pi_id))
+    form = form or {}
     payload = None
-    if task.task_code in {"FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_CNY_AMOUNT_CONFIRM"}:
+    if task.task_code == "PAYMENT_EMAIL":
+        raw = (form.get("payment_email_sent_on") or "").strip()
+        if not raw:
+            raise ValueError("Payment Email Date is required.")
+        try:
+            task.pi.payment_email_sent_on = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("Payment Email Date must be a valid calendar date.") from exc
+        payload = {"payment_email_business_date": task.pi.payment_email_sent_on.isoformat()}
+    elif task.task_code in {"FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_CNY_AMOUNT_CONFIRM"}:
         if settlement is None:
             raise ValueError("Freight settlement facts are missing.")
         currency = "USD" if "USD" in task.task_code else "CNY"

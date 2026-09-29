@@ -260,7 +260,15 @@ def _replace_booking_table(table, mapping):
 
 
 def render_booking_docx(pi, template_path):
-    quantity = sum((item.quantity for item in pi.items), 0)
+    units = {str(item.quantity_unit or "").strip() for item in pi.items}
+    units.discard("")
+    if len(units) == 1:
+        quantity = sum((item.quantity for item in pi.items), 0)
+        title_quantity = f"{format_decimal_compact(quantity)} {next(iter(units))}"
+    elif len(pi.items) == 1:
+        title_quantity = f"{format_decimal_compact(pi.items[0].quantity)} {pi.items[0].quantity_unit or ''}".strip()
+    else:
+        title_quantity = "Mixed units — see cargo details"
     product_entries = []
     for item in pi.items:
         category = item.product_category_snapshot or ""
@@ -275,10 +283,10 @@ def render_booking_docx(pi, template_path):
         for item in pi.items if item.product_hs_code_snapshot
     ]))
     mapping = {
-        "{{ pi_no }}": pi.pi_no, "{{ quantity }}": format_decimal_compact(quantity),
+        "{{ pi_no }}": pi.pi_no, "{{ quantity_with_unit }}": title_quantity,
         "{{vessel_info}}": pi.vessel_info, "{{ vessel_info }}": pi.vessel_info, "{ {vessel_info}}": pi.vessel_info,
         "{{booking_number}}": pi.booking_number, "{{ booking_number }}": pi.booking_number,
-        "{{pi_no}}": pi.pi_no, "{{quantity}}": format_decimal_compact(quantity),
+        "{{pi_no}}": pi.pi_no, "{{quantity_with_unit}}": title_quantity,
         "{{exporter_name}}": pi.exporter_name_snapshot, "{{exporter_address}}": pi.exporter_address_snapshot,
         "{{exporter_tax_code}}": pi.exporter_tax_code_snapshot,
         "{{customer_name}}": pi.customer_name_snapshot, "{{customer_address}}": pi.customer_address_snapshot,
@@ -334,7 +342,6 @@ def render_booking_docx(pi, template_path):
 def booking_missing_fields(pi):
     """Hard requirements for an initial booking; post-loading facts are excluded."""
     fields = {
-        "Vessel / Voyage": pi.vessel_info,
         "Container Type": pi.container_type,
         "Container Count": pi.container_count,
         "Shipping Mark": pi.shipping_mark,

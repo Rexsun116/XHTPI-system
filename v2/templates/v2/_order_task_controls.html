@@ -60,6 +60,10 @@
       {% if task.completion_mode != 'RULE_DATA' %}
         <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='done') }}" class="order-inline-form order-action-form">
           {{ csrf() }}
+          {% if task.task_code == 'PAYMENT_EMAIL' %}
+            <label for="payment-email-date-{{ task.id }}">Payment Email Date</label>
+            <input id="payment-email-date-{{ task.id }}" class="form-control form-control-sm" name="payment_email_sent_on" type="date" required value="{{ pi.payment_email_sent_on.isoformat() if pi.payment_email_sent_on else today.isoformat() }}">
+          {% endif %}
           {% if task.completion_mode == 'MANUAL_REQUIRED_INPUT' %}
             <label class="visually-hidden" for="tracking-{{ task.id }}">Tracking number</label>
             <input id="tracking-{{ task.id }}" class="form-control form-control-sm" name="tracking_number" required placeholder="Tracking number">

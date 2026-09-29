@@ -339,6 +339,7 @@ class NewSalesReminderTest(TestCase):
             from v2.task_service import mark_done
             mark_done(task, self.user.id)
             task.completed_at = email_at
+            pi.payment_email_sent_on = email_at.date()
         if mail_at:
             pi.original_bl_required = True
             pi.original_documents_mail_required = True
@@ -361,21 +362,20 @@ class NewSalesReminderTest(TestCase):
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 3, 16))
         self.assertEqual(task.status, "ACTION")
 
-    def test_balance_followup_uses_original_mail_when_it_is_only_prerequisite(self):
+    def test_balance_followup_does_not_use_original_mail_as_an_alternate_anchor(self):
         baseline = datetime(2026, 9, 1, 8)
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
         self._outbound_done(pi, mail_at=baseline)
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 9))
-        task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
-        self.assertEqual((task.status, task.context_payload["base_completed_at"]), ("ACTION", baseline.isoformat()))
+        self.assertIsNone(self.task(pi, "PAYMENT_BALANCE_FOLLOWUP"))
 
     def test_balance_followup_uses_earliest_outbound_completion_and_waiting_schedule(self):
         email_at, mail_at = datetime(2026, 9, 2, 18), datetime(2026, 9, 1, 8)
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
         self._outbound_done(pi, email_at=email_at, mail_at=mail_at)
-        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 4, 12))
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 12))
         task = self.task(pi, "PAYMENT_BALANCE_FOLLOWUP")
-        self.assertEqual((task.status, task.context_payload["base_completed_at"]), ("ACTION", mail_at.isoformat()))
+        self.assertEqual((task.status, task.context_payload["payment_email_business_date"]), ("ACTION", email_at.date().isoformat()))
         follow_up(task, self.user.id, waiting_on="CUSTOMER", next_follow_up_at=datetime(2026, 9, 6), note="Awaiting transfer")
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 5, 12))
         self.assertEqual(task.status, "WAITING")
@@ -459,7 +459,7 @@ class NewSalesReminderTest(TestCase):
         pi = self.make_pi(planned=date(2026, 9, 20), advance=Decimal("0")); pi.status = "SHIPPED"
         reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 1))
         task = self.task(pi, "PAYMENT_EMAIL"); db.session.commit()
-        done = self.client().post(f"/v2/tasks/{task.id}/done")
+        done = self.client().post(f"/v2/tasks/{task.id}/done", data={"payment_email_sent_on": "2026-09-01"})
         self.assertTrue(done.headers["Location"].endswith(f"#task-{task.id}"))
         reopened = self.client().post(f"/v2/tasks/{task.id}/reopen", data={"reason": "Correction"})
         self.assertTrue(reopened.headers["Location"].endswith(f"#task-{task.id}"))

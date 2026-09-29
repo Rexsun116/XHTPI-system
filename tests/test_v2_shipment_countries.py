@@ -163,12 +163,15 @@ class ShipmentCountryMigrationTest(TestCase):
                 connection.execute("INSERT INTO customer (id, code, name, active, created_at, updated_at) VALUES (1, 'C1', 'Customer', 1, ?, ?)", (now, now))
                 connection.execute("INSERT INTO pi (id, pi_no, pi_date, order_type, status, customer_id, customer_name_snapshot, currency, loading_port, destination_port, created_at, updated_at) VALUES (1, 'COUNTRY-HIST', '2026-09-19', 'SALES', 'NEW', 1, 'Customer', 'USD', 'Shanghai', 'Mombasa', ?, ?)", (now, now))
                 connection.commit()
-            self.command(path, "upgrade", "v2_0006")
+            self.command(path, "upgrade", "v2_0007")
             with sqlite3.connect(path) as connection:
                 columns = {row[1]: row for row in connection.execute("PRAGMA table_info(pi)")}
-                self.assertEqual(connection.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0006")
+                self.assertEqual(connection.execute("SELECT version_num FROM alembic_version").fetchone()[0], "v2_0007")
                 self.assertEqual((columns["loading_country_code"][2], columns["loading_country_code"][3]), ("VARCHAR(2)", 0))
-                self.assertEqual(connection.execute("SELECT loading_port, destination_port, loading_country_code, destination_country_code FROM pi WHERE id=1").fetchone(), ("Shanghai", "Mombasa", None, None))
+                self.assertEqual((columns["payment_email_sent_on"][2], columns["payment_email_sent_on"][3]), ("DATE", 0))
+                agreement_columns = {row[1]: row for row in connection.execute("PRAGMA table_info(order_freight_agreement)")}
+                self.assertEqual((agreement_columns["agreed_on"][2], agreement_columns["agreed_on"][3]), ("DATE", 0))
+                self.assertEqual(connection.execute("SELECT loading_port, destination_port, loading_country_code, destination_country_code, payment_email_sent_on FROM pi WHERE id=1").fetchone(), ("Shanghai", "Mombasa", None, None, None))
             self.command(path, "downgrade", "v2_0005")
             with sqlite3.connect(path) as connection:
                 columns = {row[1] for row in connection.execute("PRAGMA table_info(pi)")}
