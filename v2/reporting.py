@@ -177,16 +177,24 @@ def _freight_context(owners, freight_settlements):
     }
 
 
-def build_management_report(orders, freight_settlements=(), *, as_of=None):
+def build_management_report(orders, freight_settlements=(), *, as_of=None, reporting_year=None):
     """Build current management aggregates from an already-read V2 dataset.
 
     Monetary values remain separate by currency and quantities remain separate
-    by recorded unit.  Customer/product/geography sections describe all valid
-    reporting owners in the supplied dataset; the explicitly YTD KPI and time
-    series sections use ``as_of.year``.
+    by recorded unit.  When ``reporting_year`` is supplied, every
+    order-derived aggregate uses only eligible reporting owners booked in that
+    calendar year through ``as_of`` (YTD for the current year; 31 December for
+    a historical year).  Link-structure quality remains global to the supplied
+    dataset because malformed links have no safe reporting year owner.
     """
     as_of = as_of or date.today()
     owners, link_quality = select_reporting_owners(orders)
+    if reporting_year is not None:
+        owners = [
+            order for order in owners
+            if (getattr(order, "pi_date", None) is not None
+                and order.pi_date.year == reporting_year and order.pi_date <= as_of)
+        ]
     months = _month_series(as_of)
     booked_revenue = _new_money_map()
     shipped_revenue = _new_money_map()

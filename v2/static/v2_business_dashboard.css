@@ -23,6 +23,9 @@
 .v2-business-page .biz-header p { margin: 0; color: var(--biz-muted); font-size: 14px; }
 .v2-business-page .biz-eyebrow { margin-bottom: 4px !important; color: var(--biz-primary-2) !important; font-size: 10px !important; font-weight: 760; letter-spacing: .105em; text-transform: uppercase; }
 .v2-business-page .biz-period { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.v2-business-page .biz-period label { color: var(--biz-muted); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.v2-business-page .biz-period select { min-height: var(--v2-control-height); padding: 7px 28px 7px 10px; border: 1px solid var(--biz-border); border-radius: var(--v2-radius-sm); color: var(--biz-text); background-color: var(--biz-surface); font: inherit; font-size: 13px; font-weight: 650; }
+.v2-business-page .biz-period select:focus-visible { outline: 3px solid var(--v2-focus-ring); outline-offset: 2px; }
 .v2-business-page .biz-period-current { padding: 7px 9px; border-radius: 8px; color: var(--biz-muted); background: var(--biz-surface-soft); font-size: 12px; }
 .v2-business-page .biz-period a:focus-visible,
 .v2-business-page .biz-currency-tabs button:focus-visible { outline: 3px solid rgba(21,92,142,.38); outline-offset: 2px; }

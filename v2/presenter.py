@@ -39,6 +39,27 @@ def money(currency, amount):
     return f"{currency} {rendered}" if currency else f"{rendered} · Currency not confirmed"
 
 
+def shipping_dates_for_display(pi):
+    """Return the physical-shipment dates for one read-only dashboard row.
+
+    An EXPORT_ORDER never becomes a second shipment record: it presents the
+    existing CUSTOMER_ORDER shipment owner when the structured pair is valid.
+    A malformed pair deliberately has no owner or inferred dates.
+    """
+    from .shipment_ownership import shipment_owner_for
+
+    owner = shipment_owner_for(pi)
+    if owner is None:
+        return {"owner": None, "dates": (("ETD", None), ("ETA", None))}
+    if owner.actual_arrival_date:
+        dates = (("ATD", owner.actual_departure_date), ("ATA", owner.actual_arrival_date))
+    elif owner.actual_departure_date:
+        dates = (("ATD", owner.actual_departure_date), ("ETA", owner.eta))
+    else:
+        dates = (("ETD", owner.etd), ("ETA", owner.eta))
+    return {"owner": owner, "dates": dates}
+
+
 def advance_payment_summary(pi):
     """Read-only projection of the PI's aggregate advance-payment facts."""
     expected = pi.advance_payment_amount or Decimal("0")

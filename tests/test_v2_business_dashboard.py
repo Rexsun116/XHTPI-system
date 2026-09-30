@@ -93,6 +93,39 @@ class BusinessDashboardTest(TestCase):
         self.assertIn("$1,000.00", html)
         self.assertNotIn("$200.00", html)
 
+    def test_year_selector_and_all_analytical_sections_use_the_selected_owner_population(self):
+        historical = self.create_order("BUS-YEAR-2025", destination_port="Mombasa",
+                                       destination_country_name="Kenya", destination_country_code="KE")
+        current = self.create_order("BUS-YEAR-2026", unit_price_0="90", quantity_0="10",
+                                    destination_port="Shanghai", destination_country_name="China",
+                                    destination_country_code="CN")
+        historical.pi_date = date(2025, 8, 22)
+        current.pi_date = date(2026, 8, 22)
+        historical.customer_name_snapshot = "Historical Customer"
+        current.customer_name_snapshot = "Current Customer"
+        historical.items[0].product_model_snapshot = "Historical Product"
+        current.items[0].product_model_snapshot = "Current Product"
+        db.session.add_all((
+            FreightSettlement(pi_id=historical.id, usd_bill_required=True, usd_bill_amount=Decimal("10"),
+                             usd_bill_confirmed=True, usd_payment_status="UNPAID", cny_bill_required=False),
+            FreightSettlement(pi_id=current.id, usd_bill_required=True, usd_bill_amount=Decimal("90"),
+                             usd_bill_confirmed=True, usd_payment_status="UNPAID", cny_bill_required=False),
+        ))
+        db.session.commit()
+
+        html = self.get("/v2/business?year=2025").get_data(as_text=True)
+        self.assertIn('name="year"', html)
+        self.assertIn('value="2025" selected', html)
+        self.assertIn('value="2026"', html)
+        for historical_label in ("Historical Customer", "Historical Product", "Kenya", "$10.00"):
+            self.assertIn(historical_label, html)
+        for current_label in ("Current Customer", "Current Product", "China", "$90.00"):
+            self.assertNotIn(current_label, html)
+
+        empty = self.get("/v2/business?year=2024").get_data(as_text=True)
+        self.assertIn('value="2024" selected', empty)
+        self.assertIn("No booked revenue for this reporting period.", empty)
+
     def test_currency_sections_remain_separate_and_empty_state_is_honest(self):
         self.create_order("BUS-EUR", currency="EUR", unit_price_0="20", quantity_0="10")
         html = self.get().get_data(as_text=True)

@@ -137,6 +137,22 @@ class AdvancePaymentPresentationTest(TestCase):
                       'balance_received_amount', 'balance_received_at'):
             self.assertIn(f'name="{field}"', receipts)
 
+    def test_order_overview_shows_only_a_populated_pi_note(self):
+        noted = self.pi("ORDER-NOTE")
+        noted.note = "Commercial instruction\nKeep this exact wording."
+        noted.other_document_notes = "Document-only note"
+        empty = self.pi("ORDER-NOTE-EMPTY")
+        empty.other_document_notes = "Document-only note"
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{noted.id}").get_data(as_text=True)
+        self.assertIn('id="order-note"', page)
+        self.assertIn("Commercial instruction\nKeep this exact wording.", page)
+        self.assertNotIn("Document-only note", page.split('id="order-overview"', 1)[1].split('</section>', 1)[0])
+
+        empty_page = self.client().get(f"/v2/orders/{empty.id}").get_data(as_text=True)
+        self.assertNotIn('id="order-note"', empty_page)
+
     def test_linked_export_order_has_no_customer_payment_summary(self):
         group = TradeGroup(group_no="TRI-ADVANCE-SUMMARY")
         db.session.add(group); db.session.flush()

@@ -219,6 +219,12 @@ class SharedV2DesignSystemTest(TestCase):
         for token in (".v2-completion-readiness", ".v2-completion-consequence", ".v2-completion-actions",
                       ".v2-history-timeline", "overflow-wrap:anywhere"):
             self.assertIn(token, self.css)
+        self.assertIn(".v2-new-order-form:not(.v2-completion-action-form) .v2-button--primary", self.css)
+        self.assertNotIn(".v2-completion-actions .v2-button--primary{border-color:var(--v2-color-border-strong)", self.css)
+        self.assertIn(".v2-completion-note-field", self.css)
+        self.assertIn('name="completion_note"', self.completion)
+        self.assertIn(".order-lifecycle-action .v2-button--primary,.order-lifecycle-action .v2-button--primary:hover{color:#fff}", self.order_detail_css)
+        self.assertIn("body.v2-tail-workspace .v2-correction-actions .v2-button--primary{border-color:var(--v2-color-warning-border);background:var(--v2-color-warning-soft);color:var(--v2-color-warning)}", self.css)
 
     def test_tail_workspaces_use_scoped_business_first_presentation_without_contract_changes(self):
         tail_pages = (
@@ -230,7 +236,7 @@ class SharedV2DesignSystemTest(TestCase):
             page = (ROOT / "v2/templates/v2" / name).read_text()
             self.assertIn("{% block body_class %}v2-modern v2-tail-workspace{% endblock %}", page)
         for token in (
-            "body.v2-tail-workspace .v2-form-page-header", "body.v2-tail-workspace .v2-new-order-form .v2-button--primary",
+            "body.v2-tail-workspace .v2-form-page-header", "body.v2-tail-workspace .v2-new-order-form:not(.v2-completion-action-form) .v2-button--primary",
             "body.v2-tail-workspace .v2-correction-context", "body.v2-tail-workspace .v2-delete-context",
             "body.v2-tail-workspace .v2-history-event::before",
         ):

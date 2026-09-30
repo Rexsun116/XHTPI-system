@@ -6,6 +6,7 @@ import re
 import tempfile
 from pathlib import Path
 from unittest import TestCase
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -89,6 +90,34 @@ class CompletionGateTest(TestCase):
             self.assertEqual(completion_check(pi)["freight"]["complete"], expected)
             db.session.delete(settlement); db.session.flush()
 
+    def test_completion_freight_presents_confirmed_currency_amounts_without_fabrication(self):
+        pi = self.pi()
+        db.session.add(FreightSettlement(
+            pi_id=pi.id,
+            usd_bill_required=True, usd_bill_amount=Decimal("1040"), usd_bill_confirmed=True,
+            usd_payment_status="PAID",
+            cny_bill_required=True, cny_bill_amount=Decimal("7500"), cny_bill_confirmed=True,
+            cny_payment_status="PAID",
+        ))
+        db.session.commit()
+
+        check = completion_check(pi)
+        self.assertEqual(check["freight"]["usd"]["amount"], Decimal("1040"))
+        self.assertEqual(check["freight"]["cny"]["amount"], Decimal("7500"))
+        page = self.client().get(self.complete_url(pi)).get_data(as_text=True)
+        self.assertIn("USD 1,040.00 · Paid", page)
+        self.assertIn("CNY 7,500.00 · Paid", page)
+
+        incomplete = self.pi()
+        db.session.add(FreightSettlement(
+            pi_id=incomplete.id, usd_bill_required=True, usd_bill_amount=Decimal("1"),
+            usd_bill_confirmed=False, usd_payment_status="UNPAID",
+        ))
+        db.session.commit()
+        self.assertIsNone(completion_check(incomplete)["freight"]["usd"]["amount"])
+        page = self.client().get(self.complete_url(incomplete)).get_data(as_text=True)
+        self.assertIn("Awaiting bill confirmation", page)
+
     def test_document_delivery_requires_current_telex_and_mail_tracking(self):
         pi = self.pi(telex_release_required=True, original_documents_mail_required=True)
         self.assertFalse(completion_check(pi)["documents"]["complete"])
@@ -137,6 +166,47 @@ class CompletionGateTest(TestCase):
         self.assertEqual(pi.status, "COMPLETED")
         self.assertEqual((pickup.status, unrelated.status), ("ACTION", "ACTION"))
 
+    def test_completion_note_is_optional_and_persists_with_the_completion_transition(self):
+        pi = self.pi(note="General order note")
+        self.assertTrue(hasattr(pi, "completion_note"))
+        note = "War surcharge confirmed after shipment.\nReview at closeout."
+
+        response = self.client().post(self.complete_url(pi), data={"completion_note": note})
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(pi)
+        self.assertEqual(pi.status, "COMPLETED")
+        self.assertEqual(pi.note, "General order note")
+        self.assertEqual(pi.completion_note, note)
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        self.assertIn('id="completion-note"', page)
+        self.assertIn("Completion Note", page)
+        self.assertIn("War surcharge confirmed after shipment.\nReview at closeout.", page)
+        self.assertNotIn('name="completion_note"', page)
+
+    def test_empty_completion_note_does_not_block_completion(self):
+        pi = self.pi()
+
+        response = self.client().post(self.complete_url(pi), data={"completion_note": ""})
+
+        self.assertEqual(response.status_code, 302)
+        db.session.refresh(pi)
+        self.assertEqual(pi.status, "COMPLETED")
+        self.assertIsNone(pi.completion_note)
+
+    def test_completion_note_rolls_back_when_the_controlled_transition_fails(self):
+        pi = self.pi()
+        pi_id = pi.id
+        db.session.commit()
+
+        with patch("v2.services.reconcile_order_tasks_for_pi", side_effect=ValueError("injected failure")):
+            response = self.client().post(self.complete_url(pi), data={"completion_note": "Must roll back"})
+
+        self.assertEqual(response.status_code, 400)
+        restored = db.session.get(PI, pi_id)
+        self.assertEqual(restored.status, "ARRIVED")
+        self.assertIsNone(restored.completion_note)
+
     def test_stage_gate_rejects_each_failed_group_and_generic_bypass(self):
         payment = self.pi(balance_received_amount=Decimal("1"))
         freight = self.pi(); db.session.add(FreightSettlement(pi_id=freight.id, usd_bill_required=True, usd_payment_status="UNPAID"))
@@ -168,8 +238,9 @@ class CompletionGateTest(TestCase):
         self.assertIn("Outstanding", html)
         self.assertNotIn("Review &amp; Complete", html)
         self.assertNotIn("确认订单完成", html)
-        self.assertEqual(self.client().post(self.complete_url(pi)).status_code, 409)
+        self.assertEqual(self.client().post(self.complete_url(pi), data={"completion_note": "Must not persist"}).status_code, 409)
         self.assertEqual(pi.status, "ARRIVED")
+        self.assertIsNone(pi.completion_note)
 
     def test_order_detail_ready_completion_check_enters_final_review_without_post(self):
         pi = self.pi()
@@ -202,7 +273,9 @@ class CompletionGateTest(TestCase):
             self.assertIn(token, page)
         form = page.split('id="complete-order-form"', 1)[1].split('</form>', 1)[0]
         self.assertNotIn('v2-form-actions', form)
-        for business_field in ("actual_arrival_date", "completion_note", "completion_date"):
+        self.assertIn('name="completion_note"', form)
+        self.assertIn('id="completion-note"', form)
+        for business_field in ("actual_arrival_date", "completion_date"):
             self.assertNotIn(f'name="{business_field}"', page)
 
     def test_incomplete_completion_page_has_no_completion_post_form(self):

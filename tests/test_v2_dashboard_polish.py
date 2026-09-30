@@ -5,7 +5,7 @@ from unittest import TestCase
 import re
 
 from tests import test_v2_new_order_edit as fixture
-from v2.models import PI, PIItem, db
+from v2.models import PI, PIItem, TradeGroup, db
 from v2.presenter import format_task_datetime
 
 
@@ -63,6 +63,46 @@ class BoardPolishTest(TestCase):
             pi.status=status;pi.actual_departure_date=departed;db.session.commit()
             row=self.row(self.board(),pi)
             self.assertEqual('Departed: 2026-09-14' in row,expected)
+
+    def test_key_shipping_dates_use_physical_shipment_owner_and_actual_date_priority(self):
+        from datetime import date
+
+        customer = self.order("SHIPMENT-CUSTOMER")
+        export = self.order("SHIPMENT-EXPORT")
+        group = TradeGroup(group_no="SHIPMENT-DISPLAY-PAIR")
+        db.session.add(group)
+        customer.trade_group = export.trade_group = group
+        customer.trade_role, export.trade_role = "CUSTOMER_ORDER", "EXPORT_ORDER"
+        customer.etd, customer.eta = date(2026, 9, 22), date(2026, 10, 7)
+        export.etd = export.eta = None
+        db.session.commit()
+
+        row = self.row(self.board(), export)
+        self.assertIn("ETD 2026-09-22", row)
+        self.assertIn("ETA 2026-10-07", row)
+
+        customer.actual_departure_date = date(2026, 9, 23)
+        db.session.commit()
+        row = self.row(self.board(), export)
+        self.assertIn("ATD 2026-09-23", row)
+        self.assertIn("ETA 2026-10-07", row)
+        self.assertNotIn("ETD 2026-09-22", row)
+
+        customer.actual_arrival_date = date(2026, 10, 8)
+        db.session.commit()
+        row = self.row(self.board(), export)
+        self.assertIn("ATD 2026-09-23", row)
+        self.assertIn("ATA 2026-10-08", row)
+        self.assertNotIn("ETA 2026-10-07", row)
+
+        malformed = self.order("SHIPMENT-MALFORMED")
+        malformed.trade_group = TradeGroup(group_no="SHIPMENT-DISPLAY-BROKEN")
+        malformed.trade_role = "EXPORT_ORDER"
+        malformed.etd, malformed.eta = date(2026, 9, 1), date(2026, 9, 2)
+        db.session.commit()
+        row = self.row(self.board(), malformed)
+        self.assertIn("ETD —", row)
+        self.assertIn("ETA —", row)
 
     def test_sort_modes_ties_invalid_default_and_read_only(self):
         from datetime import date

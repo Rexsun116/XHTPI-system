@@ -42,7 +42,7 @@
 <td>{{ pi.customer_name_snapshot }}</td>
 <td>{% for item in pi.items %}<div class="v35-cell-primary">{{ item.product_model_snapshot or item.product_category_snapshot or '—' }}</div><div class="v35-cell-secondary">{{ format_decimal_compact(item.quantity) }} {{ item.quantity_unit }}</div>{% else %}—{% endfor %}</td>
 <td><span class="v35-order-status v2-badge v2-badge--neutral">{{ pi.status }}</span>{% if pi.status == "SHIPPED" and pi.actual_departure_date %}<div class="v35-cell-secondary">Departed: {{ pi.actual_departure_date.isoformat() }}</div>{% endif %}</td>
-<td>ETD {{ pi.etd or '—' }}<br>ETA {{ pi.eta or '—' }}</td>
+{% set shipping_dates = shipping_dates_by_order[pi.id] %}<td>{% for label, value in shipping_dates.dates %}{{ label }} {{ value or '—' }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
 <td>{{ present_task(next).title if next else 'No active task' }}</td>
 <td>{{ tasks_by_order[pi.id]|selectattr('status', 'ne', 'DONE')|list|length }} active</td>
 <td>{% set wait = tasks_by_order[pi.id]|selectattr('status', 'equalto', 'WAITING')|list %}{{ wait[0].next_follow_up_at if wait else '—' }}</td>

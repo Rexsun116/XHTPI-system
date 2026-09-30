@@ -5,7 +5,7 @@ from decimal import Decimal
 from .fx_reference import FXReferenceService
 from .iso3166 import country_name_for_code
 from .models import FreightSettlement, PI, db
-from .reporting import build_management_report
+from .reporting import build_management_report, select_reporting_owners
 
 
 fx_reference_service = FXReferenceService()
@@ -215,10 +215,20 @@ def _shipment_context(report, order_context, as_of):
 
 def build_business_dashboard(year: int, *, today: date | None = None):
     """Load authoritative records and prepare presentation-only structures."""
-    as_of = reporting_as_of(year, today=today)
+    current_date = today or date.today()
+    as_of = reporting_as_of(year, today=current_date)
     orders = list(db.session.scalars(db.select(PI)))
     settlements = list(db.session.scalars(db.select(FreightSettlement)))
-    report = build_management_report(orders, settlements, as_of=as_of)
+    eligible_owners, _ = select_reporting_owners(orders)
+    current_year = current_date.year
+    available_years = {
+        order.pi_date.year for order in eligible_owners
+        if getattr(order, "pi_date", None) is not None
+    }
+    # Keep a selected empty historical year visible instead of silently
+    # replacing the requested reporting period.
+    available_years.update((current_year, year))
+    report = build_management_report(orders, settlements, as_of=as_of, reporting_year=year)
     booked = report["kpis"]["ytd_booked_revenue_by_currency"]
     currencies = list(booked) or list(report["kpis"]["contracted_by_currency"])
     selected_currency = currencies[0] if currencies else None
@@ -228,6 +238,8 @@ def build_business_dashboard(year: int, *, today: date | None = None):
     return {
         "report": report,
         "year": year,
+        "today": current_date,
+        "available_years": sorted(available_years, reverse=True),
         "is_ytd": as_of != date(year, 12, 31),
         "currencies": currencies,
         "selected_currency": selected_currency,

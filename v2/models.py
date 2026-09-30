@@ -188,6 +188,7 @@ class PI(TimestampMixin, db.Model):
     bank_currency_snapshot = db.Column(db.String(10))
     bank_remittance_snapshot = db.Column(db.Text)
     note = db.Column(db.Text)
+    completion_note = db.Column(db.Text)
 
     freight_forwarder_id = db.Column(db.Integer, db.ForeignKey("freight_forwarder.id"))
     container_loading_at = db.Column(db.DateTime)

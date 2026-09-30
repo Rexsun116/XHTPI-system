@@ -48,6 +48,7 @@ class V2CorrectionPresentationTest(TestCase):
             "'usd_bill_required'", "'agreement_amount'", "'actual_arrival_date'",
         ):
             self.assertIn(token, self.editor)
+        self.assertNotIn('name="completion_note"', self.editor)
 
     def test_correction_styles_keep_scope_and_close_controls_responsive(self):
         for token in (

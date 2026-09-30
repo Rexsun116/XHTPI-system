@@ -31,7 +31,7 @@ from .linked_trade_creation import (
     linked_export_creation_error,
 )
 from .presenter import (advance_payment_summary, order_action_summary, order_activity_feed,
-                        order_document_rows, present_activity, present_task)
+                        order_document_rows, present_activity, present_task, shipping_dates_for_display)
 from .selector import projected, projected_details, select_next_action, sort_key
 from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -98,6 +98,7 @@ def dashboard():
         if status in grouped:
             grouped[status].append(task)
     next_by_order = {pi.id: select_next_action([task for task in tasks if task.pi_id == pi.id]) for pi in orders}
+    shipping_dates_by_order = {pi.id: shipping_dates_for_display(pi) for pi in orders}
     tasks_by_order = {pi.id: [] for pi in orders}
     for task in ordered:
         if getattr(task, "_dashboard_status", task.status) != "CANCELLED":
@@ -131,6 +132,7 @@ def dashboard():
     }
     return render_template("v2/dashboard.html", grouped=grouped, orders=orders,
                            tasks_by_order=tasks_by_order, next_by_order=next_by_order,
+                           shipping_dates_by_order=shipping_dates_by_order,
                            upcoming_days=upcoming_days, summary=summary, present_task=present_task,
                            format_decimal_compact=format_decimal_compact, selected_sort=selected_sort, today=today)
 
@@ -1181,6 +1183,7 @@ def enter_completed(pi_id):
     if not check["overall_complete"]:
         abort(409, "Completion requirements are not satisfied.")
     try:
+        pi.completion_note = request.form.get("completion_note") or None
         pi.status = "COMPLETED"
         save_order_with_reconcile(pi)
     except (ValueError, ArithmeticError) as exc:

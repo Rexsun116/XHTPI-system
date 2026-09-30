@@ -176,6 +176,42 @@ class ManagementReportingTest(TestCase):
         db.session.commit()
         self.assertEqual(self.report()["kpis"]["contracted_by_currency"], {"USD": Decimal("150")})
 
+    def test_reporting_year_scopes_all_owner_derived_metrics_without_changing_link_selection(self):
+        historical = self.make_order("YEAR-2025", amount="100", pi_date=date(2025, 8, 22),
+                                     product="Historical Product", country="KE", port="Mombasa",
+                                     quantity="2", unit="MT")
+        current = self.make_order("YEAR-2026", amount="900", pi_date=date(2026, 8, 22),
+                                  product="Current Product", country="CN", port="Shanghai",
+                                  quantity="9", unit="MT")
+        db.session.add_all([
+            FreightSettlement(pi_id=historical.id, usd_bill_required=True, usd_bill_amount=Decimal("10"),
+                             usd_bill_confirmed=True, usd_payment_status="UNPAID", cny_bill_required=False),
+            FreightSettlement(pi_id=current.id, usd_bill_required=True, usd_bill_amount=Decimal("90"),
+                             usd_bill_confirmed=True, usd_payment_status="UNPAID", cny_bill_required=False),
+        ])
+        db.session.commit()
+
+        report = build_management_report(
+            list(db.session.scalars(db.select(PI))), list(db.session.scalars(db.select(FreightSettlement))),
+            as_of=date(2025, 12, 31), reporting_year=2025,
+        )
+        self.assertEqual(report["reporting_owner_ids"], [historical.id])
+        self.assertEqual(report["kpis"]["contracted_by_currency"], {"USD": Decimal("100")})
+        self.assertEqual(report["kpis"]["open_order_weight_mt"], Decimal("2"))
+        self.assertEqual(report["customers"][0]["order_count"], 1)
+        self.assertEqual([row["product_snapshot"] for row in report["products"]], ["Historical Product"])
+        self.assertEqual([row["country_code"] for row in report["geography"]["countries"]], ["KE"])
+        self.assertEqual(report["freight_context"]["freight_unpaid_by_currency"], {"CNY": Decimal("0.00"), "USD": Decimal("10")})
+
+    def test_selected_current_year_uses_ytd_cutoff_while_historical_year_is_full_calendar_year(self):
+        current_future = self.make_order("CURRENT-FUTURE", amount="90", pi_date=date(2026, 10, 1))
+        historical_late = self.make_order("HISTORICAL-LATE", amount="80", pi_date=date(2025, 12, 15))
+        orders = list(db.session.scalars(db.select(PI)))
+        current = build_management_report(orders, as_of=date(2026, 9, 30), reporting_year=2026)
+        historical = build_management_report(orders, as_of=date(2025, 12, 31), reporting_year=2025)
+        self.assertNotIn(current_future.id, current["reporting_owner_ids"])
+        self.assertIn(historical_late.id, historical["reporting_owner_ids"])
+
     def test_transit_upcoming_and_confirmed_freight_context(self):
         transit = self.make_order("TRANSIT", amount="100", departed=date(2026, 9, 10), arrived=None)
         upcoming = self.make_order("UPCOMING", amount="200", planned=date(2026, 10, 2))

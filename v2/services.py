@@ -302,13 +302,22 @@ def completion_check(pi):
             "complete": outstanding == zero,
         }
         settlement = db.session.scalar(select(FreightSettlement).where(FreightSettlement.pi_id == pi.id))
+        def freight_branch(currency):
+            prefix = currency.lower()
+            required = bool(settlement and getattr(settlement, f"{prefix}_bill_required") is True)
+            confirmed = bool(settlement and getattr(settlement, f"{prefix}_bill_confirmed") is True)
+            amount = getattr(settlement, f"{prefix}_bill_amount") if settlement else None
+            return {
+                "required": required,
+                "confirmed": confirmed,
+                "amount": amount if required and confirmed and amount is not None else None,
+                "status": getattr(settlement, f"{prefix}_payment_status") if settlement else None,
+                "complete": not required or getattr(settlement, f"{prefix}_payment_status") == "PAID",
+            }
+
         freight = {
-            "usd": {"required": bool(settlement and settlement.usd_bill_required is True),
-                    "status": settlement.usd_payment_status if settlement else None,
-                    "complete": not settlement or settlement.usd_bill_required is not True or settlement.usd_payment_status == "PAID"},
-            "cny": {"required": bool(settlement and settlement.cny_bill_required is True),
-                    "status": settlement.cny_payment_status if settlement else None,
-                    "complete": not settlement or settlement.cny_bill_required is not True or settlement.cny_payment_status == "PAID"},
+            "usd": freight_branch("USD"),
+            "cny": freight_branch("CNY"),
             "complete": required_freight_settlements_paid(settlement),
         }
 
