@@ -233,6 +233,24 @@ def _cancel_export_financial_tasks(pi):
         _cancel_task(pi, code, "LINKED_EXPORT_ORDER_FINANCIAL_OWNER")
 
 
+def reconcile_linked_export_document_tasks(customer):
+    """Refresh export-document tasks after a CUSTOMER_ORDER freight agreement.
+
+    The helper deliberately limits itself to members declared as EXPORT_ORDER.
+    Each member still performs its normal structured-owner validation during
+    reconciliation, so malformed link metadata fails closed instead of
+    borrowing a customer agreement.
+    """
+    if customer.trade_role != "CUSTOMER_ORDER" or customer.trade_group_id is None:
+        return
+    exports = db.session.scalars(select(PI).where(
+        PI.trade_group_id == customer.trade_group_id,
+        PI.trade_role == "EXPORT_ORDER",
+    )).all()
+    for export in exports:
+        reconcile_order_tasks_for_pi(export)
+
+
 def _fully_paid(pi):
     return bool(pi.contract_total and (pi.advance_received_amount or 0) + (pi.balance_received_amount or 0) >= pi.contract_total)
 
@@ -249,35 +267,47 @@ def _latest_completed_activity(task):
 
 def _reconcile_forwarder_payment(pi, settlement, today):
     code = "FREIGHT_FORWARDER_PAYMENT"
-    if is_export_order(pi) or pi.status == OrderStage.COMPLETED:
+    if is_export_order(pi):
         _cancel_task(pi, code, "FREIGHT_PAYMENT_NOT_APPLICABLE")
         return
-    anchors = []
-    for bl_code in ("DOCUMENT_OBD_BL", "DOCUMENT_ORIGINAL_BL"):
-        task = _task_done(pi, bl_code)
-        if task is None:
-            continue
-        activity = _latest_completed_activity(task)
-        completed_at = activity.created_at if activity else task.completed_at
-        if completed_at is not None:
-            anchors.append((business_today(completed_at), bl_code))
+    # This is an actual business receipt date, not an audit timestamp.  It is
+    # set at B/L task completion and retains the first qualifying receipt.
+    anchor = pi.bill_of_lading_received_on
     issued = [currency for currency in ("USD", "CNY") if settlement is not None
               and getattr(settlement, f"{currency.lower()}_bill_required") is True
               and getattr(settlement, f"{currency.lower()}_invoice_issued") is True]
-    if not anchors or not issued:
+    if anchor is None or not issued:
         _cancel_task(pi, code, "BL_COMPLETION_OR_FORWARDER_INVOICE_MISSING")
         return
-    anchor = min(day for day, _ in anchors)
     due = anchor + timedelta(days=25)
     existing = _find_task(pi, code)
-    if existing and existing.status == "WAITING" and existing.next_follow_up_at and existing.next_follow_up_at.date() > today:
+    was_manual_done = bool(existing and existing.status == "DONE"
+                           and existing.completion_mode != "RULE_DATA")
+    if existing is not None:
+        # This task is a projection of freight-settlement facts.  Normalize
+        # legacy MANUAL records before deriving its current state.
+        existing.completion_mode = "RULE_DATA"
+    target_status = "ACTION" if today >= due else "UPCOMING"
+    context = {
+        "bl_done_date": anchor.isoformat(),
+        "payment_due_date": due.isoformat(),
+        "issued_invoice_currencies": issued,
+        "action_target": "UPDATE_FREIGHT_SETTLEMENT",
+    }
+    if required_freight_settlements_paid(settlement):
+        # A normal already-derived DONE task is stable across reconcile runs.
+        if existing and existing.status == "DONE" and not was_manual_done:
+            return
+        task = _upsert_task(
+            pi, code, "向货代付款", status=target_status,
+            completion_mode="RULE_DATA", activation_at=datetime.combine(due, datetime.min.time()),
+            due_at=datetime.combine(due, datetime.min.time()), context=context,
+        )
+        _resolve_task(pi, code)
         return
-    _upsert_task(pi, code, "向货代付款", status="ACTION" if today >= due else "UPCOMING",
-                 completion_mode="MANUAL", activation_at=datetime.combine(due, datetime.min.time()),
-                 due_at=datetime.combine(due, datetime.min.time()),
-                 context={"bl_done_date": anchor.isoformat(), "payment_due_date": due.isoformat(),
-                          "issued_invoice_currencies": issued,
-                          "anchor_task_codes": [code for day, code in anchors if day == anchor]})
+    _upsert_task(pi, code, "向货代付款", status=target_status,
+                 completion_mode="RULE_DATA", activation_at=datetime.combine(due, datetime.min.time()),
+                 due_at=datetime.combine(due, datetime.min.time()), context=context)
 
 
 def completion_check(pi):
@@ -572,8 +602,7 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     else:
         _cancel_task(pi, "SHIPPING_ACTUAL_ARRIVAL", "NOT_APPLICABLE_OUTSIDE_SHIPPED")
 
-    shipment_owner = shipment_owner_for(pi) if export_order else None
-    linked_loading_present = bool(shipment_owner and shipment_owner.container_loading_date)
+    linked_agreement_present = bool(linked_agreement)
     linked_gate_codes = {code for code, _, _ in LINKED_EXPORT_DOCUMENT_GATES}
     for code, fact, title, trigger in DOCUMENT_RULES:
         if export_order and code in CUSTOMER_DOCUMENT_TASK_CODES:
@@ -586,10 +615,10 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
             # Normal departure already verified DONE inside the pair transaction.
             if pi.status == "COMPLETED":
                 continue
-            if linked_loading_present:
+            if linked_agreement_present:
                 _upsert_task(pi, code, title, status="ACTION", completion_mode="MANUAL")
             else:
-                _cancel_task(pi, code, "CUSTOMER_LOADING_DATE_MISSING")
+                _cancel_task(pi, code, "CUSTOMER_FREIGHT_AGREEMENT_MISSING")
             continue
         active = (
             trigger == "PRE_SHIPMENT" and pi.status in {"PRE_SHIPMENT","SHIPPED","ARRIVED","COMPLETED"}
@@ -603,11 +632,11 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     if export_order:
         if pi.status == "COMPLETED":
             _cancel_task(pi, LINKED_EXPORT_SETTLEMENT, "LINKED_EXPORT_EXECUTION_COMPLETED")
-        elif pi.settlement_documents_required is True and linked_loading_present:
+        elif pi.settlement_documents_required is True and linked_agreement_present:
             _upsert_task(pi, LINKED_EXPORT_SETTLEMENT, "准备结汇文件 · Settlement Documents",
                          status="ACTION", completion_mode="MANUAL")
         else:
-            _cancel_task(pi, LINKED_EXPORT_SETTLEMENT, "REQUIREMENT_OR_LOADING_DATE_REMOVED")
+            _cancel_task(pi, LINKED_EXPORT_SETTLEMENT, "REQUIREMENT_OR_FREIGHT_AGREEMENT_REMOVED")
 
     originals = [code for code, fact in (("DOCUMENT_ORIGINAL_BL", "original_bl_required"),
                                           ("DOCUMENT_INSURANCE_ORIGINAL", "insurance_original_required"))
@@ -802,6 +831,22 @@ def apply_manual_task_business_fact(task, form=None):
         except ValueError as exc:
             raise ValueError("Payment Email Date must be a valid calendar date.") from exc
         payload = {"payment_email_business_date": task.pi.payment_email_sent_on.isoformat()}
+    elif task.task_code in {"DOCUMENT_OBD_BL", "DOCUMENT_ORIGINAL_BL"}:
+        raw = (form.get("bill_of_lading_received_on") or "").strip()
+        if not raw:
+            raise ValueError("Bill of Lading Received Date is required.")
+        try:
+            received_on = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValueError("Bill of Lading Received Date must be a valid calendar date.") from exc
+        current = task.pi.bill_of_lading_received_on
+        if current is None or received_on < current:
+            task.pi.bill_of_lading_received_on = received_on
+        payload = {
+            "bill_of_lading_received_on": received_on.isoformat(),
+            "first_qualifying_bill_of_lading_received_on": task.pi.bill_of_lading_received_on.isoformat(),
+            "receipt_task_code": task.task_code,
+        }
     elif task.task_code in {"FREIGHT_USD_AMOUNT_CONFIRM", "FREIGHT_CNY_AMOUNT_CONFIRM"}:
         if settlement is None:
             raise ValueError("Freight settlement facts are missing.")

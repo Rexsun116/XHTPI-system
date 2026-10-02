@@ -162,6 +162,8 @@ def task_actions(task):
         elif task.task_code == "SHIPPING_ACTUAL_ARRIVAL":
             actions.append({"kind": "enter_arrived", "label": "确认货物已到港"})
             actions.append({"kind": "followup", "label": "Follow-up"})
+        elif task.task_code == "FREIGHT_FORWARDER_PAYMENT":
+            actions.append({"kind": "edit_freight_settlement", "label": "确认付款"})
         elif task.completion_mode == "MANUAL_REQUIRED_INPUT":
             actions.append({"kind": "required_done", "label": "完成邮寄"})
         elif task.completion_mode == "MANUAL":

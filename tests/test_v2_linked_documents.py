@@ -36,9 +36,12 @@ class LinkedDocumentsTest(TestCase):
 
     def ready_pair(self):
         customer, export = self.pair()
-        customer.container_loading_date = date(2099, 12, 1)
         for flag in self.flags:
             setattr(export, flag, True)
+        db.session.add(OrderFreightAgreement(
+            pi_id=customer.id, freight_forwarder_name_snapshot="FF",
+            amount=Decimal("100"), currency="USD",
+        ))
         reconcile_order_tasks_for_pi(export, now=datetime(2026, 9, 20))
         db.session.commit()
         return customer, export
@@ -48,8 +51,9 @@ class LinkedDocumentsTest(TestCase):
             response = self.client().post(f"/v2/tasks/{self.task(export, code).id}/done")
             self.assertEqual(response.status_code, 302)
 
-    def test_future_customer_loading_activates_all_three_without_export_loading(self):
+    def test_customer_freight_agreement_activates_all_three_without_loading_date(self):
         customer, export = self.ready_pair()
+        self.assertIsNone(customer.container_loading_date)
         self.assertIsNone(export.container_loading_date)
         for code in self.codes:
             task = self.task(export, code)
@@ -58,7 +62,7 @@ class LinkedDocumentsTest(TestCase):
             self.assertIn("done", [action["kind"] for action in task_actions(task)])
             self.assertIsNone(self.task(customer, code))
 
-    def test_export_loading_or_legacy_datetime_cannot_replace_customer_loading_date(self):
+    def test_loading_dates_cannot_replace_missing_customer_freight_agreement(self):
         customer, export = self.pair()
         export.container_loading_date = date(2000, 1, 1)
         customer.container_loading_at = datetime(2000, 1, 1)
@@ -68,22 +72,18 @@ class LinkedDocumentsTest(TestCase):
         for code in self.codes:
             self.assertIsNone(self.task(export, code))
 
-    def test_customer_loading_route_enter_change_clear_and_restore_reuses_rows(self):
+    def test_customer_freight_agreement_route_activates_all_three_without_duplicates(self):
         customer, export = self.pair()
         for flag in self.flags:
             setattr(export, flag, True)
         db.session.commit()
-        ids = None
-        for value, expected in (("2099-12-01", "ACTION"), ("2099-12-02", "ACTION"),
-                                ("", "CANCELLED"), ("2099-12-03", "ACTION")):
-            response = self.client().post(f"/v2/orders/{customer.id}/facts",
-                                          data={"container_loading_date": value})
-            self.assertEqual(response.status_code, 302)
-            tasks = [self.task(export, code) for code in self.codes]
-            self.assertEqual([t.status for t in tasks], [expected] * 3)
-            if ids is None:
-                ids = [t.id for t in tasks]
-            self.assertEqual([t.id for t in tasks], ids)
+        response = self.client().post(f"/v2/orders/{customer.id}/freight-agreement", data={
+            "amount": "100", "currency": "USD", "agreement_date": "2026-09-20",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertIsNone(customer.container_loading_date)
+        tasks = [self.task(export, code) for code in self.codes]
+        self.assertEqual([t.status for t in tasks], ["ACTION"] * 3)
         for code in self.codes:
             self.assertEqual(OrderTask.query.filter_by(pi_id=export.id, task_code=code).count(), 1)
 
@@ -243,6 +243,16 @@ class LinkedDocumentsTest(TestCase):
             export.settlement_documents_required = value
             reconcile_order_tasks_for_pi(export); db.session.commit()
             self.assertIsNone(self.task(export, LINKED_EXPORT_SETTLEMENT))
+
+    def test_malformed_link_never_uses_another_orders_agreement(self):
+        group = shipment_fixture.TradeGroup(group_no="MALFORMED-DOCUMENT-GROUP")
+        db.session.add(group); db.session.flush()
+        export = self.pi("MALFORMED-EXPORT", group=group, role="EXPORT_ORDER")
+        export.export_license_required = export.customs_docs_required = export.settlement_documents_required = True
+        db.session.commit()
+        reconcile_order_tasks_for_pi(export)
+        db.session.commit()
+        self.assertEqual([self.task(export, code) for code in self.codes], [None, None, None])
 
     def test_customer_delivery_tasks_suppressed_without_suppressing_china_export_tasks(self):
         customer, export = self.ready_pair()

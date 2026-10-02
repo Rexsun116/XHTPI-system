@@ -35,9 +35,15 @@
     <a class="{{ button_class }}" href="{% if pi.status == 'NEW' %}{{ url_for('v2.order_edit', pi_id=pi.id) }}{% else %}#shipping-details{% endif %}">{{ action.label }}</a>
   {% elif action.kind == 'edit_freight' %}
     <a class="{{ button_class }}" href="#freight">{{ action.label }}</a>
+  {% elif action.kind == 'edit_freight_settlement' %}
+    <a class="{{ button_class }}" href="#freight-settlement">{{ action.label }}</a>
   {% elif action.kind == 'done' %}
     <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='done') }}" class="order-inline-form">
       {{ csrf() }}
+      {% if task.task_code in ['DOCUMENT_OBD_BL', 'DOCUMENT_ORIGINAL_BL'] %}
+        <label for="bl-received-current-{{ task.id }}">B/L Received Date</label>
+        <input id="bl-received-current-{{ task.id }}" class="form-control form-control-sm" name="bill_of_lading_received_on" type="date" required value="{{ pi.bill_of_lading_received_on.isoformat() if pi.bill_of_lading_received_on else today.isoformat() }}">
+      {% endif %}
       <button type="submit" class="{{ button_class }}">{{ action.label }}</button>
     </form>
   {% elif action.kind == 'required_done' %}
@@ -64,6 +70,10 @@
             <label for="payment-email-date-{{ task.id }}">Payment Email Date</label>
             <input id="payment-email-date-{{ task.id }}" class="form-control form-control-sm" name="payment_email_sent_on" type="date" required value="{{ pi.payment_email_sent_on.isoformat() if pi.payment_email_sent_on else today.isoformat() }}">
           {% endif %}
+          {% if task.task_code in ['DOCUMENT_OBD_BL', 'DOCUMENT_ORIGINAL_BL'] %}
+            <label for="bl-received-detail-{{ task.id }}">B/L Received Date</label>
+            <input id="bl-received-detail-{{ task.id }}" class="form-control form-control-sm" name="bill_of_lading_received_on" type="date" required value="{{ pi.bill_of_lading_received_on.isoformat() if pi.bill_of_lading_received_on else today.isoformat() }}">
+          {% endif %}
           {% if task.completion_mode == 'MANUAL_REQUIRED_INPUT' %}
             <label class="visually-hidden" for="tracking-{{ task.id }}">Tracking number</label>
             <input id="tracking-{{ task.id }}" class="form-control form-control-sm" name="tracking_number" required placeholder="Tracking number">
@@ -75,7 +85,7 @@
           <button type="submit" class="order-done-button"><i class="fa-solid fa-check" aria-hidden="true"></i> Done</button>
         </form>
       {% endif %}
-      <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='waiting') }}" class="order-inline-form order-action-form">
+      {% if task.task_code != 'FREIGHT_FORWARDER_PAYMENT' %}<form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='waiting') }}" class="order-inline-form order-action-form">
         {{ csrf() }}
         <label class="visually-hidden" for="waiting-on-{{ task.id }}">Waiting on</label>
         <select id="waiting-on-{{ task.id }}" class="form-select form-select-sm" name="waiting_on" required>
@@ -87,6 +97,7 @@
         <input id="waiting-note-{{ task.id }}" class="form-control form-control-sm" name="note" placeholder="Waiting note">
         <button type="submit" class="btn btn-sm btn-outline-secondary">Waiting</button>
       </form>
+      {% endif %}
       {% if task.source == 'MANUAL' %}
         <form method="post" action="{{ url_for('v2.task_action', task_id=task.id, action='cancel') }}" class="order-inline-form order-action-form">
           {{ csrf() }}

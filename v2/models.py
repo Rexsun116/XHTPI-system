@@ -225,6 +225,9 @@ class PI(TimestampMixin, db.Model):
     other_document_notes = db.Column(db.Text)
 
     bill_of_lading_number = db.Column(db.String(100))
+    # First actual business receipt date for either qualifying B/L form.
+    # Task/audit timestamps remain separate operational evidence.
+    bill_of_lading_received_on = db.Column(db.Date)
     shipping_company = db.Column(db.String(100))
     vessel_info = db.Column(db.String(100))
     booking_number = db.Column(db.String(100))

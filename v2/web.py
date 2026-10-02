@@ -14,7 +14,7 @@ from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
 from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
     completion_check, pi_number_exists, reconcile_order_tasks_for_pi, save_order_with_reconcile,
-    EXPORT_FINANCIAL_TASK_CODES)
+    reconcile_linked_export_document_tasks, required_freight_settlements_paid, EXPORT_FINANCIAL_TASK_CODES)
 from .linked_trade import financial_owner_for, is_export_order
 from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
@@ -1234,7 +1234,7 @@ def freight_agreement_manual(pi_id):
         amount=Decimal(request.form["amount"]),currency=request.form["currency"].upper(),agreed_at=utcnow(),
         agreed_on=_parse_calendar_date((request.form.get("agreement_date") or "").strip()) if request.form.get("agreement_date") else None,
         note=request.form.get("note")))
-    save_order_with_reconcile(pi)
+    save_order_with_reconcile(pi, before_commit=lambda: reconcile_linked_export_document_tasks(pi))
     return _order_detail_save_redirect(pi)
 
 
@@ -1409,6 +1409,23 @@ def task_action(task_id,action):
     if is_export_order(task.pi) and task.task_code in EXPORT_FINANCIAL_TASK_CODES:
         abort(409, "Financial tasks are managed by the linked CUSTOMER_ORDER.")
     try:
+        if task.task_code == "FREIGHT_FORWARDER_PAYMENT":
+            if action != "done":
+                abort(400, "Freight forwarder payment is derived from freight settlement facts.")
+            settlement = db.session.scalar(db.select(FreightSettlement).where(
+                FreightSettlement.pi_id == task.pi_id,
+            ))
+            required = settlement and any(
+                getattr(settlement, f"{currency}_bill_required") is True
+                for currency in ("usd", "cny")
+            )
+            if not required or not required_freight_settlements_paid(settlement):
+                abort(400, "Confirm every required freight payment in Freight Settlement first.")
+            # A stale legacy form may still POST here.  Reconcile records the
+            # derived DONE state without creating a manual-completion event.
+            reconcile_order_tasks_for_pi(task.pi)
+            db.session.commit()
+            return redirect(url_for("v2.order_view", pi_id=task.pi_id) + f"#task-{task.id}")
         if action=="done":
             payload=apply_manual_task_business_fact(task, request.form) or {}
             payload.update({key: request.form.get(key) for key in ("tracking_number","carrier") if request.form.get(key)})
