@@ -124,6 +124,26 @@ class ManagementReportingTest(TestCase):
         self.assertTrue(report["quality"]["mixed_quantity_units"])
         self.assertEqual(report["quality"]["quantity_unit_types"], ["KGS", "MT"])
 
+    def test_currency_specific_analytical_population_metadata_is_separate(self):
+        self.make_order("USD-ANALYSIS", amount="100", currency="USD", quantity="1", unit="MT",
+                        product="Shared Product", country="KE", customer_snapshot="USD Customer")
+        self.make_order("CNY-ANALYSIS", customer=self.other_customer, amount="200", currency="CNY", quantity="500", unit="KGS",
+                        product="Shared Product", country="CN", customer_snapshot="CNY Customer")
+        report = self.report()
+        customers = {row["label"]: row for row in report["customers"]}
+        product = report["products"][0]
+        countries = {row["country_code"]: row for row in report["geography"]["countries"]}
+
+        self.assertEqual(customers["USD Customer"]["order_count_by_currency"], {"USD": 1})
+        self.assertEqual(customers["CNY Customer"]["order_count_by_currency"], {"CNY": 1})
+        self.assertEqual(product["order_count_by_currency"], {"CNY": 1, "USD": 1})
+        self.assertEqual(product["customer_count_by_currency"], {"CNY": 1, "USD": 1})
+        self.assertEqual(product["quantity_by_unit_by_currency"], {
+            "CNY": {"KGS": Decimal("500")}, "USD": {"MT": Decimal("1")},
+        })
+        self.assertEqual(countries["KE"]["order_count_by_currency"], {"USD": 1})
+        self.assertEqual(countries["CN"]["order_count_by_currency"], {"CNY": 1})
+
     def test_customer_and_product_labels_use_historical_snapshots(self):
         pi = self.make_order("SNAPSHOTS", customer_snapshot="Historical Customer", product="Historical Product")
         self.customer.name = "Renamed Customer"

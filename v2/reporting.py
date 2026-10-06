@@ -234,13 +234,15 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None, repor
         customer_key = customer_id if customer_id is not None else f"missing:{getattr(order, 'id', None)}"
         customer = customer_rows.setdefault(customer_key, {
             "customer_id": customer_id, "label": customer_label, "order_count": 0,
-            "revenue_by_currency": _new_money_map(), "outstanding_by_currency": _new_money_map(),
+            "order_count_by_currency": _new_money_map(), "revenue_by_currency": _new_money_map(),
+            "outstanding_by_currency": _new_money_map(),
         })
         # Customer masters are mutable, while orders retain their historical
         # label.  A customer may therefore have multiple historical labels.
         # Pick a stable snapshot-only representative independent of query order.
         customer["label"] = min(customer["label"], customer_label, key=_customer_label_key)
         customer["order_count"] += 1
+        customer["order_count_by_currency"][currency] += 1
         customer["revenue_by_currency"][currency] += total
         customer["outstanding_by_currency"][currency] += due
 
@@ -248,9 +250,12 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None, repor
         if not country:
             country = COUNTRY_NOT_RECORDED
             missing_country += 1
-        country_row = country_rows.setdefault(country, {"country_code": country, "order_count": 0,
-                                                          "revenue_by_currency": _new_money_map()})
+        country_row = country_rows.setdefault(country, {
+            "country_code": country, "order_count": 0, "order_count_by_currency": _new_money_map(),
+            "revenue_by_currency": _new_money_map(),
+        })
         country_row["order_count"] += 1
+        country_row["order_count_by_currency"][currency] += 1
         country_row["revenue_by_currency"][currency] += total
 
         port = str(getattr(order, "destination_port", "") or "").strip() or PORT_NOT_RECORDED
@@ -293,13 +298,18 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None, repor
                 missing_product += 1
             product = product_rows.setdefault(product_label, {
                 "product_snapshot": product_label, "order_ids": set(), "customer_ids": set(),
+                "order_ids_by_currency": defaultdict(set), "customer_ids_by_currency": defaultdict(set),
                 "revenue_by_currency": _new_money_map(), "quantity_by_unit": _new_money_map(),
+                "quantity_by_unit_by_currency": defaultdict(_new_money_map),
             })
             product["order_ids"].add(getattr(order, "id", None))
             product["customer_ids"].add(customer_key)
+            product["order_ids_by_currency"][currency].add(getattr(order, "id", None))
+            product["customer_ids_by_currency"][currency].add(customer_key)
             product["revenue_by_currency"][currency] += _money(getattr(item, "line_total", None))
             unit = _unit(item)
             product["quantity_by_unit"][unit] += _money(getattr(item, "quantity", None))
+            product["quantity_by_unit_by_currency"][currency][unit] += _money(getattr(item, "quantity", None))
             all_units.add(unit)
             if unit == UNIT_NOT_RECORDED:
                 unknown_units += 1
@@ -331,6 +341,7 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None, repor
     for row in customer_rows.values():
         customers.append({
             "customer_id": row["customer_id"], "label": row["label"], "order_count": row["order_count"],
+            "order_count_by_currency": _as_dict(row["order_count_by_currency"]),
             "revenue_by_currency": _as_dict(row["revenue_by_currency"]),
             "outstanding_by_currency": _as_dict(row["outstanding_by_currency"]),
         })
@@ -340,10 +351,21 @@ def build_management_report(orders, freight_settlements=(), *, as_of=None, repor
             "product_snapshot": row["product_snapshot"], "order_count": len(row["order_ids"]),
             "customer_count": len(row["customer_ids"]), "revenue_by_currency": _as_dict(row["revenue_by_currency"]),
             "quantity_by_unit": _as_dict(row["quantity_by_unit"]),
+            "order_count_by_currency": {
+                currency: len(order_ids) for currency, order_ids in sorted(row["order_ids_by_currency"].items())
+            },
+            "customer_count_by_currency": {
+                currency: len(customer_ids) for currency, customer_ids in sorted(row["customer_ids_by_currency"].items())
+            },
+            "quantity_by_unit_by_currency": {
+                currency: _as_dict(values)
+                for currency, values in sorted(row["quantity_by_unit_by_currency"].items())
+            },
         })
     countries = []
     for row in country_rows.values():
         countries.append({"country_code": row["country_code"], "order_count": row["order_count"],
+                          "order_count_by_currency": _as_dict(row["order_count_by_currency"]),
                           "revenue_by_currency": _as_dict(row["revenue_by_currency"])})
 
     owner_count = len(owners)

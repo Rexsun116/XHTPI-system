@@ -1,6 +1,6 @@
 """Read-only assembly for the V2 Business Overview page."""
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from .fx_reference import FXReferenceService
 from .iso3166 import country_name_for_code
@@ -11,6 +11,8 @@ from .reporting import build_management_report, select_reporting_owners
 fx_reference_service = FXReferenceService()
 _MONTH_LABELS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 _CHART_LEFT, _CHART_RIGHT, _CHART_TOP, _CHART_BASELINE = 54, 678, 28, 163
+PRIMARY_CURRENCY = "USD"
+SECONDARY_CURRENCY = "CNY"
 
 
 def reporting_as_of(year: int, *, today: date | None = None) -> date:
@@ -22,27 +24,76 @@ def _value(values, currency):
     return values.get(currency, Decimal("0.00"))
 
 
+def format_compact_amount(value: Decimal) -> str:
+    """Format a dashboard amount without changing its underlying Decimal value."""
+    value = Decimal(value)
+    absolute = abs(value)
+    if absolute < Decimal("1000"):
+        return f"{value:,.2f}"
+    if absolute < Decimal("1000000"):
+        scaled, suffix, quantum = value / Decimal("1000"), "K", Decimal("0.1")
+    else:
+        scaled, suffix, quantum = value / Decimal("1000000"), "M", Decimal("0.01")
+    rendered = scaled.quantize(quantum, rounding=ROUND_HALF_UP)
+    return f"{rendered:,.{abs(quantum.as_tuple().exponent)}f}".rstrip("0").rstrip(".") + suffix
+
+
+def format_count(value) -> str:
+    """Render discrete reporting entities as grouped integers only."""
+    return f"{int(Decimal(value)):,}"
+
+
+def _ordered_currencies(currencies):
+    """Keep management currencies stable while retaining separated other currencies."""
+    values = {str(currency).strip().upper() for currency in currencies if str(currency).strip()}
+    ordered = [currency for currency in (PRIMARY_CURRENCY, SECONDARY_CURRENCY) if currency in values]
+    return ordered + sorted(values - set(ordered))
+
+
+def _report_currencies(report):
+    currencies = set()
+    for values in (
+        report["kpis"]["ytd_booked_revenue_by_currency"],
+        report["kpis"]["contracted_by_currency"],
+        report["kpis"]["received_by_currency"],
+        report["kpis"]["outstanding_receivables_by_currency"],
+    ):
+        currencies.update(values)
+    return _ordered_currencies(currencies)
+
+
 def _currency_rows(report, currency):
     customers = []
     for row in report["customers"]:
         revenue = _value(row["revenue_by_currency"], currency)
         outstanding = _value(row["outstanding_by_currency"], currency)
         if revenue or outstanding:
-            customers.append({**row, "revenue": revenue, "outstanding": outstanding})
+            customers.append({
+                **row, "revenue": revenue, "outstanding": outstanding,
+                "order_count": _value(row.get("order_count_by_currency", {}), currency),
+            })
     customers.sort(key=lambda row: (-row["revenue"], row["label"]))
 
     products = []
     for row in report["products"]:
         revenue = _value(row["revenue_by_currency"], currency)
         if revenue:
-            products.append({**row, "revenue": revenue})
+            products.append({
+                **row, "revenue": revenue,
+                "order_count": _value(row.get("order_count_by_currency", {}), currency),
+                "customer_count": _value(row.get("customer_count_by_currency", {}), currency),
+                "quantity_by_unit": row.get("quantity_by_unit_by_currency", {}).get(currency, {}),
+            })
     products.sort(key=lambda row: (-row["revenue"], row["product_snapshot"]))
 
     countries = []
     for row in report["geography"]["countries"]:
         revenue = _value(row["revenue_by_currency"], currency)
         if revenue:
-            countries.append({**row, "revenue": revenue})
+            countries.append({
+                **row, "revenue": revenue,
+                "order_count": _value(row.get("order_count_by_currency", {}), currency),
+            })
     countries.sort(key=lambda row: (-row["revenue"], row["country_code"]))
     return customers, products, countries
 
@@ -104,13 +155,15 @@ def _monthly_order_context(report):
     }
 
 
-def _executive_context(report, order_context):
-    outstanding = list(report["kpis"]["outstanding_receivables_by_currency"].items())
-    primary = outstanding[0] if outstanding else None
+def _executive_context(report, order_context, currencies):
+    outstanding = report["kpis"]["outstanding_receivables_by_currency"]
     return {
         "current_month_orders": order_context["current_month_count"],
-        "outstanding_primary": primary,
-        "outstanding_secondary": outstanding[1:],
+        "outstanding_primary": (PRIMARY_CURRENCY, _value(outstanding, PRIMARY_CURRENCY)),
+        "outstanding_secondary": [
+            (currency, _value(outstanding, currency))
+            for currency in currencies if currency != PRIMARY_CURRENCY
+        ],
     }
 
 
@@ -139,21 +192,18 @@ def _customer_context(report, currencies):
     return result
 
 
-def _receivable_context(report, customer_context, currencies):
-    rows = []
-    for currency in currencies:
-        contracted = _value(report["kpis"]["contracted_by_currency"], currency)
-        received = _value(report["kpis"]["received_by_currency"], currency)
-        outstanding = _value(report["kpis"]["outstanding_receivables_by_currency"], currency)
-        rate = _value(report["kpis"]["collection_rate_by_currency"], currency)
-        percentage, bar_percent = _percent(rate, Decimal("1"))
-        rows.append({
-            "currency": currency, "contracted": contracted, "received": received,
-            "outstanding": outstanding, "collection_rate": rate,
-            "collection_percent": percentage, "collection_bar_percent": bar_percent,
-            "largest_outstanding": customer_context[currency]["outstanding"][:3],
-        })
-    return rows
+def _receivable_context(report, customer_context, currency):
+    contracted = _value(report["kpis"]["contracted_by_currency"], currency)
+    received = _value(report["kpis"]["received_by_currency"], currency)
+    outstanding = _value(report["kpis"]["outstanding_receivables_by_currency"], currency)
+    rate = _value(report["kpis"]["collection_rate_by_currency"], currency)
+    percentage, bar_percent = _percent(rate, Decimal("1"))
+    return {
+        "currency": currency, "contracted": contracted, "received": received,
+        "outstanding": outstanding, "collection_rate": rate,
+        "collection_percent": percentage, "collection_bar_percent": bar_percent,
+        "largest_outstanding": customer_context[currency]["outstanding"][:3],
+    }
 
 
 def _product_context(report, currency):
@@ -229,12 +279,14 @@ def build_business_dashboard(year: int, *, today: date | None = None):
     # replacing the requested reporting period.
     available_years.update((current_year, year))
     report = build_management_report(orders, settlements, as_of=as_of, reporting_year=year)
-    booked = report["kpis"]["ytd_booked_revenue_by_currency"]
-    currencies = list(booked) or list(report["kpis"]["contracted_by_currency"])
-    selected_currency = currencies[0] if currencies else None
+    currencies = _report_currencies(report)
+    # USD remains the primary management view. CNY is rendered alongside it
+    # when present so each analytical card can switch locally without a GET.
+    analytical_currencies = [PRIMARY_CURRENCY] + ([SECONDARY_CURRENCY] if SECONDARY_CURRENCY in currencies else [])
+    hero_currencies = [PRIMARY_CURRENCY] + ([SECONDARY_CURRENCY] if SECONDARY_CURRENCY in currencies else [])
     chart_data = _chart_data(report, currencies)
     order_context = _monthly_order_context(report)
-    customer_context = _customer_context(report, currencies)
+    customer_context = _customer_context(report, analytical_currencies)
     return {
         "report": report,
         "year": year,
@@ -242,14 +294,27 @@ def build_business_dashboard(year: int, *, today: date | None = None):
         "available_years": sorted(available_years, reverse=True),
         "is_ytd": as_of != date(year, 12, 31),
         "currencies": currencies,
-        "selected_currency": selected_currency,
+        "hero_currencies": hero_currencies,
+        "other_currencies": [currency for currency in currencies if currency not in hero_currencies],
+        "analytical_currencies": analytical_currencies,
+        "format_compact_amount": format_compact_amount,
+        "format_count": format_count,
         "chart_data": chart_data,
         "order_context": order_context,
-        "executive": _executive_context(report, order_context),
+        "executive": _executive_context(report, order_context, currencies),
         "customer_context": customer_context,
-        "receivable_context": _receivable_context(report, customer_context, currencies),
-        "product_context": _product_context(report, selected_currency),
-        "market_context": _market_context(report, selected_currency),
+        "receivable_context": {
+            currency: _receivable_context(report, customer_context, currency)
+            for currency in analytical_currencies
+        },
+        "product_context": {
+            currency: _product_context(report, currency)
+            for currency in analytical_currencies
+        },
+        "market_context": {
+            currency: _market_context(report, currency)
+            for currency in analytical_currencies
+        },
         "shipment_context": _shipment_context(report, order_context, as_of),
         "coverage_context": _coverage_context(report, orders),
         "fx": fx_reference_service.current_usd_cny(),

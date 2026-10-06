@@ -7,7 +7,8 @@ from unittest.mock import patch
 
 from tests import test_v2_new_order_edit as fixture
 from v2.fx_reference import FXReference
-from v2.models import FreightSettlement, PI, PIItem, TradeGroup, db
+from v2.management_dashboard import format_compact_amount, format_count
+from v2.models import Customer, FreightSettlement, PI, PIItem, TradeGroup, db
 
 
 class BusinessDashboardTest(TestCase):
@@ -190,7 +191,8 @@ class BusinessDashboardTest(TestCase):
     def test_empty_reporting_state_and_invalid_year_are_safe(self):
         html = self.get().get_data(as_text=True)
         self.assertIn("No booked revenue for this reporting period.", html)
-        self.assertIn("No receivable data yet.", html)
+        self.assertIn("USD primary management position", html)
+        self.assertIn("USD contracted", html)
         self.assertEqual(self.get("/v2/business?year=not-a-year").status_code, 400)
         self.assertEqual(self.get("/v2/business?year=2027").status_code, 400)
 
@@ -241,6 +243,100 @@ class BusinessDashboardTest(TestCase):
         self.assertIn(".biz-share-track", stylesheet)
         self.assertIn(".biz-coverage-track", stylesheet)
         self.assertNotIn("overflow-x:hidden", stylesheet)
+
+    def test_usd_remains_primary_when_cny_is_larger_or_inserted_first(self):
+        self.create_order("BUS-CNY-FIRST", currency="CNY", unit_price_0="2000", quantity_0="100")
+        self.create_order("BUS-USD-PRIMARY", currency="USD", unit_price_0="86", quantity_0="1000")
+
+        html = self.get().get_data(as_text=True)
+        usd_position = html.index('class="is-primary"><span>USD · primary</span>')
+        cny_position = html.index('class="is-secondary"><span>CNY</span>')
+        self.assertLess(usd_position, cny_position)
+        self.assertIn('title="$86,000.00"', html)
+        self.assertIn('>$86K</strong>', html)
+        self.assertIn('title="¥200,000.00"', html)
+        self.assertIn('>¥200K</strong>', html)
+        self.assertIn('USD outstanding receivables: $86,000.00', html)
+
+    def test_usd_primary_zero_is_not_replaced_by_cny(self):
+        self.create_order("BUS-CNY-ONLY", currency="CNY", unit_price_0="1200", quantity_0="1")
+        html = self.get().get_data(as_text=True)
+        self.assertIn('USD booked revenue: $0.00', html)
+        self.assertIn('USD outstanding receivables: $0.00', html)
+        self.assertIn('USD primary management position', html)
+        self.assertLess(html.index('USD · primary'), html.index('CNY</span>'))
+
+    def test_analytical_currency_views_are_card_local_and_prepared_without_a_query_state(self):
+        usd = self.create_order("BUS-USD-ANALYSIS", currency="USD", unit_price_0="300", quantity_0="1",
+                                destination_port="Mombasa", destination_country_name="Kenya",
+                                destination_country_code="KE")
+        cny = self.create_order("BUS-CNY-ANALYSIS", currency="CNY", unit_price_0="900", quantity_0="1",
+                                destination_port="Shanghai", destination_country_name="China",
+                                destination_country_code="CN")
+        usd.customer_name_snapshot, cny.customer_name_snapshot = "USD Customer", "CNY Customer"
+        other_customer = Customer(code="BUS-CNY", name="CNY Customer")
+        db.session.add(other_customer)
+        db.session.flush()
+        cny.customer_id = other_customer.id
+        usd.items[0].product_model_snapshot, cny.items[0].product_model_snapshot = "USD Product", "CNY Product"
+        db.session.commit()
+
+        html = self.get("/v2/business?year=2026").get_data(as_text=True)
+        self.assertNotIn('name="currency"', html)
+        self.assertNotIn('currency=CNY', html)
+        for card in ("customer", "receivables", "products", "markets"):
+            self.assertIn(f'data-analysis-button="{card}" data-analysis-currency="USD" aria-pressed="true"', html)
+            self.assertIn(f'data-analysis-button="{card}" data-analysis-currency="CNY" aria-pressed="false"', html)
+            self.assertIn(f'data-analysis-view="{card}" data-analysis-currency="USD"', html)
+            self.assertIn(f'data-analysis-view="{card}" data-analysis-currency="CNY" hidden', html)
+        for label in ("USD Customer", "CNY Customer", "USD Product", "CNY Product", "Kenya", "China"):
+            self.assertIn(label, html)
+        self.assertNotIn("biz-no-fx", html)
+        self.assertIn("data-analysis-button", html)
+        self.assertIn("view.hidden=view.dataset.analysisCurrency!==currency", html)
+        self.assertIn('id="business-reporting-year" name="year"', html)
+        stylesheet = Path("v2/static/v2_business_dashboard.css").read_text()
+        self.assertIn("appearance: none", stylesheet)
+        self.assertIn("background-image: url", stylesheet)
+        self.assertIn(".biz-metric-card__value-row", stylesheet)
+
+    def test_count_formatter_is_integer_only_and_kpi_cards_share_rows(self):
+        self.create_order("BUS-INTEGER", currency="USD", unit_price_0="1", quantity_0="1")
+        html = self.get().get_data(as_text=True)
+        self.assertEqual(format_count(Decimal("1.00")), "1")
+        self.assertEqual(format_count(Decimal("12000.00")), "12,000")
+        self.assertIn('class="biz-metric-card__icon-row"', html)
+        self.assertIn('class="biz-metric-card__title-row"', html)
+        self.assertIn('class="biz-metric-card__value-row"', html)
+        self.assertIn('class="biz-metric-card__support-row"', html)
+        self.assertIn('>1</div>', html)
+        self.assertNotIn('>1.00</td>', html)
+
+    def test_year_without_cny_keeps_usd_as_the_only_local_analysis_view(self):
+        historical = self.create_order("BUS-2025-USD", currency="USD", unit_price_0="100", quantity_0="1")
+        current = self.create_order("BUS-2026-CNY", currency="CNY", unit_price_0="900", quantity_0="1")
+        historical.pi_date = date(2025, 8, 22)
+        current.pi_date = date(2026, 8, 22)
+        db.session.commit()
+
+        html = self.get("/v2/business?year=2025").get_data(as_text=True)
+        self.assertIn('data-analysis-view="customer" data-analysis-currency="USD"', html)
+        self.assertNotIn('data-analysis-button="customer"', html)
+        self.assertNotIn('data-analysis-currency="CNY"', html)
+        self.assertIn('$100.00', html)
+
+    def test_other_currency_remains_separate_without_becoming_an_analysis_mode(self):
+        self.create_order("BUS-EUR-OTHER", currency="EUR", unit_price_0="12", quantity_0="100")
+        html = self.get().get_data(as_text=True)
+        self.assertIn('Other currencies remain separately reported in Commercial Scale: EUR.', html)
+        self.assertIn('data-chart="EUR"', html)
+        self.assertNotIn('>EUR</a>', html)
+
+    def test_compact_number_format_is_deterministic_and_keeps_small_values_exact(self):
+        self.assertEqual(format_compact_amount(Decimal("86")), "86.00")
+        self.assertEqual(format_compact_amount(Decimal("286500")), "286.5K")
+        self.assertEqual(format_compact_amount(Decimal("1286000")), "1.29M")
+        self.assertEqual(format_compact_amount(Decimal("12800000")), "12.8M")
 
 
 if __name__ == "__main__":
