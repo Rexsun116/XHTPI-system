@@ -53,6 +53,11 @@
         </nav>
         <nav class="v2-shell-nav-group" aria-label="Orders">
           <span class="v2-shell-nav-label">Orders</span>
+          {% set all_orders_active = current_endpoint == 'v2.orders' %}
+          <a class="v2-shell-link{% if all_orders_active %} is-active{% endif %}" href="{{ url_for('v2.orders') }}" aria-label="All Orders"{% if all_orders_active %} aria-current="page"{% endif %}>
+            <span class="v2-shell-icon">{{ shell_icon('order') }}</span>
+            <span class="v2-shell-link-label">All Orders</span>
+          </a>
           {% set new_order_active = current_endpoint == 'v2.order_new' %}
           <a class="v2-shell-link{% if new_order_active %} is-active{% endif %}" href="{{ url_for('v2.order_new') }}" aria-label="New Order"{% if new_order_active %} aria-current="page"{% endif %}>
             <span class="v2-shell-icon">{{ shell_icon('order') }}</span>

@@ -1,0 +1,64 @@
+{% extends 'v2/base.html' %}
+{% block body_class %}v2-modern v2-orders-page{% endblock %}
+{% block title %}All Orders · XHTPI{% endblock %}
+{% block content %}
+<div class="v2-orders-workspace">
+  <header class="v2-page-header v2-orders-header">
+    <div>
+      <p class="v2-page-header__eyebrow">Operational Registry</p>
+      <h1 class="v2-page-header__title">All Orders</h1>
+      <p class="v2-page-header__description">Find operational and historical PI records. Linked orders remain separate records.</p>
+    </div>
+    <p class="v2-orders-header-note">{{ total }} order{{ '' if total == 1 else 's' }}</p>
+  </header>
+
+  <form class="v2-orders-filters v2-card" method="get" action="{{ url_for('v2.orders') }}">
+    <div class="v2-orders-filters__head"><div><h2>Find orders</h2><p>Search, filter, and review without changing an order.</p></div><a class="v2-button v2-button--text" href="{{ url_for('v2.orders') }}">Clear Filters</a></div>
+    <fieldset class="v2-orders-filters__primary"><legend>Primary filters</legend>
+      <label class="v2-orders-field v2-orders-field--search"><span>Search PI No.</span><input class="form-control" type="search" name="q" value="{{ filters.q }}" placeholder="e.g. WU1290"></label>
+      <label class="v2-orders-field"><span>Year</span><select class="form-select" name="year"><option value="">All Years</option>{% for option in years %}<option value="{{ option }}"{% if filters.year == option %} selected{% endif %}>{{ option }}</option>{% endfor %}</select></label>
+      <label class="v2-orders-field"><span>Status</span><select class="form-select" name="status"><option value="">All Statuses</option><option value="ACTIVE"{% if filters.status == 'ACTIVE' %} selected{% endif %}>Active</option>{% for status in statuses %}<option value="{{ status }}"{% if filters.status == status %} selected{% endif %}>{{ status }}</option>{% endfor %}</select></label>
+      <label class="v2-orders-field"><span>Customer</span><select class="form-select" name="customer"><option value="">All Customers</option>{% for id, name in customers %}<option value="{{ id }}"{% if filters.customer == id %} selected{% endif %}>{{ name or 'Customer not recorded' }}</option>{% endfor %}</select></label>
+      <label class="v2-orders-field"><span>Customer Payment</span><select class="form-select" name="customer_payment"><option value="">All</option><option value="outstanding"{% if filters.customer_payment == 'outstanding' %} selected{% endif %}>Outstanding</option><option value="paid"{% if filters.customer_payment == 'paid' %} selected{% endif %}>Paid</option></select></label>
+      <label class="v2-orders-field"><span>Freight Payment</span><select class="form-select" name="freight_payment"><option value="">All</option><option value="outstanding"{% if filters.freight_payment == 'outstanding' %} selected{% endif %}>Outstanding</option><option value="paid"{% if filters.freight_payment == 'paid' %} selected{% endif %}>Paid</option></select></label>
+    </fieldset>
+    <details class="v2-orders-filters__secondary"{% if filters.product or filters.destination_country or filters.order_type %} open{% endif %}><summary>More filters</summary><div>
+      <label class="v2-orders-field"><span>Product</span><select class="form-select" name="product"><option value="">All Products</option>{% for id, name in products %}<option value="{{ id }}"{% if filters.product == id %} selected{% endif %}>{{ name or 'Product not recorded' }}</option>{% endfor %}</select></label>
+      <label class="v2-orders-field"><span>Destination Country</span><select class="form-select" name="destination_country"><option value="">All Countries</option>{% for code in countries %}<option value="{{ code }}"{% if filters.destination_country == code %} selected{% endif %}>{{ country_name_for_code(code) or code }}</option>{% endfor %}</select></label>
+      <label class="v2-orders-field"><span>Order Type</span><select class="form-select" name="order_type"><option value="">All Types</option><option value="standalone"{% if filters.order_type == 'standalone' %} selected{% endif %}>Standalone</option><option value="customer_order"{% if filters.order_type == 'customer_order' %} selected{% endif %}>CUSTOMER_ORDER</option><option value="export_order"{% if filters.order_type == 'export_order' %} selected{% endif %}>EXPORT_ORDER</option></select></label>
+    </div></details>
+    {% if filters.sort %}<input type="hidden" name="sort" value="{{ filters.sort }}"><input type="hidden" name="direction" value="{{ filters.direction }}">{% endif %}
+    <button class="v2-button v2-button--primary v2-orders-filter-submit" type="submit">Apply Filters</button>
+  </form>
+
+  <section class="v2-orders-panel v2-card" aria-labelledby="orders-title">
+    <header class="v2-panel-header v2-orders-panel__head"><div><h2 id="orders-title">Orders</h2><p>{% if total %}Showing {{ (page - 1) * page_size + 1 }}–{{ [page * page_size, total]|min }} of {{ total }}{% else %}No matching orders{% endif %}</p></div>{% if not filters.sort %}<span class="v2-orders-default-sort">Operational default · Active first</span>{% endif %}<span class="v2-orders-mobile-sort">Order Date: <a href="{{ listing_url(sort='order_date', direction='desc', page=1) }}">Newest</a> · <a href="{{ listing_url(sort='order_date', direction='asc', page=1) }}">Oldest</a></span></header>
+    {% if order_rows %}
+    <div class="v2-orders-table-wrap" tabindex="0" aria-label="All orders table">
+      <table class="v2-table v2-orders-table">
+        <thead><tr>
+          <th scope="col">PI / Type</th>
+          <th scope="col"{% if filters.sort == 'order_date' %} aria-sort="{{ 'ascending' if filters.direction == 'asc' else 'descending' }}"{% else %} aria-sort="none"{% endif %}>Order Date <span class="v2-orders-sort-links"><a href="{{ listing_url(sort='order_date', direction='desc', page=1) }}" aria-label="Sort order date newest first">↓</a><a href="{{ listing_url(sort='order_date', direction='asc', page=1) }}" aria-label="Sort order date oldest first">↑</a></span></th>
+          <th scope="col">Customer</th><th scope="col">Product / Qty</th><th scope="col">Amount</th><th scope="col">Status</th><th scope="col">Destination</th><th scope="col">Key Shipping Dates</th><th scope="col">Payment</th><th scope="col">Freight</th>
+        </tr></thead>
+        <tbody>{% for row in order_rows %}{% set pi = row.pi %}<tr>
+          <td data-label="PI / Type"><a class="v2-orders-pi" href="{{ url_for('v2.order_view', pi_id=pi.id) }}">{{ pi.pi_no }}</a><span class="v2-orders-secondary">{{ pi.trade_role or 'Standalone' }}</span>{% if pi.is_linked_trade %}<span class="v2-orders-linked">Linked · {{ 'customer side' if pi.trade_role == 'CUSTOMER_ORDER' else 'export side' }}{% if row.linked_peer %} · {{ row.linked_peer.pi_no }}{% endif %}</span>{% endif %}</td>
+          <td data-label="Order Date" class="v2-orders-date">{{ pi.pi_date.isoformat() }}</td>
+          <td data-label="Customer"><span class="v2-orders-customer">{{ pi.customer_name_snapshot }}</span></td>
+          <td data-label="Product / Qty">{% for item in pi.items %}<div class="v2-orders-product"><strong>{{ item.product_model_snapshot or item.product_category_snapshot or 'Product not recorded' }}</strong><span>{{ format_decimal_compact(item.quantity) }} {{ item.quantity_unit or 'Unit not recorded' }}</span></div>{% else %}—{% endfor %}</td>
+          <td data-label="Amount" class="v2-orders-amount">{{ money(pi.currency, pi.contract_total) }}</td>
+          <td data-label="Status"><span class="v2-badge v2-orders-status v2-orders-status--{{ pi.status|lower }}">{{ pi.status }}</span></td>
+          <td data-label="Destination">{% if row.shipment_owner and (row.shipment_owner.destination_country_code or row.shipment_owner.destination_port) %}<span class="v2-orders-destination">{% if row.shipment_owner.destination_country_code %}<span aria-hidden="true">{{ country_flag_for_code(row.shipment_owner.destination_country_code) }}</span> {{ country_name_for_code(row.shipment_owner.destination_country_code) or row.shipment_owner.destination_country_code }}{% endif %}<small>{{ row.shipment_owner.destination_port or 'Port not recorded' }}</small></span>{% else %}<span class="v2-orders-secondary">—</span>{% endif %}</td>
+          <td data-label="Key Shipping Dates"><span class="v2-orders-dates">{% for label, value in row.shipping.dates %}<span><strong>{{ label }}</strong> {{ value.isoformat() if value else '—' }}</span>{% endfor %}</span></td>
+          <td data-label="Payment"><span class="v2-orders-state v2-orders-state--{{ row.payment.state|lower }}">{{ row.payment.label }}</span><small class="v2-orders-detail">{{ row.payment.detail }}</small></td>
+          <td data-label="Freight"><span class="v2-orders-state v2-orders-state--{{ row.freight.state|lower }}">{{ row.freight.label }}</span><small class="v2-orders-detail">{{ row.freight.detail }}</small></td>
+        </tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if total_pages > 1 %}<nav class="v2-orders-pagination" aria-label="Orders pages"><span>Page {{ page }} of {{ total_pages }}</span><div>{% if page > 1 %}<a class="v2-button" href="{{ listing_url(page=page - 1) }}">Previous</a>{% endif %}{% for number in range(1, total_pages + 1) if number <= 3 or number > total_pages - 2 or (number >= page - 1 and number <= page + 1) %}<a class="v2-orders-page{% if number == page %} is-current{% endif %}" href="{{ listing_url(page=number) }}"{% if number == page %} aria-current="page"{% endif %}>{{ number }}</a>{% endfor %}{% if page < total_pages %}<a class="v2-button" href="{{ listing_url(page=page + 1) }}">Next</a>{% endif %}</div></nav>{% endif %}
+    {% else %}
+    <div class="v2-orders-empty"><strong>No orders match the current filters.</strong><p>Adjust or clear filters to return to the operational registry.</p><a class="v2-button v2-button--primary" href="{{ url_for('v2.orders') }}">Clear Filters</a></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

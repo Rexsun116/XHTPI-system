@@ -85,6 +85,56 @@ def advance_payment_summary(pi):
     }
 
 
+def order_payment_summary(pi):
+    """Present the recorded customer payment plan without using task state.
+
+    ``pi`` is the financial owner selected by the caller.  Planned advance and
+    balance values, and their respective received values, are the existing
+    order-payment facts; the registry deliberately does not infer payment from
+    reminders or lifecycle state.
+    """
+    if pi is None:
+        return {"state": "UNAVAILABLE", "label": "Unavailable", "detail": "Financial owner unavailable"}
+    advance_due = pi.advance_payment_amount or Decimal("0")
+    balance_due = pi.balance_payment_amount or Decimal("0")
+    advance_received = pi.advance_received_amount or Decimal("0")
+    balance_received = pi.balance_received_amount or Decimal("0")
+    due = advance_due + balance_due
+    received = advance_received + balance_received
+    if due <= 0:
+        return {"state": "NOT_APPLICABLE", "label": "Not applicable", "detail": "No recorded payment plan"}
+    if received >= due:
+        return {"state": "PAID", "label": "Paid", "detail": "Advance and balance received"}
+    if received > 0:
+        detail = "Advance received · balance outstanding" if advance_received >= advance_due else "Partially received"
+        return {"state": "PARTIAL", "label": "Partial", "detail": detail}
+    return {"state": "OUTSTANDING", "label": "Outstanding", "detail": "No customer payment received"}
+
+
+def freight_payment_summary(pi, settlement):
+    """Present required freight-payment branches from authoritative facts."""
+    if pi is None:
+        return {"state": "UNAVAILABLE", "label": "Unavailable", "detail": "Financial owner unavailable"}
+    if settlement is None:
+        return {"state": "NOT_REQUIRED", "label": "Not required", "detail": "No freight settlement required"}
+    branches = []
+    for currency in ("USD", "CNY"):
+        if getattr(settlement, f"{currency.lower()}_bill_required") is True:
+            paid = getattr(settlement, f"{currency.lower()}_payment_status") == "PAID"
+            branches.append((currency, paid))
+    if not branches:
+        return {"state": "NOT_REQUIRED", "label": "Not required", "detail": "No required freight branch"}
+    if all(paid for _, paid in branches):
+        return {"state": "PAID", "label": "Paid", "detail": " · ".join(f"{currency} paid" for currency, _ in branches)}
+    paid_labels = [f"{currency} paid" for currency, paid in branches if paid]
+    pending_labels = [f"{currency} pending" for currency, paid in branches if not paid]
+    return {
+        "state": "OUTSTANDING",
+        "label": "Outstanding",
+        "detail": " · ".join(paid_labels + pending_labels),
+    }
+
+
 def present_task(task):
     context = getattr(task, "_dashboard_context", task.context_payload) or {}
     lines = []

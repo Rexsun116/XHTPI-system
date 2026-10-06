@@ -42,7 +42,12 @@ def shipment_owner_for(pi):
     """Read-only resolution, including completed pairs; fail closed on malformed links."""
     if not is_export_order(pi):
         return pi
-    members = list(db.session.scalars(db.select(PI).where(PI.trade_group_id == pi.trade_group_id)))
+    # All Orders eagerly loads structured members for its paginated rows.  Use
+    # that relationship when available, while retaining the exact existing
+    # query fallback for callers that only provide a PI row.
+    members = list(pi.trade_group.members) if pi.trade_group is not None else list(
+        db.session.scalars(db.select(PI).where(PI.trade_group_id == pi.trade_group_id))
+    )
     customers = [row for row in members if row.trade_role == "CUSTOMER_ORDER"]
     exports = [row for row in members if row.trade_role == "EXPORT_ORDER"]
     return customers[0] if len(members) == 2 and len(customers) == len(exports) == 1 else None

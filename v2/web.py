@@ -4,21 +4,23 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import current_user, login_required
+from sqlalchemy import and_, case, func, not_, or_
+from sqlalchemy.orm import aliased, selectinload
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.exceptions import HTTPException
 import re
 from order_lifecycle import LifecyclePolicyError, validate_lifecycle_submission
 from .models import (BankAccount, Customer, Exporter, Factory, FreightForwarder,
     FreightQuote, FreightSettlement, OrderCorrectionSession, OrderFreightAgreement, OrderTask, PI, PIItem,
-    Product, ProductBatch, TaskActivity, db, utcnow)
+    Product, ProductBatch, TaskActivity, TradeGroup, db, utcnow)
 from .services import (apply_bank_snapshot, apply_factory_snapshot, apply_product_snapshot, close_correction_session,
     apply_manual_task_business_fact, create_freight_agreement, open_correction_session,
     completion_check, pi_number_exists, reconcile_order_tasks_for_pi, save_order_with_reconcile,
     reconcile_linked_export_document_tasks, required_freight_settlements_paid, EXPORT_FINANCIAL_TASK_CODES)
-from .linked_trade import financial_owner_for, is_export_order
+from .linked_trade import financial_owner_for, financial_owner_id_for_query, is_export_order
 from .linked_shipment import (LinkedShipmentError, LinkedShipmentDocumentsError, has_trade_link, shipment_pair,
                               record_linked_actual_departure, save_linked_etd, enter_linked_pre_shipment)
-from .shipment_ownership import (PHYSICAL_FORM_FIELDS, RouteOwnershipError, is_physical_shipment_task,
+from .shipment_ownership import (PHYSICAL_FORM_FIELDS, RouteOwnershipError, RouteGeographyValidationError, is_physical_shipment_task,
                                  normalize_country_code, resolve_country_submission, shipment_owner_for,
                                  synchronize_route_geography, validate_route_geography)
 from .iso3166 import country_choices, country_code_for_name, country_flag_for_code, country_name_for_code
@@ -30,8 +32,9 @@ from .linked_trade_creation import (
     create_linked_export_order,
     linked_export_creation_error,
 )
-from .presenter import (advance_payment_summary, order_action_summary, order_activity_feed,
-                        order_document_rows, present_activity, present_task, shipping_dates_for_display)
+from .presenter import (advance_payment_summary, freight_payment_summary, money, order_action_summary,
+                        order_activity_feed, order_document_rows, order_payment_summary,
+                        present_activity, present_task, shipping_dates_for_display)
 from .selector import projected, projected_details, select_next_action, sort_key
 from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
@@ -135,6 +138,179 @@ def dashboard():
                            shipping_dates_by_order=shipping_dates_by_order,
                            upcoming_days=upcoming_days, summary=summary, present_task=present_task,
                            format_decimal_compact=format_decimal_compact, selected_sort=selected_sort, today=today)
+
+
+@blueprint.get("/orders")
+@login_required
+def orders():
+    """Read-only, paginated operational registry for every PI record."""
+    statuses = ("NEW", "PRE_SHIPMENT", "SHIPPED", "ARRIVED", "COMPLETED")
+    type_values = {"standalone", "customer_order", "export_order"}
+    payment_values = {"outstanding", "paid"}
+    q = (request.args.get("q") or "").strip()
+    raw_year = request.args.get("year") or ""
+    raw_status = (request.args.get("status") or "").strip().upper()
+    raw_type = (request.args.get("order_type") or "").strip().lower()
+    customer_id = request.args.get("customer", type=int)
+    product_id = request.args.get("product", type=int)
+    raw_country = (request.args.get("destination_country") or "").strip().upper()
+    customer_payment = (request.args.get("customer_payment") or "").strip().lower()
+    freight_payment = (request.args.get("freight_payment") or "").strip().lower()
+    sort = (request.args.get("sort") or "").strip().lower()
+    direction = (request.args.get("direction") or "desc").strip().lower()
+    page = request.args.get("page", default=1, type=int)
+    if page is None or page < 1:
+        abort(400, "Invalid page.")
+    try:
+        year = int(raw_year) if raw_year else None
+    except ValueError:
+        abort(400, "Invalid year.")
+    if year is not None and not 1900 <= year <= 9999:
+        abort(400, "Invalid year.")
+    if raw_status and raw_status not in {"ACTIVE", *statuses}:
+        abort(400, "Invalid status.")
+    if raw_type and raw_type not in type_values:
+        abort(400, "Invalid order type.")
+    if customer_payment and customer_payment not in payment_values:
+        abort(400, "Invalid customer payment filter.")
+    if freight_payment and freight_payment not in payment_values:
+        abort(400, "Invalid freight payment filter.")
+    if sort and sort != "order_date":
+        abort(400, "Invalid sort.")
+    if direction not in {"asc", "desc"}:
+        abort(400, "Invalid sort direction.")
+    if raw_country:
+        try:
+            raw_country = normalize_country_code(raw_country) or ""
+        except RouteGeographyValidationError:
+            abort(400, "Invalid destination country.")
+
+    customer_owner = aliased(PI)
+    settlement = aliased(FreightSettlement)
+    owner_id = financial_owner_id_for_query(PI)
+
+    def owner_value(field):
+        return func.coalesce(case(
+            (PI.trade_role == "EXPORT_ORDER", getattr(customer_owner, field)),
+            else_=getattr(PI, field),
+        ), Decimal("0"))
+
+    payment_due = owner_value("advance_payment_amount") + owner_value("balance_payment_amount")
+    payment_received = owner_value("advance_received_amount") + owner_value("balance_received_amount")
+    payment_paid = and_(payment_due > Decimal("0"), payment_received >= payment_due)
+    payment_outstanding = and_(payment_due > Decimal("0"), payment_received < payment_due)
+
+    stmt = (db.select(PI)
+            .outerjoin(customer_owner, customer_owner.id == owner_id)
+            .outerjoin(settlement, settlement.pi_id == owner_id))
+    if q:
+        stmt = stmt.where(PI.pi_no.ilike(f"%{q}%"))
+    if year is not None:
+        stmt = stmt.where(PI.pi_date >= date(year, 1, 1), PI.pi_date < date(year + 1, 1, 1))
+    if raw_status == "ACTIVE":
+        stmt = stmt.where(PI.status != "COMPLETED")
+    elif raw_status:
+        stmt = stmt.where(PI.status == raw_status)
+    if customer_id is not None:
+        stmt = stmt.where(PI.customer_id == customer_id)
+    if product_id is not None:
+        stmt = stmt.where(PI.items.any(PIItem.product_id == product_id))
+    if raw_country:
+        stmt = stmt.where(PI.destination_country_code == raw_country)
+    if raw_type == "standalone":
+        stmt = stmt.where(PI.trade_group_id.is_(None), PI.trade_role.is_(None))
+    elif raw_type == "customer_order":
+        stmt = stmt.where(PI.trade_role == "CUSTOMER_ORDER")
+    elif raw_type == "export_order":
+        stmt = stmt.where(PI.trade_role == "EXPORT_ORDER")
+    if customer_payment == "paid":
+        stmt = stmt.where(payment_paid)
+    elif customer_payment == "outstanding":
+        stmt = stmt.where(payment_outstanding)
+
+    freight_required = or_(settlement.usd_bill_required.is_(True), settlement.cny_bill_required.is_(True))
+    freight_paid = and_(
+        freight_required,
+        or_(settlement.usd_bill_required.is_not(True), settlement.usd_payment_status == "PAID"),
+        or_(settlement.cny_bill_required.is_not(True), settlement.cny_payment_status == "PAID"),
+    )
+    if freight_payment == "paid":
+        stmt = stmt.where(freight_paid)
+    elif freight_payment == "outstanding":
+        stmt = stmt.where(and_(freight_required, not_(freight_paid)))
+    if sort == "order_date":
+        date_order = PI.pi_date.asc() if direction == "asc" else PI.pi_date.desc()
+        stmt = stmt.order_by(date_order, PI.id.asc() if direction == "asc" else PI.id.desc())
+    else:
+        stmt = stmt.order_by(case((PI.status == "COMPLETED", 1), else_=0), PI.pi_date.desc(), PI.id.desc())
+
+    page_size = 25
+    total = db.session.scalar(db.select(func.count()).select_from(stmt.order_by(None).subquery())) or 0
+    rows = list(db.session.scalars(stmt.options(
+        selectinload(PI.items),
+        selectinload(PI.trade_group).selectinload(TradeGroup.members),
+    ).offset((page - 1) * page_size).limit(page_size)))
+    if page > 1 and not rows:
+        abort(404, "Page not found.")
+
+    resolutions = {pi.id: financial_owner_for(pi) for pi in rows}
+    owner_ids = {resolution.owner.id for resolution in resolutions.values() if resolution.valid}
+    settlements = {
+        row.pi_id: row for row in db.session.scalars(
+            db.select(FreightSettlement).where(FreightSettlement.pi_id.in_(owner_ids))
+        )
+    } if owner_ids else {}
+    order_rows = []
+    for pi in rows:
+        financial_resolution = resolutions[pi.id]
+        financial_owner = financial_resolution.owner if financial_resolution.valid else None
+        shipping = shipping_dates_for_display(pi)
+        shipment_owner = shipping["owner"]
+        order_rows.append({
+            "pi": pi,
+            "shipping": shipping,
+            "shipment_owner": shipment_owner,
+            "financial_owner": financial_owner,
+            "payment": order_payment_summary(financial_owner),
+            "freight": freight_payment_summary(financial_owner, settlements.get(financial_owner.id) if financial_owner else None),
+            "linked_peer": pi.linked_peer,
+        })
+
+    years = list(db.session.scalars(
+        db.select(func.distinct(func.strftime("%Y", PI.pi_date))).order_by(func.strftime("%Y", PI.pi_date).desc())
+    ))
+    customers = list(db.session.execute(
+        db.select(PI.customer_id, func.min(PI.customer_name_snapshot))
+        .group_by(PI.customer_id).order_by(func.min(PI.customer_name_snapshot))
+    ))
+    products = list(db.session.execute(
+        db.select(PIItem.product_id, func.min(func.coalesce(PIItem.product_model_snapshot, PIItem.product_category_snapshot)))
+        .where(PIItem.product_id.is_not(None)).group_by(PIItem.product_id)
+        .order_by(func.min(func.coalesce(PIItem.product_model_snapshot, PIItem.product_category_snapshot)))
+    ))
+    countries = list(db.session.scalars(
+        db.select(PI.destination_country_code).where(PI.destination_country_code.is_not(None))
+        .distinct().order_by(PI.destination_country_code)
+    ))
+    filters = {
+        "q": q, "year": raw_year, "status": raw_status, "customer": customer_id,
+        "product": product_id, "destination_country": raw_country, "order_type": raw_type,
+        "customer_payment": customer_payment, "freight_payment": freight_payment,
+        "sort": sort, "direction": direction,
+    }
+
+    def listing_url(**changes):
+        values = {key: value for key, value in filters.items() if value not in (None, "")}
+        values.update(changes)
+        return url_for("v2.orders", **{key: value for key, value in values.items() if value not in (None, "")})
+
+    return render_template(
+        "v2/orders.html", order_rows=order_rows, total=total, page=page, page_size=page_size,
+        total_pages=max(1, (total + page_size - 1) // page_size), filters=filters,
+        years=years, customers=customers, products=products, countries=countries, statuses=statuses,
+        country_name_for_code=country_name_for_code, country_flag_for_code=country_flag_for_code,
+        format_decimal_compact=format_decimal_compact, money=money, listing_url=listing_url,
+    )
 
 
 @blueprint.route("/master/<kind>", methods=["GET", "POST"])
