@@ -15,6 +15,7 @@ from v2.models import (Customer, Exporter, FreightSettlement, OrderFreightAgreem
                        OrderTask, PI, PIItem, ProductBatch, TaskActivity, User, db)
 from v2.services import completion_check, open_correction_session, reconcile_order_tasks_for_pi, save_order_with_reconcile
 from v2.task_service import mark_done, reopen
+from v2.rules import COMPLETED_PROCESS_TASK_CODES
 
 
 class CompletionGateTest(TestCase):
@@ -164,7 +165,83 @@ class CompletionGateTest(TestCase):
         response = self.client().post(self.complete_url(pi))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(pi.status, "COMPLETED")
-        self.assertEqual((pickup.status, unrelated.status), ("ACTION", "ACTION"))
+        self.assertEqual((pickup.status, unrelated.status), ("CANCELLED", "CANCELLED"))
+
+    def test_completed_reconcile_finalizes_process_tasks_without_fabricating_facts(self):
+        pi = self.pi()
+        stale_codes = tuple(sorted(COMPLETED_PROCESS_TASK_CODES))
+        tasks = {code: self.task(pi, code, status="ACTION") for code in stale_codes}
+        pi.status = "COMPLETED"
+        reconcile_order_tasks_for_pi(pi)
+        self.assertIsNone(pi.payment_email_sent_on)
+        self.assertEqual(tasks["PAYMENT_ADVANCE_WAITING"].status, "DONE")
+        self.assertEqual(tasks["PAYMENT_BALANCE_FOLLOWUP"].status, "DONE")
+        self.assertEqual(tasks["STAGE_GATE_PRE_SHIPMENT"].status, "DONE")
+        cancelled = {
+            code: task for code, task in tasks.items()
+            if code not in {"PAYMENT_ADVANCE_WAITING", "PAYMENT_BALANCE_FOLLOWUP", "STAGE_GATE_PRE_SHIPMENT"}
+        }
+        self.assertTrue(all(task.status == "CANCELLED" for task in cancelled.values()))
+        self.assertTrue(all(any(activity.event_type == "CANCELLED" for activity in task.activities)
+                            for task in cancelled.values()))
+        activity_counts = {code: len(task.activities) for code, task in tasks.items()}
+        reconcile_order_tasks_for_pi(pi)
+        self.assertEqual(activity_counts, {code: len(task.activities) for code, task in tasks.items()})
+
+        dashboard = self.client().get("/v2/").get_data(as_text=True)
+        self.assertNotIn("EMAIL发送付款文件给客户并请款", dashboard)
+        history = self.client().get(f"/v2/tasks/{tasks['PAYMENT_EMAIL'].id}/history")
+        self.assertEqual(history.status_code, 200)
+        self.assertIn("CANCELLED", history.get_data(as_text=True))
+
+    def test_completed_reconcile_preserves_fact_derived_and_forwarder_payment_tasks(self):
+        pi = self.pi(
+            payment_email_sent_on=date(2026, 9, 2),
+            container_loading_date=date(2026, 9, 3),
+            actual_departure_date=date(2026, 9, 4),
+            actual_arrival_date=date(2026, 9, 20),
+        )
+        agreement = OrderFreightAgreement(
+            pi_id=pi.id, freight_forwarder_name_snapshot="Forwarder", amount=Decimal("10"), currency="USD",
+        )
+        settlement = FreightSettlement(
+            pi_id=pi.id, usd_bill_required=True, usd_bill_amount=Decimal("10"),
+            usd_bill_confirmed=True, usd_invoice_issued=True, usd_payment_status="UNPAID",
+        )
+        db.session.add_all([agreement, settlement]); db.session.flush()
+        factual_codes = (
+            "PAYMENT_EMAIL", "SHIPPING_CONTAINER_LOADING", "SHIPPING_FREIGHT_AGREEMENT",
+            "SHIPPING_ACTUAL_DEPARTURE", "SHIPPING_ACTUAL_ARRIVAL",
+        )
+        tasks = {code: self.task(pi, code, status="ACTION") for code in factual_codes}
+        forwarder = self.task(pi, "FREIGHT_FORWARDER_PAYMENT", status="ACTION", mode="RULE_DATA")
+        pi.bill_of_lading_received_on = date(2026, 9, 1)
+        pi.status = "COMPLETED"
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 30, 9))
+        self.assertTrue(all(task.status == "DONE" for task in tasks.values()))
+        self.assertEqual(forwarder.status, "ACTION")
+
+    def test_completed_reconcile_keeps_completed_document_history_and_derives_paid_freight(self):
+        pi = self.pi(actual_departure_date=date(2026, 9, 4), actual_arrival_date=date(2026, 9, 20))
+        settlement = FreightSettlement(
+            pi_id=pi.id, usd_bill_required=True, usd_bill_amount=Decimal("10"),
+            usd_bill_confirmed=True, usd_invoice_issued=True, usd_payment_status="PAID",
+        )
+        db.session.add(settlement); db.session.flush()
+        document = self.task(pi, "DOCUMENT_COO", status="DONE")
+        settlement_document = self.task(pi, "SETTLEMENT_DOCUMENT_ADVANCE", status="DONE")
+        freight_codes = (
+            "FREIGHT_USD_AMOUNT_CAPTURE", "FREIGHT_USD_AMOUNT_CONFIRM",
+            "FREIGHT_USD_INVOICE_ISSUED", "FREIGHT_USD_PAYMENT_CONFIRM",
+        )
+        freight_tasks = {code: self.task(pi, code, status="ACTION") for code in freight_codes}
+        forwarder = self.task(pi, "FREIGHT_FORWARDER_PAYMENT", status="ACTION", mode="RULE_DATA")
+        pi.bill_of_lading_received_on = date(2026, 9, 1)
+        pi.status = "COMPLETED"
+        reconcile_order_tasks_for_pi(pi, now=datetime(2026, 9, 30, 9))
+        self.assertEqual((document.status, settlement_document.status), ("DONE", "DONE"))
+        self.assertTrue(all(task.status == "DONE" for task in freight_tasks.values()))
+        self.assertEqual(forwarder.status, "DONE")
 
     def test_completion_note_is_optional_and_persists_with_the_completion_transition(self):
         pi = self.pi(note="General order note")
@@ -317,7 +394,7 @@ class CompletionGateTest(TestCase):
         self.assertEqual((completed.advance_received_amount, OrderTask.query.count(), TaskActivity.query.count()), before)
         dashboard = client.get("/v2/").get_data(as_text=True)
         self.assertIn(completed.pi_no, dashboard)
-        self.assertIn(task.title, dashboard)
+        self.assertNotIn(task.title, dashboard)
         self.assertNotIn(f"/v2/orders/{completed.id}/advance-receipt", dashboard)
 
         arrived = self.pi(advance_received_amount=Decimal("0"))

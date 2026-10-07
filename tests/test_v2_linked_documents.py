@@ -101,6 +101,17 @@ class LinkedDocumentsTest(TestCase):
                           for code in self.codes], before)
         self.assertEqual([self.task(export, code).status for code in self.codes], ["DONE"] * 3)
 
+    def test_completed_export_cancels_unfinished_document_process_without_recreation(self):
+        _, export = self.ready_pair()
+        export.status = "COMPLETED"
+        reconcile_order_tasks_for_pi(export); db.session.commit()
+        tasks = [self.task(export, code) for code in self.codes]
+        self.assertEqual([task.status for task in tasks], ["CANCELLED"] * 3)
+        activity_counts = [len(task.activities) for task in tasks]
+        reconcile_order_tasks_for_pi(export); db.session.commit()
+        self.assertEqual([task.status for task in tasks], ["CANCELLED"] * 3)
+        self.assertEqual([len(task.activities) for task in tasks], activity_counts)
+
     def test_flags_are_export_local_not_copied_from_customer(self):
         customer, export = self.pair()
         customer.container_loading_date = date(2099, 1, 1)

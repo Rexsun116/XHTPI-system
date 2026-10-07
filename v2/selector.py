@@ -7,7 +7,7 @@ from .business_time import arrival_schedule_projection, business_today, departur
 from .models import OrderTask, db, utcnow
 from .linked_trade import is_export_order
 from .shipment_ownership import is_physical_shipment_task
-from .rules import CUSTOMER_DOCUMENT_TASK_CODES
+from .rules import COMPLETED_PROCESS_TASK_CODES, CUSTOMER_DOCUMENT_TASK_CODES
 
 
 def projected_details(task, now=None):
@@ -25,6 +25,10 @@ def projected_details(task, now=None):
         return status, health, _settled_advance_payment_context(task.pi)
     if status in {"DONE", "CANCELLED"}:
         return status, health, task.context_payload or {}
+    if task.pi.status == "COMPLETED" and task.task_code in COMPLETED_PROCESS_TASK_CODES:
+        # Stored reconciliation is authoritative. This read-only guard also
+        # prevents unreconciled legacy WAITING work from waking up in a view.
+        return "CANCELLED", "NORMAL", task.context_payload or {}
     if is_export_order(task.pi) and is_physical_shipment_task(task.task_code):
         return "CANCELLED", "NORMAL", task.context_payload or {}
     if is_export_order(task.pi) and task.task_code in CUSTOMER_DOCUMENT_TASK_CODES:

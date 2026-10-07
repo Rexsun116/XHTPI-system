@@ -24,7 +24,8 @@ from .models import (
 from .business_time import arrival_schedule_projection, business_today, departure_schedule_projection
 from .linked_trade import financial_owner_for, is_export_order
 from .rules import (DOCUMENT_RULES, LINKED_EXPORT_DOCUMENT_GATES,
-                    LINKED_EXPORT_SETTLEMENT, CUSTOMER_DOCUMENT_TASK_CODES)
+                    LINKED_EXPORT_SETTLEMENT, CUSTOMER_DOCUMENT_TASK_CODES,
+                    COMPLETED_PROCESS_TASK_CODES)
 from .shipment_ownership import is_physical_shipment_task, shipment_owner_for
 
 
@@ -125,6 +126,11 @@ def _upsert_task(pi, code, title, *, status, health="NORMAL", completion_mode="R
         return _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_PHYSICAL_SHIPMENT")
     if is_export_order(pi) and code in CUSTOMER_DOCUMENT_TASK_CODES:
         return _cancel_task(pi, code, "LINKED_CUSTOMER_OWNS_DOCUMENT_WORKFLOW")
+    if pi.status == OrderStage.COMPLETED and code in COMPLETED_PROCESS_TASK_CODES:
+        # Terminal finalization below first derives fact-backed DONE states,
+        # then cancels unresolved process work. Do not create or reactivate an
+        # obsolete action during that pass.
+        return _find_task(pi, code)
     key = f"v2:order:{pi.id}:{code.lower()}"
     task = db.session.scalar(select(OrderTask).where(OrderTask.dedupe_key == key))
     if task is None:
@@ -308,6 +314,37 @@ def _reconcile_forwarder_payment(pi, settlement, today):
     _upsert_task(pi, code, "向货代付款", status=target_status,
                  completion_mode="RULE_DATA", activation_at=datetime.combine(due, datetime.min.time()),
                  due_at=datetime.combine(due, datetime.min.time()), context=context)
+
+
+def _finalize_completed_order_tasks(pi, *, agreement):
+    """Finalize terminal process work without deleting its task history.
+
+    Freight forwarder payment remains outside this policy because an unpaid
+    required freight bill is a genuine post-completion obligation.
+    """
+    reason = "ORDER_COMPLETED_PROCESS_FINALIZED"
+    factual_states = (
+        ("PAYMENT_EMAIL", pi.payment_email_sent_on is not None),
+        ("SHIPPING_CONTAINER_LOADING", bool(pi.container_loading_date or pi.container_loading_at)),
+        ("SHIPPING_FREIGHT_AGREEMENT", agreement is not None),
+        ("SHIPPING_ACTUAL_DEPARTURE", pi.actual_departure_date is not None),
+        ("SHIPPING_ACTUAL_ARRIVAL", pi.actual_arrival_date is not None),
+    )
+    for code, complete in factual_states:
+        if complete:
+            _resolve_task(pi, code)
+        else:
+            _cancel_task(pi, code, reason)
+
+    # A valid completed order is fully paid by the existing completion gate.
+    # An inconsistent historical completed row must not retain dead receivable
+    # actions, so the terminal loop below cancels any remaining active record.
+    if _fully_paid(pi):
+        _resolve_task(pi, "PAYMENT_ADVANCE_WAITING")
+        _resolve_task(pi, "PAYMENT_BALANCE_FOLLOWUP")
+
+    for code in COMPLETED_PROCESS_TASK_CODES:
+        _cancel_task(pi, code, reason)
 
 
 def completion_check(pi):
@@ -525,7 +562,9 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     # advance-payment case.  The advance task itself carries the richer,
     # non-duplicated exception when payment is still outstanding.
     shipment_overdue = bool(planned_date and today > planned_date and not pi.actual_departure_date)
-    if shipment_overdue and pi.status != OrderStage.PRE_SHIPMENT and not (pi.status == "NEW" and advance_unpaid):
+    if pi.status == OrderStage.COMPLETED:
+        _cancel_task(pi, "SHIPPING_PLANNED_DATE_OVERDUE", "ORDER_COMPLETED_PROCESS_FINALIZED")
+    elif shipment_overdue and pi.status != OrderStage.PRE_SHIPMENT and not (pi.status == "NEW" and advance_unpaid):
         _upsert_task(
             pi, "SHIPPING_PLANNED_DATE_OVERDUE", "计划发运日期已过期",
             status="ACTION", health="EXCEPTION", priority=5,
@@ -597,8 +636,10 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                 health=schedule["health"], context=context,
                 activation_at=datetime.combine(schedule["trigger_date"], datetime.min.time()),
             )
-    elif pi.actual_arrival_date or pi.status in {OrderStage.ARRIVED, OrderStage.COMPLETED}:
+    elif pi.actual_arrival_date or pi.status == OrderStage.ARRIVED:
         _resolve_task(pi, "SHIPPING_ACTUAL_ARRIVAL")
+    elif pi.status == OrderStage.COMPLETED:
+        _cancel_task(pi, "SHIPPING_ACTUAL_ARRIVAL", "ORDER_COMPLETED_PROCESS_FINALIZED")
     else:
         _cancel_task(pi, "SHIPPING_ACTUAL_ARRIVAL", "NOT_APPLICABLE_OUTSIDE_SHIPPED")
 
@@ -795,6 +836,8 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
                 "SHIPPING_ACTUAL_DEPARTURE", "SHIPPING_ACTUAL_ARRIVAL", "ARRIVAL_CUSTOMER_PICKUP",
             }:
                 _cancel_task(pi, task.task_code, "LINKED_EXPORT_EXECUTION_COMPLETED")
+    if pi.status == OrderStage.COMPLETED:
+        _finalize_completed_order_tasks(pi, agreement=agreement)
     return list(db.session.scalars(select(OrderTask).where(OrderTask.pi_id == pi.id)))
 
 
