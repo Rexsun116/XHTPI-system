@@ -11,7 +11,7 @@ from decimal import Decimal, InvalidOperation
 import json
 import logging
 from typing import Callable
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,14 @@ def _utcnow():
 
 
 def _read_url(url: str, timeout: float) -> bytes:
-    with urlopen(url, timeout=timeout) as response:  # noqa: S310 - fixed HTTPS provider URL
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "XHTPI-V2/2.0",
+            "Accept": "application/json",
+        },
+    )
+    with urlopen(request, timeout=timeout) as response:  # noqa: S310 - fixed HTTPS provider URL
         return response.read()
 
 

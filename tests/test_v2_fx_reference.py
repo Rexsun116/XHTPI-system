@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import json
 from unittest import TestCase
+from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
+from urllib.request import Request
 
-from v2.fx_reference import FXReferenceService, FrankfurterUsdCnyProvider
+from v2.fx_reference import _read_url, FXReferenceService, FrankfurterUsdCnyProvider
 from v2.reporting import build_management_report
 
 
@@ -42,6 +44,20 @@ class FXReferenceTest(TestCase):
         self.assertFalse(reference.stale)
         self.assertTrue(self.calls[0][0].endswith("/v2/rate/usd/cny"))
         self.assertEqual(self.calls[0][1], 3.0)
+
+    def test_default_transport_sends_application_json_request_headers(self):
+        response = MagicMock()
+        response.read.return_value = b"{}"
+        with patch("v2.fx_reference.urlopen") as urlopen:
+            urlopen.return_value.__enter__.return_value = response
+            self.assertEqual(_read_url("https://api.frankfurter.dev/v2/rate/usd/cny", 3.0), b"{}")
+
+        request = urlopen.call_args.args[0]
+        self.assertIsInstance(request, Request)
+        self.assertEqual(request.full_url, "https://api.frankfurter.dev/v2/rate/usd/cny")
+        self.assertEqual(request.get_header("User-agent"), "XHTPI-V2/2.0")
+        self.assertEqual(request.get_header("Accept"), "application/json")
+        self.assertEqual(urlopen.call_args.kwargs["timeout"], 3.0)
 
     def test_inverted_source_payload_is_rejected_instead_of_being_misread(self):
         reference = self.service({"base": "CNY", "quote": "USD", "date": "2026-09-24", "rate": "0.14"}).current_usd_cny()
