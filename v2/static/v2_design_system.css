@@ -95,6 +95,7 @@ body.v2-modern .v2-shell-avatar{display:grid;place-items:center;flex:0 0 auto;wi
 body.v2-modern .v2-shell-account-copy{min-width:0;font-size:10px;line-height:1.25}
 body.v2-modern .v2-shell-account-copy strong{display:block;overflow:hidden;color:#e8f0f7;font-size:12px;font-weight:660;text-overflow:ellipsis;white-space:nowrap}
 body.v2-modern .main{box-sizing:border-box;width:calc(100% - var(--v2-shell-width));min-width:0;margin-left:var(--v2-shell-width);padding:28px 32px 46px;background:var(--v2-color-canvas)}
+.v2-app-footer{max-width:100%;margin:48px 0 0;padding:20px 0 4px;color:var(--v2-color-muted);font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere}
 
 /* Reusable components. Existing V2 names remain compatibility aliases. */
 .v2-page-header,.v2-form-page-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
@@ -177,6 +178,7 @@ body.v2-modern :focus-visible{outline:3px solid var(--v2-focus-ring);outline-off
   body.v2-modern .v2-shell-link.is-active,body.v2-modern .v2-shell-link.is-active:hover{box-shadow:inset 0 -3px 0 var(--v2-shell-accent)}
   body.v2-modern .v2-shell-account{flex:0 0 auto;min-height:29px;margin:0;padding:0;border:0}
   body.v2-modern .main{width:100%;max-width:100%;margin-left:0;padding:20px 16px 36px;overflow-x:clip}
+  .v2-app-footer{margin-top:32px;padding-top:16px}
 }
 
 /* Reusable lifecycle-readiness and task-history primitives. */

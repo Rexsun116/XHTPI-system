@@ -76,6 +76,17 @@ class SharedV2DesignSystemTest(TestCase):
         self.assertIn("{% block body_class %}v2-legacy{% endblock %}", self.base)
         self.assertIn("font-awesome/6.5.2/css/all.min.css", self.base)
 
+    def test_shared_authenticated_footer_uses_the_subordinate_responsive_contract(self):
+        footer = '<footer class="v2-app-footer">2026 西合钛贸易管理系统 Beta | Powered by RexSun</footer>'
+        self.assertEqual(self.base.count(footer), 1)
+        self.assertIn('{% block content %}{% endblock %}\n  ' + footer, self.base)
+        for token in (
+            '.v2-app-footer{max-width:100%;margin:48px 0 0;padding:20px 0 4px',
+            'color:var(--v2-color-muted);font-size:12px;line-height:1.5;text-align:center;overflow-wrap:anywhere',
+            '.v2-app-footer{margin-top:32px;padding-top:16px}',
+        ):
+            self.assertIn(token, self.css)
+
     def test_modern_pages_have_a_semantic_grouped_shell_without_account_claims_yet(self):
         for token in (
             '<aside class="side v2-shell" aria-label="XHTPI navigation">',
