@@ -362,7 +362,10 @@ class CompletionGateTest(TestCase):
         self.assertIn("Outstanding", page)
         self.assertNotIn('id="complete-order-form"', page)
         self.assertNotIn('v2-completion-actions', page)
-        self.assertNotIn('<form method="post"', page)
+        # The shared authenticated shell has its own POST-only Sign out form;
+        # this page itself must not render a completion form while blocked.
+        self.assertEqual(page.count('<form method="post"'), 1)
+        self.assertIn('class="v2-shell-logout-form"', page)
 
     def test_completed_order_blocks_task_mutation_but_arrived_does_not(self):
         arrived = self.pi()

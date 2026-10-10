@@ -4,8 +4,9 @@ from decimal import Decimal
 import os
 from pathlib import Path
 from flask import Flask, jsonify, redirect, render_template, request, url_for
-from flask_login import LoginManager, login_required, login_user
+from flask_login import LoginManager, login_required, login_user, logout_user
 from flask_wtf.csrf import CSRFProtect
+from werkzeug.middleware.proxy_fix import ProxyFix
 from sqlalchemy import event
 from werkzeug.security import check_password_hash
 from .models import BankAccount, Customer, Exporter, Factory, PI, PIItem, Product, User, db
@@ -22,8 +23,17 @@ def _validate_database_uri(uri):
             raise RuntimeError("V2 runtime refuses the V1 instance directory")
 
 
-def create_app(database_uri, *, testing=False, secret_key=None):
+def _production_mode_from_environment():
+    value = os.environ.get("XHTPI_V2_ENV", "development").strip().lower()
+    if value not in {"development", "production"}:
+        raise RuntimeError("XHTPI_V2_ENV must be either development or production")
+    return value == "production"
+
+
+def create_app(database_uri, *, testing=False, secret_key=None, production=None):
     _validate_database_uri(database_uri)
+    if production is None:
+        production = False if testing else _production_mode_from_environment()
     secret = secret_key or os.environ.get("XHTPI_V2_SECRET_KEY")
     if not testing and not secret:
         raise RuntimeError("XHTPI_V2_SECRET_KEY is required")
@@ -31,10 +41,20 @@ def create_app(database_uri, *, testing=False, secret_key=None):
     app.config.update(SECRET_KEY=secret or "test-only", SQLALCHEMY_DATABASE_URI=database_uri,
                       SQLALCHEMY_TRACK_MODIFICATIONS=False, TESTING=testing,
                       WTF_CSRF_ENABLED=not testing,
+                      DEBUG=False,
+                      SESSION_COOKIE_SECURE=bool(production),
+                      SESSION_COOKIE_HTTPONLY=True,
+                      SESSION_COOKIE_SAMESITE="Lax",
+                      PREFERRED_URL_SCHEME="https" if production else "http",
                       DOCUMENT_ASSET_DIR=os.environ.get(
                           "XHTPI_DOCUMENT_ASSET_DIR",
                           str(Path(app.root_path).parent / "instance_v2" / "document_assets" / "stamps"),
                       ))
+    if production:
+        # The production launcher binds Gunicorn only to loopback.  Trust one
+        # directly connected reverse proxy for client address and HTTPS scheme,
+        # but do not trust forwarded host, port, or prefix values.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
     db.init_app(app)
     with app.app_context():
         def _fk_on(connection, _record):
@@ -45,16 +65,25 @@ def create_app(database_uri, *, testing=False, secret_key=None):
 
     @login.user_loader
     def load_user(user_id):
-        return db.session.get(User, int(user_id))
+        user = db.session.get(User, int(user_id))
+        return user if user is not None and user.active else None
 
     @app.route("/login", methods=["GET", "POST"], endpoint="login")
     def login_route():
         if request.method == "GET":
             return render_template("v2/login.html")
-        user = db.session.scalar(db.select(User).where(User.username == request.form.get("username")))
+        user = db.session.scalar(db.select(User).where(
+            User.username == request.form.get("username"), User.active.is_(True)
+        ))
         if not user or not check_password_hash(user.password_hash, request.form.get("password", "")):
             return render_template("v2/login.html", error="Invalid credentials"), 401
         login_user(user); return redirect(url_for("v2.dashboard"))
+
+    @app.post("/logout", endpoint="logout")
+    @login_required
+    def logout_route():
+        logout_user()
+        return redirect(url_for("login"))
 
     @app.post("/orders")
     @login_required
@@ -106,4 +135,6 @@ def create_configured_app():
 
 
 if __name__ == "__main__":
+    if _production_mode_from_environment():
+        raise RuntimeError("Production runtime must use scripts/run_v2_production.sh and Gunicorn")
     create_configured_app().run(host="127.0.0.1", port=int(os.environ.get("XHTPI_V2_PORT", "5056")))

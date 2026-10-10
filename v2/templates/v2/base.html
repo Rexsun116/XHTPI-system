@@ -20,6 +20,7 @@
 {% elif name == 'forwarders' %}<path d="M3 6h11v10H3zM14 10h3l3 3v3h-6z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
 {% elif name == 'products' %}<path d="m4 7 8-4 8 4-8 4zM4 7v10l8 4 8-4V7M12 11v10"/>
 {% elif name == 'banks' %}<path d="m3 9 9-5 9 5M5 10h14M6 10v7m4-7v7m4-7v7m4-7v7M3 20h18"/>
+{% elif name == 'logout' %}<path d="M10 5H5v14h5"/><path d="m14 8 4 4-4 4M8 12h10"/>
 {% endif %}
 </svg>
 {%- endmacro %}
@@ -76,9 +77,18 @@
         </nav>
       </div>
     </div>
-    <div class="v2-shell-account" aria-label="Signed in as {{ account_username or 'unknown user' }}">
-      <span class="v2-shell-avatar" aria-hidden="true">{{ account_initial }}</span>
-      <span class="v2-shell-account-copy"><strong>{{ account_username or 'Unknown user' }}</strong><span>Signed in</span></span>
+    <div class="v2-shell-account-area">
+      <div class="v2-shell-account" aria-label="Signed in as {{ account_username or 'unknown user' }}">
+        <span class="v2-shell-avatar" aria-hidden="true">{{ account_initial }}</span>
+        <span class="v2-shell-account-copy"><strong>{{ account_username or 'Unknown user' }}</strong><span>Signed in</span></span>
+      </div>
+      <form method="post" action="{{ url_for('logout') }}" class="v2-shell-logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="v2-shell-logout" type="submit" aria-label="Sign out">
+          <span class="v2-shell-logout-icon" aria-hidden="true">{{ shell_icon('logout') }}</span>
+          <span class="v2-shell-logout-label">Sign out</span>
+        </button>
+      </form>
     </div>
   </aside>
 {% else %}

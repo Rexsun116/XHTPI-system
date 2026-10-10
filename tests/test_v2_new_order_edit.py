@@ -18,6 +18,7 @@ class _EditFormAudit(HTMLParser):
         self.forms = []
         self.form_depth = 0
         self.maximum_form_depth = 0
+        self.current_form = None
         self.inputs = []
         self.save_buttons = []
 
@@ -27,14 +28,16 @@ class _EditFormAudit(HTMLParser):
             self.forms.append(attributes)
             self.form_depth += 1
             self.maximum_form_depth = max(self.maximum_form_depth, self.form_depth)
+            self.current_form = attributes
         elif tag == 'input' and self.form_depth:
-            self.inputs.append(attributes)
+            self.inputs.append((self.current_form, attributes))
         elif tag == 'button' and self.form_depth and attributes.get('type') == 'submit':
-            self.save_buttons.append(attributes)
+            self.save_buttons.append((self.current_form, attributes))
 
     def handle_endtag(self, tag):
         if tag == 'form':
             self.form_depth -= 1
+            self.current_form = None
 
 
 class NewOrderEditTest(TestCase):
@@ -148,16 +151,21 @@ class NewOrderEditTest(TestCase):
         pi = self.order()
         html = self.client().get(f'/v2/orders/{pi.id}/edit').get_data(as_text=True)
         audit = _EditFormAudit(); audit.feed(html)
-        self.assertEqual(len(audit.forms), 1)
+        self.assertEqual(len(audit.forms), 2)
         self.assertEqual(audit.maximum_form_depth, 1)
-        self.assertEqual(audit.forms[0].get('id'), 'new-order-editor')
-        self.assertEqual(audit.forms[0].get('method'), 'post')
-        self.assertEqual([row for row in audit.inputs if row.get('name') == 'csrf_token'],
+        self.assertEqual(audit.forms[0].get('class'), 'v2-shell-logout-form')
+        editor_form = audit.forms[1]
+        self.assertEqual(editor_form.get('id'), 'new-order-editor')
+        self.assertEqual(editor_form.get('method'), 'post')
+        editor_inputs = [row for form, row in audit.inputs if form is editor_form]
+        editor_markup = html.split('<form method="post" id="new-order-editor"', 1)[1].split('</form>', 1)[0]
+        self.assertEqual([row for row in editor_inputs if row.get('name') == 'csrf_token'],
                          [{'type': 'hidden', 'name': 'csrf_token', 'value': re.search(
-                             r'name="csrf_token" value="([^"]+)"', html).group(1)}])
-        self.assertEqual(len([row for row in audit.inputs if row.get('name') == 'edit_version']), 1)
-        self.assertEqual(len(audit.save_buttons), 1)
-        self.assertNotIn('form', audit.save_buttons[0])
+                             r'name="csrf_token" value="([^"]+)"', editor_markup).group(1)}])
+        self.assertEqual(len([row for row in editor_inputs if row.get('name') == 'edit_version']), 1)
+        editor_save_buttons = [row for form, row in audit.save_buttons if form is editor_form]
+        self.assertEqual(len(editor_save_buttons), 1)
+        self.assertNotIn('form', editor_save_buttons[0])
 
     def test_sales_hides_commission_fields_but_preserves_additional_order_facts(self):
         pi = self.order()

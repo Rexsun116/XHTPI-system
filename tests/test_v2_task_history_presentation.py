@@ -61,7 +61,8 @@ class TaskHistoryPresentationTest(TestCase):
         self.assertLess(page.index("Advance receipt confirmation"), page.index("First long operational note"))
         self.assertLess(page.index("First long operational note"), page.index("Created"))
         self.assertIn(f'href="/v2/orders/{pi.id}?open_task={task.id}#task-{task.id}"', page)
-        self.assertNotIn("<form", page)
+        self.assertEqual(page.count("<form"), 1)
+        self.assertIn('class="v2-shell-logout-form"', page)
 
     def test_empty_completed_task_history_remains_accessible_without_fabricated_events(self):
         pi, task = self.task(status="DONE", pi_status="COMPLETED")
@@ -71,7 +72,8 @@ class TaskHistoryPresentationTest(TestCase):
         self.assertIn("No activity recorded for this task.", page)
         self.assertIn("The current task state is not treated as a historical event.", page)
         self.assertIn("DONE", page)
-        self.assertNotIn("<form", page)
+        self.assertEqual(page.count("<form"), 1)
+        self.assertIn('class="v2-shell-logout-form"', page)
 
     def test_history_requires_login(self):
         _, task = self.task()

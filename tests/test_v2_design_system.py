@@ -87,13 +87,15 @@ class SharedV2DesignSystemTest(TestCase):
         ):
             self.assertIn(token, self.css)
 
-    def test_modern_pages_have_a_semantic_grouped_shell_without_account_claims_yet(self):
+    def test_modern_pages_have_a_semantic_grouped_shell_and_logout_control(self):
         for token in (
             '<aside class="side v2-shell" aria-label="XHTPI navigation">',
             '<nav class="v2-shell-nav-group" aria-label="Workspace">',
             '<nav class="v2-shell-nav-group" aria-label="Orders">',
             '<nav class="v2-shell-nav-group" aria-label="Master Data">',
             'class="v2-shell-link-label"', 'class="v2-shell-account" aria-label="Signed in as',
+            'class="v2-shell-logout-form"', 'method="post" action="{{ url_for(\'logout\') }}"',
+            'class="v2-shell-logout" type="submit" aria-label="Sign out"',
             'id="v2-main-content"',
         ):
             self.assertIn(token, self.base)
@@ -506,11 +508,12 @@ class SharedShellNavigationRenderTest(TestCase):
                     for sibling_kind, label in labels.items():
                         self._assert_active(page, label, sibling_kind == kind)
 
-    def test_account_uses_authenticated_username_and_has_no_role_or_logout_claim(self):
+    def test_account_uses_authenticated_username_and_has_no_role_claim(self):
         page = self.client().get('/v2/').get_data(as_text=True)
         self.assertIn('aria-label="Signed in as create"', page)
         self.assertIn('<span class="v2-shell-avatar" aria-hidden="true">C</span>', page)
         self.assertIn('<strong>create</strong><span>Signed in</span>', page)
-        self.assertNotIn('Logout', page)
+        self.assertIn('>Sign out</span>', page)
+        self.assertIn('name="csrf_token"', page)
         self.assertNotIn('Role', page)
         self.assertNotIn('Freight Quotes', page)

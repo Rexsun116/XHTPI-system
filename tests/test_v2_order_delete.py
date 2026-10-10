@@ -185,8 +185,10 @@ class V2OrderDeleteTest(TestCase):
         self.assertIn("Permanently Delete Order", page)
         self.assertIn(">Cancel<", page)
         self.assertNotIn("style=", page)
-        self.assertEqual(page.count("<form"), 1)
-        self.assertEqual(page.count("</form>"), 1)
+        self.assertEqual(page.count("<form"), 2)
+        self.assertEqual(page.count('class="v2-shell-logout-form"'), 1)
+        self.assertEqual(page.count('class="v2-panel v2-delete-form"'), 1)
+        self.assertEqual(page.count("</form>"), 2)
 
     def test_delete_confirmation_error_uses_the_modern_accessible_alert(self):
         pi = self.make_order(pi_no="DELETE-ERROR")
