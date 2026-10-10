@@ -148,6 +148,27 @@ class V2CleanBaselineTest(TestCase):
         self.assertEqual(task.context_payload["actual_amount"], "120.00")
         self.assertNotIn("800", str(task.context_payload))
 
+    def test_05b_agreement_snapshot_and_cny_difference_without_usd_comparison(self):
+        client = self.login_client(); client.post("/orders", json=self.sales_payload("FREIGHT-CNY"))
+        pi = db.session.scalar(db.select(PI).where(PI.pi_no == "FREIGHT-CNY"))
+        quote = FreightQuote(
+            freight_forwarder_id=self.forwarder.id, departure_port="Shanghai",
+            destination_port="Mumbai", amount=Decimal("700"), currency="CNY",
+        )
+        db.session.add(quote); db.session.flush()
+        agreement = create_freight_agreement(pi, quote); db.session.add(agreement)
+        settlement = FreightSettlement(
+            pi_id=pi.id, usd_bill_required=True, usd_bill_amount=Decimal("120"),
+            cny_bill_required=True, cny_bill_amount=Decimal("800"),
+        )
+        db.session.add(settlement); db.session.flush()
+        result = freight_agreement_difference(agreement, settlement)
+        self.assertEqual(result["difference"], Decimal("100.00"))
+        reconcile_order_tasks_for_pi(pi); db.session.commit()
+        task = db.session.scalar(db.select(OrderTask).where(OrderTask.task_code == "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE"))
+        self.assertEqual(task.context_payload["actual_amount"], "800.00")
+        self.assertNotIn("120", str(task.context_payload))
+
     def test_06_commission_derived_and_override_requires_reason(self):
         payload = self.sales_payload("COMMISSION"); payload.update({
             "order_type": "COMMISSION", "exporter_id": None,

@@ -811,15 +811,18 @@ def reconcile_order_tasks_for_pi(pi, *, now=None):
     if pi.status != OrderStage.COMPLETED and not export_order and settlement and agreement:
         comparison = freight_agreement_difference(agreement, settlement)
         if comparison.get("reason") == "AMOUNT_DIFFERENCE":
+            actual_freight_amount = (
+                settlement.usd_bill_amount
+                if agreement.currency == "USD"
+                else settlement.cny_bill_amount
+            )
             _upsert_task(
                 pi, "FREIGHT_BILL_DIFFERS_FROM_AGREED_QUOTE",
                 "货代实际账单与约定报价不一致", status="ACTION", health="EXCEPTION",
                 context={
                     "currency": agreement.currency,
                     "agreed_amount": f"{Decimal(agreement.amount):.2f}",
-                    "actual_amount": f"{Decimal(
-                        settlement.usd_bill_amount if agreement.currency == "USD" else settlement.cny_bill_amount
-                    ):.2f}",
+                    "actual_amount": f"{Decimal(actual_freight_amount):.2f}",
                     "difference": f"{Decimal(comparison['difference']):.2f}",
                 },
             )
