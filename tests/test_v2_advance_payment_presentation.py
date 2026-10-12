@@ -209,14 +209,20 @@ class AdvancePaymentPresentationTest(TestCase):
         missing_page = self.client().get(f"/v2/orders/{missing.id}").get_data(as_text=True)
         invalid_page = self.client().get(f"/v2/orders/{invalid.id}").get_data(as_text=True)
 
-        self.assertIn('class="order-route-flag" aria-hidden="true">🇨🇳</span>Shanghai', flagged_page)
-        self.assertIn('class="order-route-flag" aria-hidden="true">🇮🇳</span>Nhava Sheva', flagged_page)
+        self.assertIn('class="v2-country-flag order-route-flag" src="/v2/static/flags/cn.svg" alt="" aria-hidden="true">Shanghai', flagged_page)
+        self.assertIn('class="v2-country-flag order-route-flag" src="/v2/static/flags/in.svg" alt="" aria-hidden="true">Nhava Sheva', flagged_page)
         self.assertIn("Shanghai", missing_page)
         self.assertIn("Mombasa", missing_page)
         self.assertNotIn('class="order-route-flag"', missing_page)
         self.assertIn("Jebel Ali", invalid_page)
         self.assertIn("Mombasa", invalid_page)
         self.assertNotIn('class="order-route-flag"', invalid_page)
+
+        with patch("v2.web.country_flag_asset_for_code", return_value=None):
+            fallback_page = self.client().get(f"/v2/orders/{flagged.id}").get_data(as_text=True)
+        self.assertIn('class="v2-country-code order-route-code">CN</span>Shanghai', fallback_page)
+        self.assertIn('class="v2-country-code order-route-code">IN</span>Nhava Sheva', fallback_page)
+        self.assertNotIn('/v2/static/flags/cn.svg', fallback_page)
 
     def test_linked_export_route_uses_owner_for_overview_and_shipping_when_copy_is_stale(self):
         group = TradeGroup(group_no="TRI-ROUTE-OWNER")

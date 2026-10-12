@@ -6,6 +6,8 @@ deterministic offline application and test behavior.  Refresh this file from
 the upstream IANA/ISO publication when ISO publishes a change.
 """
 
+from pathlib import Path
+
 
 ISO_3166_1_ALPHA2 = frozenset(
     """
@@ -303,6 +305,7 @@ def _accepted_country_codes_by_name():
 
 
 _COUNTRY_CODES_BY_NORMALIZED_ACCEPTED_NAME = _accepted_country_codes_by_name()
+_FLAG_ASSET_DIRECTORY = Path(__file__).parent / "static" / "flags"
 
 
 def country_name_for_code(code):
@@ -318,6 +321,16 @@ def country_flag_for_code(code):
             or normalized not in ISO_3166_1_ALPHA2):
         return None
     return "".join(chr(0x1F1E6 + ord(letter) - ord("A")) for letter in normalized)
+
+
+def country_flag_asset_for_code(code):
+    """Return a verified local SVG asset path for one valid ISO alpha-2 code."""
+    normalized = str(code or "").strip().upper()
+    if (len(normalized) != 2 or not normalized.isascii() or not normalized.isalpha()
+            or normalized not in ISO_3166_1_ALPHA2):
+        return None
+    filename = f"{normalized.lower()}.svg"
+    return f"flags/{filename}" if (_FLAG_ASSET_DIRECTORY / filename).is_file() else None
 
 
 def country_code_for_name(value):

@@ -8,10 +8,12 @@ import subprocess
 import sys
 import tempfile
 from unittest import TestCase
+from unittest.mock import patch
 
 from v2.app import create_app
 from v2.iso3166 import (COUNTRY_SEARCH_ALIASES, ISO_3166_1_ALPHA2, ISO_3166_1_ENGLISH_NAMES,
-                        country_code_for_name, country_flag_for_code, country_name_for_code, search_countries)
+                        country_code_for_name, country_flag_asset_for_code, country_flag_for_code,
+                        country_name_for_code, search_countries)
 from v2.models import Customer, PI, db
 from v2.shipment_ownership import (
     RouteGeographyValidationError, copy_physical_facts, normalize_country_code,
@@ -68,6 +70,18 @@ class ShipmentCountryContractTest(TestCase):
         for value in (None, "", "XX", "Shanghai", "C", "CNN", "ＣＮ"):
             with self.subTest(value=value):
                 self.assertIsNone(country_flag_for_code(value))
+
+    def test_local_svg_flag_assets_cover_each_iso_code_and_fail_closed_when_missing(self):
+        asset_directory = ROOT / "v2" / "static" / "flags"
+        asset_codes = {path.stem.upper() for path in asset_directory.glob("*.svg")}
+        self.assertEqual(asset_codes, ISO_3166_1_ALPHA2)
+        for code in ("CN", "IN", "JP", "KE", "SA", "AE", "US", "GB"):
+            self.assertEqual(country_flag_asset_for_code(code), f"flags/{code.lower()}.svg")
+        for value in (None, "", "XX", "Shanghai", "C", "CNN", "ＣＮ"):
+            with self.subTest(value=value):
+                self.assertIsNone(country_flag_asset_for_code(value))
+        with patch("v2.iso3166._FLAG_ASSET_DIRECTORY", Path(self.tmp.name)):
+            self.assertIsNone(country_flag_asset_for_code("CN"))
 
     def test_complete_english_display_mapping_and_reusable_search(self):
         self.assertEqual(set(ISO_3166_1_ENGLISH_NAMES), ISO_3166_1_ALPHA2)

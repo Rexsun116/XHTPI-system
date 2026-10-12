@@ -2,6 +2,7 @@
 from datetime import date
 from decimal import Decimal
 from unittest import TestCase
+from unittest.mock import patch
 
 from tests import test_v2_new_order_edit as fixture
 from v2.models import Customer, FreightSettlement, PI, PIItem, Product, TradeGroup, db
@@ -54,6 +55,20 @@ class AllOrdersTest(TestCase):
         self.assertLess(html.index("ALL-ACTIVE"), html.index("ALL-STANDALONE"))
         self.assertIn('method="get"', html)
         self.assertNotIn('method="post" action="/v2/orders"', html)
+
+    def test_destination_uses_local_svg_flag_with_alpha2_fallback(self):
+        order = self.make_order("ALL-FLAG", destination="KE")
+        order.destination_country_code = "ke"
+        db.session.commit()
+
+        html = self.client().get("/v2/orders").get_data(as_text=True)
+        self.assertIn('src="/v2/static/flags/ke.svg"', html)
+        self.assertIn('alt="" aria-hidden="true"', html)
+
+        with patch("v2.web.country_flag_asset_for_code", return_value=None):
+            fallback_html = self.client().get("/v2/orders").get_data(as_text=True)
+        self.assertIn('class="v2-country-code">KE</span>', fallback_html)
+        self.assertNotIn('/v2/static/flags/ke.svg', fallback_html)
 
     def test_filters_use_pi_date_status_customer_product_country_and_type(self):
         second_customer = Customer(code="C2", name="Second Customer")
