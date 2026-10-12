@@ -9,32 +9,55 @@
 </head>
 <body class="v2-login">
   <main class="v2-login-shell" aria-labelledby="login-title">
-    <section class="v2-login-card" aria-describedby="login-description">
-      <div class="v2-login-identity">
-        <strong>XHTPI</strong>
-        <span>V2</span>
+    <aside class="v2-login-brand" aria-label="XHTPI V2">
+      <div class="v2-login-brand-top">
+        <div class="v2-login-identity">
+          <strong>XHTPI</strong>
+          <span>V2</span>
+        </div>
+        <p class="v2-login-brand-name">西合钛贸易管理系统</p>
+        <p class="v2-login-brand-description">Trade Order &amp; Operations Management</p>
       </div>
-      <header class="v2-login-heading">
-        <h1 id="login-title">Sign in</h1>
-        <p id="login-description">Access the V2 order workspace.</p>
-      </header>
+      <p class="v2-login-copyright">2026 西合钛贸易管理系统 Beta | Powered by RexSun</p>
+    </aside>
 
-      <form method="post" class="v2-login-form">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        {% if error %}
-          <div class="v2-login-error" role="alert">{{ error }}</div>
-        {% endif %}
-        <div class="v2-login-field">
-          <label for="login-username">Username</label>
-          <input id="login-username" class="form-control" name="username" autocomplete="username" required>
-        </div>
-        <div class="v2-login-field">
-          <label for="login-password">Password</label>
-          <input id="login-password" class="form-control" type="password" name="password" autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="v2-button v2-button--primary v2-login-submit">Sign In</button>
-      </form>
+    <section class="v2-login-workspace">
+      <div class="v2-login-card" aria-describedby="login-description">
+        <header class="v2-login-heading">
+          <p class="v2-login-greeting" data-login-greeting>Welcome</p>
+          <h1 id="login-title">Welcome to XHTPI</h1>
+          <p id="login-description">Sign in to continue to your trade operations workspace.</p>
+        </header>
+
+        <form method="post" class="v2-login-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if error %}
+            <div class="v2-login-error" role="alert">{{ error }}</div>
+          {% endif %}
+          <div class="v2-login-field">
+            <label for="login-username">Username</label>
+            <input id="login-username" class="form-control" name="username" autocomplete="username" required>
+          </div>
+          <div class="v2-login-field">
+            <label for="login-password">Password</label>
+            <input id="login-password" class="form-control" type="password" name="password" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="v2-button v2-button--primary v2-login-submit">Sign In</button>
+        </form>
+      </div>
     </section>
   </main>
+  <script>
+    (function () {
+      const greeting = document.querySelector("[data-login-greeting]");
+      if (!greeting) return;
+      const hour = new Date().getHours();
+      greeting.textContent = hour >= 5 && hour < 12
+        ? "Good morning"
+        : hour >= 12 && hour < 18
+          ? "Good afternoon"
+          : "Good evening";
+    }());
+  </script>
 </body>
 </html>
