@@ -186,13 +186,55 @@ class AdvancePaymentPresentationTest(TestCase):
 
         for text in ("Order workspace", pi.pi_no, "Order type", "Sales order", "Receiving company",
                      "Order date", "Current stage: PRE_SHIPMENT", "合同金额",
-                     "产品与数量", "R-996", "R-2195", "Total · 13.000 MT",
+                     "产品明细", "R-996", "R-2195", "Total · 13 MT",
                      "Shanghai → Mombasa"):
             self.assertIn(text, page)
         self.assertEqual(page.count('id="order-overview"'), 1)
         self.assertEqual(page.count('id="documents"'), 1)
         self.assertIn('href="#shipping"', page)
         self.assertNotIn('action="/v2/orders/%s/status"' % pi.id, page)
+
+    def test_order_overview_keeps_price_and_trade_term_with_each_item(self):
+        pi = self.pi("OVERVIEW-ITEM-PRICES")
+        first = pi.items[0]
+        first.product_model_snapshot = "R-504"
+        first.quantity = Decimal("20000")
+        first.quantity_unit = "KGS"
+        first.unit_price = Decimal("2.3500")
+        first.trade_term = "CIF"
+        first.line_total = Decimal("47000.00")
+        pi.items.extend((
+            PIItem(unit_price=Decimal("2.4125"), quantity=Decimal("10000"), quantity_unit="KGS",
+                   trade_term="CFR", line_total=Decimal("24125.00"), product_model_snapshot="R-603"),
+            PIItem(unit_price=Decimal("1.0000"), quantity=Decimal("1"), quantity_unit="PCS",
+                   trade_term="", line_total=Decimal("1.00"), product_model_snapshot="R-MISSING"),
+        ))
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        overview = page.split('id="order-overview"', 1)[1].split('</section>', 1)[0]
+
+        self.assertIn("产品明细", overview)
+        self.assertIn("R-504 · 20,000 KGS · USD 2.35 / KGS · CIF", overview)
+        self.assertIn("R-603 · 10,000 KGS · USD 2.4125 / KGS · CFR", overview)
+        self.assertIn("R-MISSING · 1 PCS · USD 1 / PCS · —", overview)
+        self.assertIn("USD 71126.00", overview)
+        template = (Path(__file__).parents[1] / "v2/templates/v2/order_view.html").read_text()
+        self.assertIn("item.unit_price is not none else '—'", template)
+
+    def test_order_overview_groups_quantities_without_losing_significant_decimals(self):
+        pi = self.pi("OVERVIEW-GROUPED-QUANTITY")
+        pi.items[0].product_model_snapshot = "BLR896"
+        pi.items[0].quantity = Decimal("24000.500")
+        pi.items[0].quantity_unit = "KGS"
+        pi.items[0].line_total = Decimal("59761.25")
+        db.session.commit()
+
+        page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
+        overview = page.split('id="order-overview"', 1)[1].split('</section>', 1)[0]
+
+        self.assertIn("BLR896 · 24,000.5 KGS", overview)
+        self.assertIn("Total · 24,000.5 KGS", overview)
 
     def test_shipping_route_flags_use_only_explicit_route_country_codes(self):
         flagged = self.pi("ROUTE-FLAGS", status="PRE_SHIPMENT")
@@ -253,8 +295,8 @@ class AdvancePaymentPresentationTest(TestCase):
         page = self.client().get(f"/v2/orders/{pi.id}").get_data(as_text=True)
 
         self.assertIn("Multiple units — shown per item", page)
-        self.assertIn("R-996 · 10.000 MT", page)
-        self.assertIn("R-2195 · 4.000 KGS", page)
+        self.assertIn("R-996 · 10 MT · USD 100 / MT · —", page)
+        self.assertIn("R-2195 · 4 KGS · USD 10 / KGS · —", page)
 
     def test_current_action_uses_existing_task_actions_and_module_anchors(self):
         pi = self.pi("CURRENT-ACTION", status="SHIPPED", received="0")

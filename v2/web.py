@@ -39,7 +39,7 @@ from .selector import projected, projected_details, select_next_action, sort_key
 from .business_time import business_today, validate_schedule_dates
 from .task_service import (TaskOperationError, cancel_manual, follow_up, mark_done,
                            move_to_waiting, parse_datetime, reopen)
-from .documents import format_decimal_compact, normalize_weight_input
+from .documents import format_decimal_compact, format_decimal_compact_grouped, normalize_weight_input
 from .order_deletion import (
     OrderDeletionConfirmationError,
     OrderDeletionNotAllowed,
@@ -809,6 +809,8 @@ def order_view(pi_id):
         shipment_owner=shipment_owner,
         route_owner=route_owner,
         country_flag_asset_for_code=country_flag_asset_for_code,
+        format_decimal_compact=format_decimal_compact,
+        format_decimal_compact_grouped=format_decimal_compact_grouped,
         factory_names=factory_names,
         forwarders=list(db.session.scalars(db.select(FreightForwarder))),
         present_task=present_task,present_activity=present_activity,document_facts=DOCUMENT_FACTS,
